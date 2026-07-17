@@ -13,7 +13,10 @@ import (
 
 func setupFiles(t *testing.T) string {
 	t.Helper()
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	filesRoot = root
 	t.Cleanup(func() { filesRoot = os.Getenv("USERPROFILE") })
 	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o755); err != nil {

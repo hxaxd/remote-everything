@@ -48,7 +48,7 @@ jobs:
           EOF
       - name: assembleDebug
         working-directory: android
-        run: ./gradlew --no-daemon --console=plain :app:assembleDebug
+        run: bash ./gradlew --no-daemon --console=plain :app:assembleDebug
 
   shell:
     runs-on: ubuntu-latest
