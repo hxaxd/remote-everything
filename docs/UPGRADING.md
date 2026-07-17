@@ -1,6 +1,6 @@
 # 升级指南
 
-各组件独立升级，互不要求同时版本。任何升级都先本地验证（见 `PLAN.md` 第 1 节测试基线），保持变更最小。
+各组件独立升级，互不要求同时版本。任何升级都先本地验证（`AGENTS.md` 构建与验证一节），保持变更最小。
 
 ## Android 客户端
 
@@ -19,7 +19,7 @@ scp -r .\server "root@<服务器>:/root/agent-remote-server"
 ssh "root@<服务器>" "PUBLIC_HOST='<地址>' WINDOWS_USER='<用户>' /root/agent-remote-server/install_gateway.sh"
 ```
 
-`install_gateway.sh` 幂等：已存在的密钥、令牌、证书一律保留，只更新程序与配置。随后跑服务端全链路测试（`PLAN.md` 第 1 节）。中断窗口为各服务 reload/restart 的秒级时间。
+`install_gateway.sh` 幂等：已存在的密钥、令牌、证书一律保留，只更新程序与配置。随后跑服务端全链路测试（命令见 `AGENTS.md` 构建与验证一节）。中断窗口为各服务 reload/restart 的秒级时间。
 
 顺序约定：先 Windows 控制程序，再云端 status 服务，Caddy 配置最后 reload；enrollment 服务仅在自身变更时重启。
 

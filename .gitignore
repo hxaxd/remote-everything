@@ -3,6 +3,7 @@ bundle/
 *.p12
 agent-remote.properties
 AGENTS.local.md
+PLAN.md
 local.properties
 
 # Python

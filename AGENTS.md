@@ -2,7 +2,7 @@
 
 一句话：Android 手机经 mTLS 网关远程控制 Windows 上的本地 Web 应用（默认 Kimi Code）。
 
-文档地图：`README.md` = 从零复现部署；`PLAN.md` = 交付计划与路线图；`AGENTS.local.md`（gitignore，不入库）= 本实例的服务器地址、指纹、巡检命令等。
+文档地图：`README.md` = 给人类的入口；`AGENTS.local.md`（gitignore，不入库）= 本实例的服务器地址、指纹、巡检命令等；`PLAN.md`（gitignore，不入库）= 交付计划与路线图；`docs/` = 面向 Agent 的执行参考。
 
 ## 构建与验证
 
@@ -10,7 +10,7 @@
   `python -c "compile(open(r'server/test_enrollment_pkcs12.py',encoding='utf-8').read(),r'x','exec')"`
 - Go：`cd windows-control && gofmt -w main.go main_test.go && go vet ./... && go test ./...`；`server/gateway` 同法（另有 `pwsh server/build_gateway.ps1` 交叉编译 linux 产物）
 - Android：`cd android && gradlew.bat :app:assembleDebug`（需先跑 `configure-clients.ps1` 生成 `agent-remote.properties`）
-- 改动 `server/` 后必跑服务端全链路测试：见 `PLAN.md` 第 1 节
+- 改动 `server/` 后必跑服务端全链路测试：`scp server/test_enrollment_pkcs12.py root@<服务器>:/tmp/t.py && ssh root@<服务器> "PUBLIC_HOST='<服务器>' python3 /tmp/t.py"`
 - 上线顺序、巡检与故障定位：见 `AGENTS.local.md`
 
 ## 硬性安全规则（违反 = 返工）
@@ -33,7 +33,7 @@
 - **全链路 Agent 可执行**：所有安装与配置操作必须能由 Agent 非交互完成（脚本幂等、参数化、可重跑），目标是完全不懂技术的用户也能从容部署；风险操作前只需向用户说明。
 - **安装卸载干净可追踪**：不装多余组件，改动可枚举，卸载能完整还原（计划任务、状态目录、端口、文件全部可回收）。
 - **网络环境零污染**：对外只占用必要的高端口（每个部署形态一个对外端口）；不占用 80/443 等公共端口（服务器侧除外：仅 443+22）；Caddy 之类的大件不进 Windows。
-- 说明文档集中在本文件、`README.md`、`PLAN.md` 与 `docs/`（交付文档）；源码不堆解释性注释。
+- 说明文档集中在本文件、`README.md` 与 `docs/`；源码不堆解释性注释。PR 必须 CI 全绿（go / android / shellcheck / secrets），安全边界只强不弱，改动保持最小。
 - 鸿蒙相关一切不引入（用户明令，除非本人反悔）；新应用接入须用户明确要求。
 - 用户偏好命令行，未经要求不操作桌面 UI。
 - git 禁用破坏性命令（`reset --hard`、`checkout --`、`push --force`）。
