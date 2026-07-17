@@ -46,6 +46,10 @@ jobs:
           bootstrapPassword=ci-placeholder-password
           bootstrapFingerprint=0000000000000000000000000000000000000000000000000000000000000000
           EOF
+      - name: dummy bootstrap credential
+        run: |
+          openssl req -x509 -newkey rsa:2048 -keyout /tmp/ci-key.pem -out /tmp/ci-cert.pem -days 1 -nodes -subj '/CN=ci-dummy'
+          openssl pkcs12 -export -inkey /tmp/ci-key.pem -in /tmp/ci-cert.pem -out android/app/src/main/res/raw/bootstrap_client.p12 -password pass:ci-dummy
       - name: assembleDebug
         working-directory: android
         run: bash ./gradlew --no-daemon --console=plain :app:assembleDebug
