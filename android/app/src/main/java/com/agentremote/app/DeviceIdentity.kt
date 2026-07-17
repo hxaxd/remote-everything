@@ -5,7 +5,9 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.io.ByteArrayInputStream
+import java.io.File
 import java.net.Socket
+import java.security.KeyFactory
 import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Principal
@@ -13,10 +15,13 @@ import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
+import java.security.spec.PKCS8EncodedKeySpec
+import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.X509ExtendedKeyManager
 
@@ -24,10 +29,26 @@ class DeviceIdentity(private val context: Context) {
     private val proofAlias = "agent_remote_device_key_v1"
     private val wrapAlias = "agent_remote_credential_wrap_v1"
     private val preferences = context.getSharedPreferences("agent_remote_identity", Context.MODE_PRIVATE)
+    private val softwareDir: File get() = File(context.filesDir, "identity_sw").apply { mkdirs() }
+
+    // 硬件密钥库优先；卓易通等容器调不了 AndroidKeyStore 时回退软件密钥（安全性见 docs/SECURITY.md）
+    val hardwareBacked: Boolean by lazy { mode() == "hw" }
+
+    private fun mode(): String {
+        preferences.getString("identity_mode", null)?.let { return it }
+        val chosen = try {
+            hardwareProofPublicKey()
+            "hw"
+        } catch (error: Throwable) {
+            "sw"
+        }
+        preferences.edit().putString("identity_mode", chosen).apply()
+        return chosen
+    }
 
     private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
 
-    fun ensureKey(): java.security.PublicKey {
+    private fun hardwareProofPublicKey(): java.security.PublicKey {
         val store = keyStore()
         store.getCertificate(proofAlias)?.publicKey?.let { return it }
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
@@ -43,6 +64,57 @@ class DeviceIdentity(private val context: Context) {
         )
         return generator.generateKeyPair().public
     }
+
+    private fun softwareProofKeyPair(): java.security.KeyPair {
+        val privateFile = File(softwareDir, "proof.pkcs8")
+        val publicFile = File(softwareDir, "proof.x509")
+        val factory = KeyFactory.getInstance("EC")
+        if (privateFile.isFile && publicFile.isFile) {
+            return java.security.KeyPair(
+                factory.generatePublic(X509EncodedKeySpec(publicFile.readBytes())),
+                factory.generatePrivate(PKCS8EncodedKeySpec(privateFile.readBytes())),
+            )
+        }
+        val generator = KeyPairGenerator.getInstance("EC")
+        generator.initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
+        val pair = generator.generateKeyPair()
+        privateFile.writeBytes(pair.private.encoded)
+        publicFile.writeBytes(pair.public.encoded)
+        return pair
+    }
+
+    fun ensureKey(): java.security.PublicKey =
+        if (hardwareBacked) hardwareProofPublicKey() else softwareProofKeyPair().public
+
+    private fun proofPrivateKey(): PrivateKey =
+        if (hardwareBacked) keyStore().getKey(proofAlias, null) as PrivateKey else softwareProofKeyPair().private
+
+    private fun hardwareWrappingKey(): SecretKey {
+        (keyStore().getKey(wrapAlias, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                wrapAlias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setUserAuthenticationRequired(false)
+                .build(),
+        )
+        return generator.generateKey()
+    }
+
+    private fun softwareWrappingKey(): SecretKey {
+        val file = File(softwareDir, "wrap.key")
+        if (file.isFile) return SecretKeySpec(file.readBytes(), "AES")
+        val key = ByteArray(32).also(SecureRandom()::nextBytes)
+        file.writeBytes(key)
+        return SecretKeySpec(key, "AES")
+    }
+
+    private fun wrappingKey(): SecretKey =
+        if (hardwareBacked) hardwareWrappingKey() else softwareWrappingKey()
 
     fun publicKeyPem(): String {
         val body = Base64.encodeToString(ensureKey().encoded, Base64.NO_WRAP).chunked(64).joinToString("\n")
@@ -101,8 +173,6 @@ class DeviceIdentity(private val context: Context) {
         return StaticIdentityKeyManager(loaded.privateKey, loaded.chain)
     }
 
-    private fun proofPrivateKey(): PrivateKey = keyStore().getKey(proofAlias, null) as PrivateKey
-
     private fun credential(): Credential? {
         val encoded = preferences.getString("credential_pkcs12", null) ?: return null
         val password = preferences.getString("credential_password", null) ?: return null
@@ -136,22 +206,6 @@ class DeviceIdentity(private val context: Context) {
             update(challenge)
         }
         require(verifier.verify(signer.sign())) { "设备证书与私钥不匹配" }
-    }
-
-    private fun wrappingKey(): SecretKey {
-        (keyStore().getKey(wrapAlias, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                wrapAlias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setUserAuthenticationRequired(false)
-                .build(),
-        )
-        return generator.generateKey()
     }
 
     private fun seal(value: ByteArray): String {

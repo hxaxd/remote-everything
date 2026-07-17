@@ -6,6 +6,8 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
 
 酒馆 = SillyTavern（AI 角色扮演应用），本机位于 `~/learn/SillyTavern`（官方 git remote，工作树应保持干净）。接入前按本预案执行，不要跳过注意事项。
 
+> **状态（2026-07-18）**：已按本预案完成注册（id `tavern`，Enabled=true，`workdir` 生效，目录与探活均 ready）。鉴权/多租户方案仍按下方「注意事项」保持未决。
+
 ## 已验证事实（2026-07-17）
 
 - 启动：`node server.js`（`NODE_ENV=production`），**必须有工作目录**——用 `register-app.ps1 -WorkDir` 指向安装目录（windows-control 已支持 `workdir` 字段）。

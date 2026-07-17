@@ -22,7 +22,7 @@
 
 ## 事故教训（不得回归）
 
-1. **终端闪烁**：状态轮询严禁走 Windows SSH（`sshd→cmd→conhost` 约每 7 秒弹一次窗）。控制必须走反向隧道上的 HTTP `POST /__local_agent_control`。再遇闪窗，先高频采样 `sshd.exe`/`cmd.exe`/`conhost.exe`/`OpenConsole.exe`/`WindowsTerminal.exe` 的父子进程链，不要只猜计划任务。
+1. **终端闪烁**：旧链路每次状态请求都经 Windows SSH 执行命令，`sshd→cmd→conhost` 约每 7 秒弹一次窗。教训：**任何「每次请求拉起一个控制台进程」的设计都会闪窗**——控制必须走常驻进程上的 HTTP（`POST /__local_agent_control`）。再遇闪窗，先高频采样进程父子链（历史上是 `sshd.exe`/`cmd.exe`/`conhost.exe`/`OpenConsole.exe`/`WindowsTerminal.exe`），不要只猜计划任务。Windows SSH 已整体退役（隧道层为 FRP），严禁为图省事把轮询改回「每次请求执行一次命令」。
 2. **硬件密钥失败**：部分设备（OnePlus PKX110 已复现）用 AndroidKeyStore 硬件 EC 私钥做 TLS 客户端认证会在握手时主动 EOF，导回证书也无效。现行「服务端生成 p12 软件凭据 + AndroidKeyStore AES-GCM 包裹保存」方案不得回退。
 3. `-H=windowsgui` 不得从 Go 构建参数中删除（否则本地服务自己会弹窗）。
 4. 不恢复远程页的悬浮 UI；边缘手势走 `EdgeSwipeFrameLayout`。
@@ -33,7 +33,7 @@
 - **全链路 Agent 可执行**：所有安装与配置操作必须能由 Agent 非交互完成（脚本幂等、参数化、可重跑），目标是完全不懂技术的用户也能从容部署；风险操作前只需向用户说明。
 - **安装卸载干净可追踪**：不装多余组件，改动可枚举，卸载能完整还原（计划任务、状态目录、端口、文件全部可回收）。
 - **网络环境零污染**：对外只占用必要的高端口（每个部署形态一个对外端口）；不占用 80/443 等公共端口（服务器侧除外：仅 443+22）；Caddy 之类的大件不进 Windows。
-- 说明文档集中在本文件、`README.md` 与 `docs/`；源码不堆解释性注释。PR 必须 CI 全绿（go / android / shellcheck / secrets），安全边界只强不弱，改动保持最小。
+- 说明文档集中在本文件、`README.md` 与 `docs/`；源码不堆解释性注释。PR 必须 CI 全绿（go / android / shellcheck / secrets），安全边界只强不弱，改动保持最小。发版在 `android/app/build.gradle.kts` 递增 `versionCode`（+1）与 `versionName`（修复 patch、功能 minor、架构 major）。
 - 鸿蒙相关一切不引入（用户明令，除非本人反悔）；新应用接入须用户明确要求。
 - 用户偏好命令行，未经要求不操作桌面 UI。
 - git 禁用破坏性命令（`reset --hard`、`checkout --`、`push --force`）。

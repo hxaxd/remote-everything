@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -107,27 +106,31 @@ class MainActivity : ComponentActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private val alive = AtomicBoolean(true)
     private lateinit var identity: DeviceIdentity
+    private lateinit var settings: SettingsStore
     private var webView: WebView? = null
     private var remoteRoot: EdgeSwipeFrameLayout? = null
     private var remoteMenu: View? = null
+    private var floatingKeys: FloatingKeysView? = null
     private var selectedApp: RemoteApp? = null
+    private var settingsOpen = false
     private var screenGeneration = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        settings = SettingsStore(this)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (selectedApp != null) {
-                    if (remoteRoot == null) {
-                        showCatalog()
-                    } else if (remoteMenu == null) {
-                        showRemoteMenu()
-                    } else {
-                        hideRemoteMenu()
+                when {
+                    settingsOpen -> showCatalog()
+                    selectedApp != null -> {
+                        if (remoteRoot == null) showCatalog()
+                        else if (remoteMenu == null) showRemoteMenu()
+                        else hideRemoteMenu()
                     }
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
                 }
             }
         })
@@ -160,56 +163,86 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showStartupFailure(error: Throwable) {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(28), dp(64), dp(28), dp(32))
-            setBackgroundColor(Color.rgb(2, 6, 23))
+    private fun applyOrientation(appId: String?) {
+        requestedOrientation = settings.resolveOrientation(appId)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun contentRoot(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setBackgroundColor(Ui.bg)
+    }
+
+    private fun fullScroll(content: View): ScrollView = ScrollView(this).apply {
+        isFillViewport = true
+        setBackgroundColor(Ui.bg)
+        addView(content)
+    }
+
+    private fun header(title: String, subtitle: String? = null, action: (() -> View)? = null): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        root.addView(label("Agent 远程", 30f, Color.WHITE, Typeface.BOLD))
-        root.addView(label("启动失败，但应用没有退出", 18f, Color.rgb(248, 113, 113), Typeface.BOLD).apply {
+        val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titles.addView(Ui.label(this, title, 28f, Ui.textPrimary, Typeface.BOLD))
+        if (subtitle != null) {
+            titles.addView(Ui.label(this, subtitle, 13f, Ui.textSecondary).apply { setPadding(0, dp(4), 0, 0) })
+        }
+        row.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        action?.let { row.addView(it()) }
+        return row
+    }
+
+    private fun showStartupFailure(error: Throwable) {
+        val root = contentRoot().apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(28), dp(72), dp(28), dp(32))
+        }
+        root.addView(Ui.label(this, "Agent 远程", 30f, Ui.textPrimary, Typeface.BOLD))
+        root.addView(Ui.label(this, "启动失败，但应用没有退出", 17f, Ui.danger, Typeface.BOLD).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(28), 0, dp(10))
         })
-        root.addView(label(error.message ?: error.javaClass.simpleName, 14f, Color.rgb(203, 213, 225)).apply {
+        root.addView(Ui.label(this, error.message ?: error.javaClass.simpleName, 13f, Ui.textSecondary).apply {
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(24))
         })
-        root.addView(Button(this).apply {
-            text = "重新启动"
+        root.addView(Ui.primaryButton(this, "重新启动").apply {
             setOnClickListener { recreate() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
-        setContentView(ScrollView(this).apply { addView(root) })
+        setContentView(fullScroll(root))
     }
 
     private fun showEnrollment() {
         screenGeneration += 1
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        settingsOpen = false
+        applyOrientation(null)
+        val root = contentRoot().apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(28), dp(52), dp(28), dp(32))
-            setBackgroundColor(Color.rgb(2, 6, 23))
+            setPadding(dp(24), dp(56), dp(24), dp(32))
         }
-        root.addView(label("Agent 远程", 31f, Color.WHITE, Typeface.BOLD))
-        root.addView(label("安全连接这台设备", 16f, Color.rgb(148, 163, 184)).apply { setPadding(0, dp(10), 0, dp(34)) })
+        root.addView(Ui.label(this, "Agent 远程", 30f, Ui.textPrimary, Typeface.BOLD))
+        root.addView(Ui.label(this, "安全连接这台设备", 15f, Ui.textSecondary).apply { setPadding(0, dp(8), 0, dp(26)) })
+
+        val cardView = Ui.card(this).apply { setPadding(dp(22), dp(24), dp(22), dp(24)) }
         val progress = ProgressBar(this)
-        root.addView(progress, LinearLayout.LayoutParams(dp(34), dp(34)))
-        val status = label("正在生成设备身份并申请注册…", 15f, Color.rgb(203, 213, 225)).apply {
+        cardView.addView(progress, LinearLayout.LayoutParams(dp(32), dp(32)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        val status = Ui.label(this, "正在生成设备身份并申请注册…", 14f, Ui.textSecondary).apply {
             gravity = Gravity.CENTER
-            setPadding(0, dp(22), 0, dp(12))
+            setPadding(0, dp(18), 0, dp(10))
         }
-        root.addView(status, matchWrap())
-        val code = label("", 36f, Color.rgb(96, 165, 250), Typeface.BOLD).apply {
+        cardView.addView(status, Ui.matchWrap())
+        val code = Ui.label(this, "", 34f, Ui.accentText, Typeface.BOLD).apply {
             letterSpacing = 0.14f
             gravity = Gravity.CENTER
             typeface = Typeface.MONOSPACE
             visibility = View.GONE
-            setPadding(0, dp(14), 0, dp(16))
+            setPadding(0, dp(10), 0, dp(6))
         }
-        root.addView(code, matchWrap())
-        val copy = Button(this).apply {
-            text = "复制审批码"
+        cardView.addView(code, Ui.matchWrap())
+        val copy = Ui.primaryButton(this, "复制审批码").apply {
             visibility = View.GONE
             setOnClickListener {
                 (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
@@ -217,12 +250,25 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this@MainActivity, "审批码已复制", Toast.LENGTH_SHORT).show()
             }
         }
-        root.addView(copy, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(6) })
-        root.addView(label("把审批码发给服务端管理员。批准前无法访问远程电脑；设备身份由本机系统密钥加密保存。", 13f, Color.rgb(100, 116, 139)).apply {
-            gravity = Gravity.CENTER
-            setPadding(0, dp(28), 0, 0)
-        })
-        setContentView(ScrollView(this).apply { addView(root) })
+        cardView.addView(copy, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) })
+        cardView.addView(
+            Ui.label(this, "把审批码发给服务端管理员。批准前无法访问远程电脑；设备身份由本机系统密钥加密保存。", 12f, Ui.textMuted).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(16), 0, 0)
+            },
+            Ui.matchWrap(),
+        )
+        if (!identity.hardwareBacked) {
+            cardView.addView(
+                Ui.label(this, "当前环境不支持系统密钥库，设备身份以软件方式保存（兼容模式）。", 12f, Ui.warn).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(0, dp(10), 0, 0)
+                },
+                Ui.matchWrap(),
+            )
+        }
+        root.addView(cardView, Ui.matchWrap())
+        setContentView(fullScroll(root))
 
         executor.execute {
             try {
@@ -285,7 +331,7 @@ class MainActivity : ComponentActivity() {
                 main.post {
                     progress.visibility = View.GONE
                     status.text = "连接失败：${error.message ?: error.javaClass.simpleName}\n\n重新打开应用即可重试。"
-                    status.setTextColor(Color.rgb(248, 113, 113))
+                    status.setTextColor(Ui.danger)
                 }
             }
         }
@@ -295,26 +341,93 @@ class MainActivity : ComponentActivity() {
         screenGeneration += 1
         val generation = screenGeneration
         selectedApp = null
+        settingsOpen = false
         remoteMenu = null
         remoteRoot = null
+        floatingKeys = null
         runCatching { webView?.destroy() }
         webView = null
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(22), dp(54), dp(22), dp(36))
-            setBackgroundColor(Color.rgb(2, 6, 23))
-        }
-        content.addView(label("Agent 远程", 32f, Color.WHITE, Typeface.BOLD))
-        content.addView(label("我的应用", 16f, Color.rgb(148, 163, 184)).apply { setPadding(0, dp(7), 0, dp(28)) })
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        body.addView(ProgressBar(this@MainActivity).apply { isIndeterminate = true }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-        content.addView(body, matchWrap())
-        setContentView(ScrollView(this).apply {
-            isFillViewport = true
-            setBackgroundColor(Color.rgb(2, 6, 23))
-            addView(content)
+        applyOrientation(null)
+        val content = contentRoot().apply { setPadding(dp(20), dp(48), dp(20), dp(32)) }
+        content.addView(header("Agent 远程", "我的应用") {
+            TextView(this).apply {
+                text = "⚙"
+                textSize = 22f
+                setTextColor(Ui.textSecondary)
+                setPadding(dp(10), dp(4), dp(4), dp(4))
+                setOnClickListener { showSettings() }
+            }
         })
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(24), 0, 0)
+        }
+        body.addView(ProgressBar(this).apply { isIndeterminate = true }, LinearLayout.LayoutParams(dp(32), dp(32)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        content.addView(body, Ui.matchWrap())
+        setContentView(fullScroll(content))
         loadCatalog(body, generation)
+    }
+
+    private fun showSettings() {
+        screenGeneration += 1
+        settingsOpen = true
+        applyOrientation(null)
+        val content = contentRoot().apply { setPadding(dp(20), dp(48), dp(20), dp(32)) }
+        content.addView(header("设置", "全局选项，应用级设置优先于全局") {
+            TextView(this).apply {
+                text = "‹"
+                textSize = 26f
+                setTextColor(Ui.textSecondary)
+                setPadding(dp(8), 0, dp(10), 0)
+                setOnClickListener { showCatalog() }
+            }
+        })
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(22), 0, 0)
+        }
+        body.addView(sectionLabel("屏幕方向（全局）"))
+        body.addView(optionRow(
+            listOf("system" to "跟随系统", "portrait" to "竖屏锁定", "landscape" to "横屏锁定"),
+            settings.globalOrientation(),
+        ) { value ->
+            settings.setGlobalOrientation(value)
+            applyOrientation(null)
+            showSettings()
+        })
+        body.addView(
+            Ui.label(this, "单个应用的方向可在远程界面的边缘菜单里单独设置，应用级设置优先于此全局项。", 12f, Ui.textMuted).apply {
+                setPadding(0, dp(16), 0, 0)
+            },
+        )
+        content.addView(body, Ui.matchWrap())
+        setContentView(fullScroll(content))
+    }
+
+    private fun sectionLabel(text: String): View = Ui.label(this, text, 13f, Ui.textSecondary, Typeface.BOLD).apply {
+        setPadding(0, 0, 0, dp(8))
+    }
+
+    private fun optionRow(options: List<Pair<String, String>>, current: String, onSelect: (String) -> Unit): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = Ui.rounded(Ui.card, 16f, Ui.cardBorder)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        options.forEach { (value, label) ->
+            val selected = value == current
+            val item = TextView(this).apply {
+                text = label
+                textSize = 13f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) Color.WHITE else Ui.textSecondary)
+                if (selected) background = Ui.rounded(Ui.accent, 12f)
+                setPadding(0, dp(10), 0, dp(10))
+                setOnClickListener { onSelect(value) }
+            }
+            row.addView(item, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        return row
     }
 
     private fun loadCatalog(body: LinearLayout, generation: Int) {
@@ -364,44 +477,44 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun appCard(app: RemoteApp, body: LinearLayout, generation: Int): View {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(17))
-            background = rounded(Color.rgb(15, 23, 42), 20f, Color.rgb(30, 41, 59))
+        val cardView = Ui.card(this).apply { setPadding(dp(16), dp(16), dp(16), dp(16)) }
+        val headerRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val accent = runCatching { Color.parseColor(app.accent) }.getOrDefault(Color.rgb(37, 99, 235))
-        header.addView(label(app.icon.take(4), 21f, Color.WHITE, Typeface.BOLD).apply {
+        val accent = runCatching { Color.parseColor(app.accent) }.getOrDefault(Ui.accent)
+        headerRow.addView(Ui.label(this, app.icon.take(4), 20f, Color.WHITE, Typeface.BOLD).apply {
             gravity = Gravity.CENTER
-            background = rounded(accent, 15f)
-        }, LinearLayout.LayoutParams(dp(52), dp(52)))
-        val names = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), 0, 0, 0) }
-        names.addView(label(app.name, 19f, Color.WHITE, Typeface.BOLD))
-        names.addView(label(statusText(app.code), 13f, statusColor(app.code)).apply { setPadding(0, dp(4), 0, 0) })
-        header.addView(names, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        card.addView(header, matchWrap())
+            background = Ui.rounded(accent, 14f)
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        val names = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), 0, 0, 0)
+        }
+        names.addView(Ui.label(this, app.name, 17f, Ui.textPrimary, Typeface.BOLD))
+        names.addView(Ui.label(this, statusText(app.code), 12f, statusColor(app.code)).apply { setPadding(0, dp(3), 0, 0) })
+        headerRow.addView(names, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        cardView.addView(headerRow, Ui.matchWrap())
         if (app.description.isNotBlank()) {
-            card.addView(label(app.description, 14f, Color.rgb(148, 163, 184)).apply { setPadding(0, dp(15), 0, dp(15)) }, matchWrap())
+            cardView.addView(Ui.label(this, app.description, 13f, Ui.textSecondary).apply { setPadding(0, dp(13), 0, dp(13)) }, Ui.matchWrap())
         }
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val power = Button(this).apply {
-            text = if (app.code == "stopped") "启动" else "停止"
+        val power = Ui.ghostButton(this, if (app.code == "stopped") "启动" else "停止").apply {
             isEnabled = app.code == "ready" || app.code == "stopped"
             setOnClickListener {
                 isEnabled = false
                 controlApp(app, if (app.code == "stopped") "start" else "stop", body, generation)
             }
         }
-        val enter = Button(this).apply {
-            text = "进入"
+        val enter = Ui.primaryButton(this, "进入").apply {
             isEnabled = validWebUrl(app.webUrl)
             setOnClickListener { showRemote(app) }
         }
-        actions.addView(power, LinearLayout.LayoutParams(0, dp(48), 1f).apply { rightMargin = dp(8) })
-        actions.addView(enter, LinearLayout.LayoutParams(0, dp(48), 1f).apply { leftMargin = dp(8) })
-        card.addView(actions, matchWrap())
-        return card.apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) }
+        actions.addView(power, LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(7) })
+        actions.addView(enter, LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(7) })
+        cardView.addView(actions, Ui.matchWrap())
+        return cardView.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) }
         }
     }
 
@@ -433,13 +546,15 @@ class MainActivity : ComponentActivity() {
         screenGeneration += 1
         val generation = screenGeneration
         selectedApp = app
+        settingsOpen = false
         remoteMenu = null
+        applyOrientation(app.id)
         val root = EdgeSwipeFrameLayout(this).apply {
-            setBackgroundColor(Color.rgb(2, 6, 23))
+            setBackgroundColor(Ui.bg)
             onEdgeSwipe = { showRemoteMenu() }
         }.also { remoteRoot = it }
         val browser = WebView(this).also { webView = it }
-        browser.setBackgroundColor(Color.rgb(2, 6, 23))
+        browser.setBackgroundColor(Ui.bg)
         browser.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -484,34 +599,116 @@ class MainActivity : ComponentActivity() {
             }
         }
         root.addView(browser, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val keys = FloatingKeysView(this).also { floatingKeys = it }
+        keys.onKey = { action -> sendShortcut(action) }
+        keys.onMoved = { x, y -> settings.setFkPosition(app.id, x, y) }
+        keys.onResized = { scale -> settings.setFkScale(app.id, scale) }
+        root.addView(keys, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        keys.applyState(settings.fkX(app.id), settings.fkY(app.id), settings.fkScale(app.id))
+        keys.visibility = if (settings.fkVisible(app.id)) View.VISIBLE else View.GONE
         setContentView(root)
         browser.loadUrl(app.webUrl)
     }
 
+    private fun sendShortcut(action: String) {
+        val browser = webView ?: return
+        val js = when (action) {
+            "esc" -> keyJs("Escape", "Escape")
+            "tab" -> keyJs("Tab", "Tab")
+            "enter" -> keyJs("Enter", "Enter")
+            "ctrlc" -> keyJs("c", "KeyC", ctrl = true)
+            "paste" -> pasteJs() ?: return
+            else -> return
+        }
+        browser.evaluateJavascript(js, null)
+    }
+
+    private fun keyJs(key: String, code: String, ctrl: Boolean = false): String = """
+        (function(){
+          const el = document.activeElement || document.body;
+          ['keydown','keyup'].forEach(t => el.dispatchEvent(new KeyboardEvent(t, {key: '$key', code: '$code', ctrlKey: $ctrl, bubbles: true, cancelable: true})));
+        })();
+    """.trimIndent()
+
+    private fun pasteJs(): String? {
+        val clip = (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString() ?: return null
+        val encoded = JSONObject.quote(text)
+        return """
+        (function(){
+          const t = $encoded;
+          const el = document.activeElement;
+          if (!el) return;
+          if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+            const s = el.selectionStart || 0, e = el.selectionEnd || s;
+            el.value = el.value.slice(0, s) + t + el.value.slice(e);
+            el.selectionStart = el.selectionEnd = s + t.length;
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+          } else if (el.isContentEditable) {
+            document.execCommand('insertText', false, t);
+          }
+        })();
+        """.trimIndent()
+    }
+
     private fun showRemoteMenu() {
+        val app = selectedApp ?: return
         val root = remoteRoot ?: return
         if (remoteMenu != null) return
         val overlay = FrameLayout(this).apply {
-            setBackgroundColor(Color.argb(145, 0, 0, 0))
+            setBackgroundColor(Color.argb(150, 0, 0, 0))
             isClickable = true
             setOnClickListener { hideRemoteMenu() }
         }
         val drawer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(58), dp(24), dp(28))
-            setBackgroundColor(Color.rgb(15, 23, 42))
+            setPadding(dp(20), dp(52), dp(20), dp(24))
+            setBackgroundColor(Ui.card)
             isClickable = true
             setOnClickListener { }
-            addView(label("选项", 26f, Color.WHITE, Typeface.BOLD))
-            addView(Button(this@MainActivity).apply {
-                text = "返回目录"
-                setOnClickListener { showCatalog() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(32) })
         }
+        drawer.addView(Ui.label(this, app.name, 22f, Ui.textPrimary, Typeface.BOLD))
+        drawer.addView(Ui.label(this, "选项", 13f, Ui.textSecondary).apply { setPadding(0, dp(4), 0, dp(20)) })
+
+        drawer.addView(sectionLabel("屏幕方向（本应用）"))
+        val currentOrientation = settings.appOrientation(app.id)
+        drawer.addView(optionRow(
+            listOf("global" to "跟随全局", "system" to "跟随系统", "portrait" to "竖屏", "landscape" to "横屏"),
+            currentOrientation,
+        ) { value ->
+            settings.setAppOrientation(app.id, value)
+            applyOrientation(app.id)
+            hideRemoteMenu()
+            showRemoteMenu()
+        })
+        drawer.addView(View(this), LinearLayout.LayoutParams(1, dp(18)))
+
+        drawer.addView(sectionLabel("悬浮快捷键"))
+        val keysVisible = settings.fkVisible(app.id)
+        drawer.addView(optionRow(
+            listOf("show" to "显示", "hide" to "隐藏"),
+            if (keysVisible) "show" else "hide",
+        ) { value ->
+            val visible = value == "show"
+            settings.setFkVisible(app.id, visible)
+            floatingKeys?.visibility = if (visible) View.VISIBLE else View.GONE
+            hideRemoteMenu()
+            showRemoteMenu()
+        })
+        drawer.addView(
+            Ui.label(this, "⠿ 拖动移动，◢ 拖动缩放；位置和大小按应用记忆。", 12f, Ui.textMuted).apply {
+                setPadding(0, dp(8), 0, 0)
+            },
+        )
+        drawer.addView(View(this), LinearLayout.LayoutParams(1, dp(22)))
+
+        drawer.addView(Ui.primaryButton(this, "返回目录").apply {
+            setOnClickListener { showCatalog() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
         overlay.addView(
             drawer,
             FrameLayout.LayoutParams(
-                minOf(dp(300), resources.displayMetrics.widthPixels - dp(48)),
+                minOf(dp(320), resources.displayMetrics.widthPixels - dp(40)),
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 Gravity.START,
             ),
@@ -533,30 +730,27 @@ class MainActivity : ComponentActivity() {
         webView = null
         remoteMenu = null
         remoteRoot = null
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        floatingKeys = null
+        val root = contentRoot().apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(28), dp(64), dp(28), dp(32))
-            setBackgroundColor(Color.rgb(2, 6, 23))
+            setPadding(dp(28), dp(72), dp(28), dp(32))
         }
-        root.addView(label(app.name, 28f, Color.WHITE, Typeface.BOLD))
-        root.addView(label("远程页面没有成功打开", 18f, Color.rgb(248, 113, 113), Typeface.BOLD).apply {
+        root.addView(Ui.label(this, app.name, 26f, Ui.textPrimary, Typeface.BOLD))
+        root.addView(Ui.label(this, "远程页面没有成功打开", 17f, Ui.danger, Typeface.BOLD).apply {
             gravity = Gravity.CENTER
-            setPadding(0, dp(28), 0, dp(10))
+            setPadding(0, dp(26), 0, dp(10))
         })
-        root.addView(label(detail, 14f, Color.rgb(203, 213, 225)).apply {
+        root.addView(Ui.label(this, detail, 13f, Ui.textSecondary).apply {
             gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(24))
         })
-        root.addView(Button(this).apply {
-            text = "重试"
+        root.addView(Ui.primaryButton(this, "重试").apply {
             setOnClickListener { showRemote(app) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { bottomMargin = dp(10) })
-        root.addView(Button(this).apply {
-            text = "返回目录"
+        root.addView(Ui.ghostButton(this, "返回目录").apply {
             setOnClickListener { showCatalog() }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
-        setContentView(ScrollView(this).apply { addView(root) })
+        setContentView(fullScroll(root))
     }
 
     private fun validWebUrl(value: String): Boolean {
@@ -564,12 +758,10 @@ class MainActivity : ComponentActivity() {
         return uri.scheme == "https" && uri.host == AppConfig.GATEWAY_HOST
     }
 
-    private fun messageCard(title: String, detail: String): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(22), dp(20), dp(22))
-        background = rounded(Color.rgb(15, 23, 42), 20f, Color.rgb(30, 41, 59))
-        addView(label(title, 18f, Color.WHITE, Typeface.BOLD))
-        addView(label(detail, 14f, Color.rgb(148, 163, 184)).apply { setPadding(0, dp(8), 0, 0) })
+    private fun messageCard(title: String, detail: String): View = Ui.card(this).apply {
+        setPadding(dp(20), dp(20), dp(20), dp(20))
+        addView(Ui.label(this@MainActivity, title, 17f, Ui.textPrimary, Typeface.BOLD))
+        addView(Ui.label(this@MainActivity, detail, 13f, Ui.textSecondary).apply { setPadding(0, dp(8), 0, 0) })
     }
 
     private fun statusText(code: String) = when (code) {
@@ -582,28 +774,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun statusColor(code: String) = when (code) {
-        "ready" -> Color.rgb(134, 239, 172)
-        "starting", "stopping", "stopped" -> Color.rgb(253, 186, 116)
-        "computer_offline" -> Color.rgb(148, 163, 184)
-        else -> Color.rgb(248, 113, 113)
+        "ready" -> Ui.ok
+        "starting", "stopping", "stopped" -> Ui.warn
+        "computer_offline" -> Ui.textSecondary
+        else -> Ui.danger
     }
-
-    private fun label(text: String, size: Float, color: Int, style: Int = Typeface.NORMAL) = TextView(this).apply {
-        this.text = text
-        textSize = size
-        setTextColor(color)
-        setTypeface(typeface, style)
-    }
-
-    private fun rounded(color: Int, radiusDp: Float, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(color)
-        cornerRadius = dp(radiusDp.toInt()).toFloat()
-        if (stroke != null) setStroke(dp(1), stroke)
-    }
-
-    private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     override fun onDestroy() {
         alive.set(false)

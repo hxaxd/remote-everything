@@ -11,11 +11,10 @@
 
 ## 显示电脑未连接
 
-1. 检查 Windows `AgentRemote-Tunnel` 计划任务与云端 `127.0.0.1:58628` 是否有隧道监听。
+1. 检查 Windows `AgentRemote-Tunnel` 计划任务（frpc）与云端 `127.0.0.1:58628` 是否有隧道监听；frpc 日志在 `%LOCALAPPDATA%\AgentRemote\logs\frpc.log`，frps 日志在云端 `journalctl -u frps`。
 2. 检查 Windows `127.0.0.1:58627` 是否监听（`AgentRemote-Apps` 任务）。
 3. 看云端状态服务日志是超时、拒绝连接还是 401/403。
-4. 核对两端控制令牌一致（用哈希对比，不要打印令牌本身）。
-5. Windows 隧道日志：`%LOCALAPPDATA%\AgentRemote\logs\tunnel.log`。
+4. 检查云端 `7000` 端口可达性，核对两端 frp token 一致（用哈希对比，不要打印令牌本身）。
 
 ## 显示应用未打开
 
@@ -27,11 +26,10 @@
 
 这是已知事故的复发信号（见 AGENTS.md 事故教训 1），按序确认：
 
-1. 确认云端状态服务没有改回「每个请求执行一次 SSH 命令」——轮询必须走反向隧道上的 HTTP。
-2. 高频采样 `sshd.exe`、`cmd.exe`、`conhost.exe`、`OpenConsole.exe`、`WindowsTerminal.exe` 的父子进程链，定位谁创建了控制台。
+1. 确认没有服务改回「每次请求执行一次命令」——轮询必须走常驻进程上的 HTTP。
+2. 高频采样可疑进程的父子链（历史上是 `sshd.exe`、`cmd.exe`、`conhost.exe`、`OpenConsole.exe`、`WindowsTerminal.exe`），定位谁创建了控制台。
 3. 确认 `AgentRemote-Apps` 直接运行 GUI 子系统构建的控制程序（`-H=windowsgui`）。
-4. 确认隧道与本地 sshd 仍通过隐藏 VBS 启动。
-5. 修复后云端连续请求接口、Windows 高频采样验证，不要只凭肉眼判断。
+4. 修复后云端连续请求接口、Windows 高频采样验证，不要只凭肉眼判断。
 
 ## 注册一直停在「等待服务端批准」
 

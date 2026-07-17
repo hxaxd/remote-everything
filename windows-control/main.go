@@ -496,18 +496,14 @@ func serveAll() {
 	}
 }
 
-func commandParts() []string {
-	parts := strings.Fields(strings.TrimSpace(os.Getenv("SSH_ORIGINAL_COMMAND")))
-	if len(parts) == 0 && len(os.Args) > 1 {
-		parts = os.Args[1:]
-	}
-	return parts
-}
-
 func main() {
-	parts := commandParts()
+	parts := os.Args[1:]
 	if len(parts) == 1 && parts[0] == "serve" {
 		serveAll()
+		return
+	}
+	if len(parts) == 1 && parts[0] == "files" {
+		serveFiles()
 		return
 	}
 	result := response{OK: false, Code: "command_not_allowed"}
