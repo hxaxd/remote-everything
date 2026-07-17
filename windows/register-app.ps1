@@ -33,8 +33,8 @@ if ($WorkDir) {
     $WorkDir = (Resolve-Path -LiteralPath $WorkDir).Path
 }
 $commandPath = (Resolve-Path -LiteralPath $Command).Path
-if (-not $StopCommand) { $StopCommand = $commandPath }
-$stopCommandPath = (Resolve-Path -LiteralPath $StopCommand).Path
+$stopCommandPath = ''
+if ($StopCommand) { $stopCommandPath = (Resolve-Path -LiteralPath $StopCommand).Path }
 if (-not $Icon) { $Icon = $Name.Substring(0, 1).ToUpperInvariant() }
 if ($Icon.Length -gt 4) { throw 'Application icon text is too long.' }
 

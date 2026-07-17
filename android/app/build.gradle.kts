@@ -22,8 +22,8 @@ android {
         applicationId = "com.agentremote.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.5"
+        versionCode = 7
+        versionName = "1.6"
         buildConfigField("String", "GATEWAY_HOST", clientConfigValue("gatewayHost"))
         buildConfigField("String", "GATEWAY_ORIGIN", clientConfigValue("gatewayOrigin"))
         buildConfigField("String", "CONTROL_TOKEN", clientConfigValue("controlToken"))
