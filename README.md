@@ -1,129 +1,40 @@
-# Agent 远程复现
+# Agent 远程（Agent Remote）
 
-从 Android 手机远程控制 Windows 电脑上运行的本地 Web 应用（默认 Kimi Code）：应用目录、启动/停止、全屏使用。链路为 `手机 → Caddy（mTLS）→ 云端服务 → SSH 反向隧道 → Windows 控制服务 → 本地应用`，设备接入需人工审批签发证书。
+用手机远程控制你 Windows 电脑上的本地 AI 应用（默认 Kimi Code）：看状态、远程启动/停止、全屏使用。新设备用审批码接入，全链路 mTLS。
 
-- 安全模型与已知弱点：[docs/SECURITY.md](docs/SECURITY.md)
-- 故障排查：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
-- 升级：[docs/UPGRADING.md](docs/UPGRADING.md) ｜ 卸载：[docs/UNINSTALL.md](docs/UNINSTALL.md)
-- 参与贡献：[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) ｜ 计划与路线图：[PLAN.md](PLAN.md)
-- License：[Apache-2.0](LICENSE)
+## 它能做什么
 
-## 1. 准备
+- 手机 App 里看电脑在不在线、应用在没在跑
+- 一键远程启动 / 停止电脑上的应用
+- 在手机上全屏使用应用的 Web 界面
+- 多应用接入：Kimi Code、SillyTavern 酒馆，以及任何「监听 127.0.0.1 的本地 Web 服务」
+- 设备接入人工审批，吊销即时生效
 
-- Ubuntu 24.04 云服务器，放行 TCP 22、443。
-- Windows 10/11，安装 Kimi Code、Go、Android SDK、JDK 17+。
-- iOS 构建机安装 macOS、Xcode、XcodeGen，并登录 Apple 开发者账号。
+## 怎么用（你不需要懂技术）
 
-## 2. 云服务器
+这个项目的安装、部署、运维**全部设计为由 AI Agent 完成**，你只用动嘴：
 
-在项目根目录的 PowerShell 中执行（先交叉编译云端网关，再整体上传）：
+1. 把仓库交给你的 Agent（如 Kimi Code），对它说：
 
-```powershell
-pwsh .\server\build_gateway.ps1
-$env:PUBLIC_HOST = '服务器公网 IP 或域名'
-$env:WINDOWS_USER = $env:USERNAME
-scp -r .\server "root@$env:PUBLIC_HOST`:/root/agent-remote-server"
-ssh "root@$env:PUBLIC_HOST" "chmod +x /root/agent-remote-server/*.sh; PUBLIC_HOST='$env:PUBLIC_HOST' WINDOWS_USER='$env:WINDOWS_USER' /root/agent-remote-server/install_gateway.sh"
-scp -r "root@$env:PUBLIC_HOST`:/root/agent-remote-bundle" .\bundle
-```
+   > 读一下这个仓库的 AGENTS.md，然后帮我部署 Agent Remote。
 
-## 3. Windows 本机
+2. Agent 会按仓库内置的操作手册（`AGENTS.md` + `.kimi-code/skills/`）一步步做：云服务器安装 → Windows 安装 → 手机 App 构建，风险操作前会向你说明。
 
-```powershell
-pwsh -ExecutionPolicy Bypass .\windows\install.ps1 -BundleDir .\bundle
-scp .\bundle\windows-host-key.pub "root@$env:PUBLIC_HOST`:/tmp/agent-remote-windows-host.pub"
-ssh "root@$env:PUBLIC_HOST" "agent-remote-register-windows-host /tmp/agent-remote-windows-host.pub"
-```
+3. 日常使用也是动嘴：
+   - 「帮我巡检一下」→ Agent 按 `agent-remote-inspect` 流程检查全链路
+   - 「批准审批码 XXXXXXXX」→ Agent 按 `agent-remote-enroll` 的安全流程审批
+   - 「接入酒馆 / 接入一个新应用」→ Agent 按 `agent-remote-add-app` 引导完成
+   - 「把改动上线」→ Agent 按 `agent-remote-deploy` 的固定顺序部署并验证
 
-检查：
+你需要准备的就三样：一台有公网地址的服务器（或让手机和电脑处于同一局域网）、一台 Windows 电脑、一部 Android 手机。
 
-```powershell
-Get-ScheduledTask -TaskName 'AgentRemote-*' | Select-Object TaskName, State
-Get-NetTCPConnection -State Listen -LocalPort 58626,58627,58632
-ssh "root@$env:PUBLIC_HOST" 'token=$(cat /etc/kimi-gateway/control-token); curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:58629/__agent_remote/apps'
-```
+## 写给 Agent 的（人类不用读）
 
-## 4. Android
+- `AGENTS.md`：工作规则、安全红线、事故教训、构建验证命令
+- `.kimi-code/skills/`：巡检、审批、接应用、上线的标准流程
+- `docs/`：安全模型、故障排查、升级、卸载的执行参考
+- `PLAN.md` 与 `AGENTS.local.md` 是本地文件（不入库）：前者是路线图，后者是部署实例信息
 
-`configure-clients.ps1` 会把连接参数写入被 gitignore 的 `android/agent-remote.properties`（构建时经 BuildConfig 注入，绝不入库）：
+## License
 
-```powershell
-pwsh .\configure-clients.ps1 -BundleDir .\bundle
-Set-Location .\android
-.\build-release.ps1
-```
-
-产物：
-
-```text
-android/app/build/outputs/apk/release/app-release.apk
-```
-
-## 5. iOS
-
-在 macOS 项目根目录执行：
-
-```bash
-brew install xcodegen
-chmod +x ios/build.sh
-./ios/build.sh APPLE_TEAM_ID
-```
-
-产物：
-
-```text
-ios/build/export/AgentRemote.ipa
-```
-
-## 6. 设备审批
-
-安装并打开手机客户端，取得 8 位审批码，然后执行：
-
-```powershell
-ssh "root@$env:PUBLIC_HOST" "agent-remote-enroll approve 8位审批码"
-ssh "root@$env:PUBLIC_HOST" "agent-remote-enroll list"
-```
-
-吊销设备：
-
-```powershell
-ssh "root@$env:PUBLIC_HOST" "agent-remote-enroll revoke 设备证书SHA256指纹"
-```
-
-## 7. 动态注册应用
-
-应用的本地 Web 服务必须监听 `127.0.0.1` 的独立端口。执行：
-
-```powershell
-$appId = '应用 ID'
-$appPort = 59001
-$appToken = '应用自己的网页令牌'
-$appExe = 'C:\path\to\agent.exe'
-.\windows\register-app.ps1 `
-  -Id $appId `
-  -Name '应用名称' `
-  -Description '应用说明' `
-  -Icon 'A' `
-  -Accent '#2563eb' `
-  -WebUrl "https://$env:PUBLIC_HOST/__agent_remote/open/$appId#token=$appToken" `
-  -ProxyUrl "http://127.0.0.1:$appPort" `
-  -Command $appExe `
-  -Arguments @('server','run','--foreground','--host','127.0.0.1','--port',"$appPort") `
-  -StopCommand $appExe `
-  -StopArguments @('server','kill') `
-  -Probe "127.0.0.1:$appPort" `
-  -Enabled $true
-```
-
-注销：
-
-```powershell
-.\windows\unregister-app.ps1 -Id $appId
-```
-
-## 8. 全链路测试
-
-```powershell
-scp .\server\test_enrollment_pkcs12.py "root@$env:PUBLIC_HOST`:/tmp/agent-remote-full-test.py"
-ssh "root@$env:PUBLIC_HOST" "PUBLIC_HOST='$env:PUBLIC_HOST' python3 /tmp/agent-remote-full-test.py"
-```
+[Apache-2.0](LICENSE)
