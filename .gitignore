@@ -1,0 +1,26 @@
+# 秘密与本地配置（绝不提交）
+bundle/
+*.p12
+agent-remote.properties
+AGENTS.local.md
+local.properties
+
+# Python
+__pycache__/
+*.py[cod]
+
+# 构建产物
+**/build/
+.gradle/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+*.iml
+.idea/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# Windows 控制程序本地构建输出
+windows-control/agent-remote-control.exe

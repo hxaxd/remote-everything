@@ -1,0 +1,28 @@
+[Unit]
+Description=Agent Remote Device Enrollment
+After=network.target
+
+[Service]
+Type=simple
+User=kimi-enroll
+Group=kimi-enroll
+ExecStart=/usr/bin/python3 /opt/kimi-gateway/enrollment_server.py
+Restart=always
+RestartSec=2s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/kimi-enrollment
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

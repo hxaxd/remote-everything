@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+import datetime as dt
+import json
+import os
+import pwd
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.serialization import pkcs12
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+REQUESTS = Path("/var/lib/kimi-enrollment/requests")
+APPROVED = Path("/etc/kimi-gateway/approved-clients")
+BOOTSTRAP_CA = Path("/etc/kimi-gateway/bootstrap-ca.crt.pem")
+TRUST_BUNDLE = Path("/etc/kimi-gateway/client-trust.pem")
+ISSUER_KEY = Path("/etc/kimi-gateway/device-issuer.key.pem")
+ISSUER_CERT = Path("/etc/kimi-gateway/device-issuer.crt.pem")
+
+
+def load_requests() -> list[tuple[Path, dict[str, object]]]:
+    result = []
+    for path in sorted(REQUESTS.glob("*.json")):
+        try:
+            result.append((path, json.loads(path.read_text(encoding="utf-8"))))
+        except (OSError, json.JSONDecodeError):
+            continue
+    return result
+
+
+def save_request(path: Path, item: dict[str, object]) -> None:
+    user = pwd.getpwnam("kimi-enroll")
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(item, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    os.chmod(temporary, 0o600)
+    os.chown(temporary, user.pw_uid, user.pw_gid)
+    os.replace(temporary, path)
+
+
+def rebuild_trust() -> None:
+    temporary = TRUST_BUNDLE.with_suffix(".pem.tmp")
+    with temporary.open("wb") as output:
+        output.write(BOOTSTRAP_CA.read_bytes())
+        if not BOOTSTRAP_CA.read_bytes().endswith(b"\n"):
+            output.write(b"\n")
+        for cert in sorted(APPROVED.glob("*.pem")):
+            data = cert.read_bytes()
+            output.write(data)
+            if not data.endswith(b"\n"):
+                output.write(b"\n")
+    os.chmod(temporary, 0o644)
+    os.replace(temporary, TRUST_BUNDLE)
+    subprocess.run(["/usr/bin/caddy", "validate", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"], check=True)
+    subprocess.run(["/usr/bin/systemctl", "reload", "caddy"], check=True)
+
+
+def approve(code: str) -> None:
+    matches = [(path, item) for path, item in load_requests() if item.get("registration_code") == code.upper()]
+    if len(matches) != 1:
+        raise SystemExit("registration code not found or ambiguous")
+    path, item = matches[0]
+    if item.get("status") == "approved":
+        print(json.dumps(item, ensure_ascii=False, indent=2))
+        return
+    if item.get("status") != "pending":
+        raise SystemExit(f"request is {item.get('status')}")
+    expires_at = dt.datetime.fromisoformat(str(item["expires_at"]))
+    if expires_at <= dt.datetime.now(dt.timezone.utc):
+        item["status"] = "expired"
+        save_request(path, item)
+        raise SystemExit("request expired")
+
+    issuer_key = serialization.load_pem_private_key(ISSUER_KEY.read_bytes(), password=None)
+    issuer_cert = x509.load_pem_x509_certificate(ISSUER_CERT.read_bytes())
+    delivery = str(item.get("credential_delivery", "certificate"))
+    private_key = None
+    if delivery == "pkcs12":
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        public_key = private_key.public_key()
+    else:
+        public_key = serialization.load_pem_public_key(str(item["public_key_pem"]).encode("ascii"))
+        if not isinstance(public_key, ec.EllipticCurvePublicKey) or not isinstance(public_key.curve, ec.SECP256R1):
+            raise SystemExit("request contains an unsupported public key")
+
+    now = dt.datetime.now(dt.timezone.utc)
+    device_name = str(item["device_name"])
+    key_fingerprint = str(item["fingerprint"])
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, device_name[:64]),
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, key_fingerprint[:16]),
+        ]))
+        .issuer_name(issuer_cert.subject)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(minutes=5))
+        .not_valid_after(now + dt.timedelta(days=1825))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(x509.KeyUsage(
+            digital_signature=True,
+            content_commitment=False,
+            key_encipherment=False,
+            data_encipherment=False,
+            key_agreement=False,
+            key_cert_sign=False,
+            crl_sign=False,
+            encipher_only=None,
+            decipher_only=None,
+        ), critical=True)
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]), critical=False)
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(public_key), critical=False)
+        .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(issuer_key.public_key()), critical=False)
+        .sign(issuer_key, hashes.SHA256())
+    )
+    certificate_pem = certificate.public_bytes(serialization.Encoding.PEM).decode("ascii")
+    certificate_fingerprint = certificate.fingerprint(hashes.SHA256()).hex()
+    destination = APPROVED / f"{certificate_fingerprint}.pem"
+    destination.write_text(certificate_pem, encoding="ascii")
+    os.chmod(destination, 0o644)
+    rebuild_trust()
+    item["status"] = "approved"
+    item["certificate_pem"] = certificate_pem
+    item["certificate_fingerprint"] = certificate_fingerprint
+    if delivery == "pkcs12":
+        password = str(item["credential_password"]).encode("ascii")
+        credential = pkcs12.serialize_key_and_certificates(
+            name=b"agent_remote",
+            key=private_key,
+            cert=certificate,
+            cas=[issuer_cert],
+            encryption_algorithm=serialization.BestAvailableEncryption(password),
+        )
+        import base64
+        item["credential_pkcs12"] = base64.b64encode(credential).decode("ascii")
+    item.pop("credential_password", None)
+    item["approved_at"] = now.replace(microsecond=0).isoformat()
+    save_request(path, item)
+    print(json.dumps(item, ensure_ascii=False, indent=2))
+
+
+def revoke(fingerprint: str) -> None:
+    fingerprint = fingerprint.lower()
+    cert = APPROVED / f"{fingerprint}.pem"
+    matching_requests = [
+        (path, item) for path, item in load_requests()
+        if item.get("fingerprint") == fingerprint or item.get("certificate_fingerprint") == fingerprint
+    ]
+    if not cert.is_file() and matching_requests:
+        cert = APPROVED / f"{matching_requests[0][1].get('certificate_fingerprint')}.pem"
+    if not cert.is_file():
+        raise SystemExit("approved fingerprint not found")
+    cert.unlink()
+    for path, item in matching_requests:
+        if item.get("status") == "approved":
+            item["status"] = "revoked"
+            item["revoked_at"] = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+            save_request(path, item)
+    rebuild_trust()
+    print(f"revoked {fingerprint}")
+
+
+def list_requests() -> None:
+    items = []
+    for _path, item in load_requests():
+        item.pop("certificate_pem", None)
+        item.pop("public_key_pem", None)
+        item.pop("credential_pkcs12", None)
+        item.pop("credential_password", None)
+        items.append(item)
+    print(json.dumps(items, ensure_ascii=False, indent=2))
+
+
+def main() -> None:
+    if os.geteuid() != 0:
+        raise SystemExit("must run as root")
+    APPROVED.mkdir(parents=True, exist_ok=True)
+    if len(sys.argv) == 2 and sys.argv[1] == "list":
+        list_requests()
+    elif len(sys.argv) == 3 and sys.argv[1] == "approve":
+        approve(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "revoke":
+        revoke(sys.argv[2])
+    elif len(sys.argv) == 2 and sys.argv[1] == "rebuild":
+        rebuild_trust()
+    else:
+        raise SystemExit("usage: kimi-enroll list | approve CODE | revoke FINGERPRINT | rebuild")
+
+
+if __name__ == "__main__":
+    main()
