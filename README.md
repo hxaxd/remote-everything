@@ -1,5 +1,13 @@
 # Agent 远程复现
 
+从 Android 手机远程控制 Windows 电脑上运行的本地 Web 应用（默认 Kimi Code）：应用目录、启动/停止、全屏使用。链路为 `手机 → Caddy（mTLS）→ 云端服务 → SSH 反向隧道 → Windows 控制服务 → 本地应用`，设备接入需人工审批签发证书。
+
+- 安全模型与已知弱点：[docs/SECURITY.md](docs/SECURITY.md)
+- 故障排查：[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)
+- 升级：[docs/UPGRADING.md](docs/UPGRADING.md) ｜ 卸载：[docs/UNINSTALL.md](docs/UNINSTALL.md)
+- 参与贡献：[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) ｜ 计划与路线图：[PLAN.md](PLAN.md)
+- License：[Apache-2.0](LICENSE)
+
 ## 1. 准备
 
 - Ubuntu 24.04 云服务器，放行 TCP 22、443。
@@ -8,20 +16,21 @@
 
 ## 2. 云服务器
 
-在项目根目录的 PowerShell 中执行：
+在项目根目录的 PowerShell 中执行（先交叉编译云端网关，再整体上传）：
 
 ```powershell
+pwsh .\server\build_gateway.ps1
 $env:PUBLIC_HOST = '服务器公网 IP 或域名'
 $env:WINDOWS_USER = $env:USERNAME
 scp -r .\server "root@$env:PUBLIC_HOST`:/root/agent-remote-server"
-ssh "root@$env:PUBLIC_HOST" "chmod +x /root/agent-remote-server/*.sh /root/agent-remote-server/kimi-enroll; PUBLIC_HOST='$env:PUBLIC_HOST' WINDOWS_USER='$env:WINDOWS_USER' /root/agent-remote-server/install_gateway.sh"
+ssh "root@$env:PUBLIC_HOST" "chmod +x /root/agent-remote-server/*.sh; PUBLIC_HOST='$env:PUBLIC_HOST' WINDOWS_USER='$env:WINDOWS_USER' /root/agent-remote-server/install_gateway.sh"
 scp -r "root@$env:PUBLIC_HOST`:/root/agent-remote-bundle" .\bundle
 ```
 
 ## 3. Windows 本机
 
 ```powershell
-pwsh -ExecutionPolicy Bypass .\windows\install.ps1 -BundleDir .\bundle -ReplaceLegacyTasks
+pwsh -ExecutionPolicy Bypass .\windows\install.ps1 -BundleDir .\bundle
 scp .\bundle\windows-host-key.pub "root@$env:PUBLIC_HOST`:/tmp/agent-remote-windows-host.pub"
 ssh "root@$env:PUBLIC_HOST" "agent-remote-register-windows-host /tmp/agent-remote-windows-host.pub"
 ```
@@ -35,6 +44,8 @@ ssh "root@$env:PUBLIC_HOST" 'token=$(cat /etc/kimi-gateway/control-token); curl 
 ```
 
 ## 4. Android
+
+`configure-clients.ps1` 会把连接参数写入被 gitignore 的 `android/agent-remote.properties`（构建时经 BuildConfig 注入，绝不入库）：
 
 ```powershell
 pwsh .\configure-clients.ps1 -BundleDir .\bundle

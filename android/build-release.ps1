@@ -1,7 +1,13 @@
 $ErrorActionPreference = 'Stop'
 
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$signingDir = Join-Path $env:LOCALAPPDATA 'AgentRemote\signing'
+$signingDir = Join-Path $env:LOCALAPPDATA 'AgentRemoteSign'
+$legacySigningDir = Join-Path $env:LOCALAPPDATA 'AgentRemote\signing'
+if (-not (Test-Path -LiteralPath $signingDir) -and (Test-Path -LiteralPath $legacySigningDir)) {
+    New-Item -ItemType Directory -Force $signingDir | Out-Null
+    Move-Item -LiteralPath (Join-Path $legacySigningDir '*') -Destination $signingDir -Force
+    Remove-Item -LiteralPath $legacySigningDir -Force
+}
 $keyStore = Join-Path $signingDir 'android-release.jks'
 $passwordFile = Join-Path $signingDir 'android-release.password'
 $androidSdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) |

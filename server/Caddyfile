@@ -1,6 +1,7 @@
 {
 	admin 127.0.0.1:2019
 	default_sni __PUBLIC_HOST__
+	auto_https disable_redirects
 	servers {
 		strict_sni_host insecure_off
 	}
@@ -10,6 +11,7 @@ https://__PUBLIC_HOST__ {
 	tls {
 		issuer acme {
 			profile shortlived
+			disable_http_challenge
 		}
 		client_auth {
 			mode require_and_verify

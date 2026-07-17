@@ -56,8 +56,6 @@ with urllib.request.urlopen(request, timeout=5) as response:
     created = json.loads(response.read())
 
 enroll_cli = "/usr/local/sbin/agent-remote-enroll"
-if not os.path.isfile(enroll_cli):
-    enroll_cli = "/usr/local/sbin/kimi-enroll"
 subprocess.run([enroll_cli, "approve", created["registration_code"]], check=True, stdout=subprocess.DEVNULL)
 state_file = f"/var/lib/kimi-enrollment/requests/{created['request_id']}.json"
 state = json.loads(open(state_file, encoding="utf-8").read())

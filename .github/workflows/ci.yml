@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: windows-control
+        working-directory: windows-control
+        run: |
+          gofmt -l .
+          go vet ./...
+          go test ./...
+      - name: gateway
+        working-directory: server/gateway
+        run: |
+          gofmt -l .
+          go vet ./...
+          go test ./...
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: dummy client config
+        working-directory: android
+        run: |
+          cat > agent-remote.properties <<'EOF'
+          gatewayHost=example.invalid
+          gatewayOrigin=https://example.invalid
+          controlToken=0000000000000000000000000000000000000000000000000000000000000000
+          bootstrapPassword=ci-placeholder-password
+          bootstrapFingerprint=0000000000000000000000000000000000000000000000000000000000000000
+          EOF
+      - name: assembleDebug
+        working-directory: android
+        run: ./gradlew --no-daemon --console=plain :app:assembleDebug
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        # TODO: 提升到 -S warning 并清理存量告警
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq shellcheck
+          shellcheck -S error server/*.sh
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no hex secrets
+        run: |
+          if grep -rInE '(^|[^0-9a-f])[0-9a-f]{64}([^0-9a-f]|$)' \
+            --exclude-dir=.git \
+            --exclude=gradle-wrapper.properties \
+            --exclude=main_test.go \
+            --exclude=ci.yml .; then
+            echo "::error::possible 64-hex secret in repository"
+            exit 1
+          fi
+      - name: no private keys
+        run: |
+          if grep -rIn 'BEGIN [A-Z ]*PRIVATE KEY' --exclude-dir=.git .; then
+            echo "::error::private key material in repository"
+            exit 1
+          fi
+      - name: no pkcs12 or local config
+        run: |
+          if git ls-files | grep -Ei '\.p12$|agent-remote\.properties$|local\.properties$|AGENTS\.local\.md$'; then
+            echo "::error::forbidden file tracked in repository"
+            exit 1
+          fi

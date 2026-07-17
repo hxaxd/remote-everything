@@ -1,8 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$BundleDir,
-    [string]$KimiExe = '',
-    [switch]$ReplaceLegacyTasks
+    [string]$KimiExe = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -175,19 +174,6 @@ foreach ($entry in $taskActions.GetEnumerator()) {
     Register-ScheduledTask -TaskName $entry.Key -Action $entry.Value -Trigger $trigger -Principal $taskPrincipal -Settings $settings -Description 'Agent Remote background service' -Force | Out-Null
 }
 
-if ($ReplaceLegacyTasks) {
-    foreach ($legacy in @('AgentRemote-KimiWeb', 'KimiRemote-KimiWeb', 'KimiRemote-LocalSSH', 'KimiRemote-Tunnel')) {
-        if (Get-ScheduledTask -TaskName $legacy -ErrorAction SilentlyContinue) {
-            try {
-                Stop-ScheduledTask -TaskName $legacy -ErrorAction SilentlyContinue
-                Unregister-ScheduledTask -TaskName $legacy -Confirm:$false -ErrorAction Stop
-            }
-            catch {
-                Write-Warning "Administrator permission is required to remove $legacy."
-            }
-        }
-    }
-}
 foreach ($task in $taskActions.Keys) { Start-ScheduledTask -TaskName $task }
 
 $hostKeyOutput = Join-Path $bundle 'windows-host-key.pub'
