@@ -35,6 +35,7 @@
 - **网络环境零污染**：对外只占用必要的高端口（每个部署形态一个对外端口）；不占用 80/443 等公共端口（服务器侧除外：仅 443+22）；Caddy 之类的大件不进 Windows。
 - 说明文档集中在本文件、`README.md` 与 `docs/`；源码不堆解释性注释。PR 必须 CI 全绿（go / android / shellcheck / secrets），安全边界只强不弱，改动保持最小。发版在 `android/app/build.gradle.kts` 递增 `versionCode`（+1）与 `versionName`（修复 patch、功能 minor、架构 major）。
 - 鸿蒙相关一切不引入（用户明令，除非本人反悔）；新应用接入须用户明确要求。
+- 终端类应用（ttyd 等 shell 能力）**默认不启用**，开启前必须向用户逐字确认其含义：手机将获得电脑的完整 shell 权限。
 - 用户偏好命令行，未经要求不操作桌面 UI。
 - git 禁用破坏性命令（`reset --hard`、`checkout --`、`push --force`）。
 - `server/Caddyfile` 是占位符模板，替换占位符并 `caddy validate` 通过前不得上线。
