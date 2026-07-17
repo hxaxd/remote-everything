@@ -264,6 +264,10 @@ class MainActivity : ComponentActivity() {
                         bootstrap,
                         mapOf("X-Kimi-Bootstrap-Fingerprint" to AppConfig.BOOTSTRAP_FINGERPRINT),
                     )
+                    if (polled.status == 404) {
+                        main.post { showEnrollment() }
+                        return@execute
+                    }
                     if (polled.status == 200) {
                         val result = polled.json()
                         when (result.optString("status")) {
@@ -571,6 +575,7 @@ class MainActivity : ComponentActivity() {
     private fun statusText(code: String) = when (code) {
         "ready" -> "● 正在运行"
         "starting" -> "● 正在启动"
+        "stopping" -> "● 正在停止"
         "stopped" -> "● 已停止"
         "computer_offline" -> "● 电脑离线"
         else -> "● 状态不可用"
@@ -578,7 +583,7 @@ class MainActivity : ComponentActivity() {
 
     private fun statusColor(code: String) = when (code) {
         "ready" -> Color.rgb(134, 239, 172)
-        "starting", "stopped" -> Color.rgb(253, 186, 116)
+        "starting", "stopping", "stopped" -> Color.rgb(253, 186, 116)
         "computer_offline" -> Color.rgb(148, 163, 184)
         else -> Color.rgb(248, 113, 113)
     }

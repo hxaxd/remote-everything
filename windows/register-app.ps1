@@ -19,6 +19,7 @@ param(
     [string[]]$StopArguments = @(),
     [Parameter(Mandatory = $true)]
     [string]$Probe,
+    [string]$WorkDir = '',
     [bool]$Enabled = $true
 )
 
@@ -27,6 +28,10 @@ if ($WebUrl.Scheme -ne 'https') { throw 'Application web URL must use HTTPS.' }
 if ($ProxyUrl.Scheme -ne 'http' -or $ProxyUrl.Host -notin @('127.0.0.1', 'localhost')) { throw 'Application proxy URL must use loopback HTTP.' }
 $probeUri = $null
 if (-not [uri]::TryCreate("tcp://$Probe", [UriKind]::Absolute, [ref]$probeUri) -or $probeUri.Port -lt 1 -or $probeUri.Port -gt 65535) { throw 'Invalid application probe.' }
+if ($WorkDir) {
+    if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) { throw 'Invalid working directory.' }
+    $WorkDir = (Resolve-Path -LiteralPath $WorkDir).Path
+}
 $commandPath = (Resolve-Path -LiteralPath $Command).Path
 if (-not $StopCommand) { $StopCommand = $commandPath }
 $stopCommandPath = (Resolve-Path -LiteralPath $StopCommand).Path
@@ -57,6 +62,7 @@ $apps += [pscustomobject]@{
     stop_command = $stopCommandPath
     stop_arguments = @($StopArguments)
     probe = $Probe
+    workdir = $WorkDir
 }
 $value = [ordered]@{ version = 1; apps = @($apps | Sort-Object id) }
 $temporary = "$registryPath.tmp"

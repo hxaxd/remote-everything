@@ -34,7 +34,8 @@ passwd -l kimi-tunnel >/dev/null 2>&1 || true
 passwd -l kimi-control >/dev/null 2>&1 || true
 passwd -l kimi-enroll >/dev/null 2>&1 || true
 
-install -d -m 755 /opt/kimi-gateway /etc/kimi-gateway
+install -d -m 755 /etc/kimi-gateway
+rmdir /opt/kimi-gateway 2>/dev/null || true
 install -d -m 755 /etc/kimi-gateway/approved-clients
 install -d -m 700 -o kimi-enroll -g kimi-enroll /var/lib/kimi-enrollment/requests
 install -d -m 700 -o kimi-tunnel -g kimi-tunnel /var/lib/kimi-tunnel/.ssh
@@ -78,10 +79,10 @@ for certificate in /etc/kimi-gateway/approved-clients/*.pem; do
 done
 chmod 644 /etc/kimi-gateway/client-trust.pem
 
-install -m 755 "$script_dir/status_server.py" /opt/kimi-gateway/status_server.py
-install -m 755 "$script_dir/enrollment_server.py" /opt/kimi-gateway/enrollment_server.py
-install -m 755 "$script_dir/kimi-enroll" /usr/local/sbin/kimi-enroll
-install -m 755 "$script_dir/kimi-enroll" /usr/local/sbin/agent-remote-enroll
+install -m 755 "$script_dir/gateway/agent-remote-gateway" /usr/local/sbin/agent-remote-gateway
+printf '#!/bin/sh\nexec /usr/local/sbin/agent-remote-gateway enroll "$@"\n' > /usr/local/sbin/agent-remote-enroll
+chmod 755 /usr/local/sbin/agent-remote-enroll
+rm -f /opt/kimi-gateway/status_server.py /opt/kimi-gateway/enrollment_server.py /usr/local/sbin/kimi-enroll
 install -m 755 "$script_dir/register_windows_host.sh" /usr/local/sbin/agent-remote-register-windows-host
 install -m 644 "$script_dir/kimi-gateway-status.service" /etc/systemd/system/kimi-gateway-status.service
 install -m 644 "$script_dir/kimi-enrollment.service" /etc/systemd/system/kimi-enrollment.service

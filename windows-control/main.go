@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -30,6 +31,18 @@ var (
 	validID          = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 )
 
+const (
+	maxLogBytes     = 4 << 20
+	stableRunPeriod = 30 * time.Second
+)
+
+var (
+	baseBackoff      = 2 * time.Second
+	maxBackoff       = 5 * time.Minute
+	stopWaitAttempts = 20
+	stopWaitInterval = 200 * time.Millisecond
+)
+
 type appDefinition struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -43,6 +56,7 @@ type appDefinition struct {
 	StopCommand string   `json:"stop_command"`
 	StopArgs    []string `json:"stop_arguments"`
 	Probe       string   `json:"probe"`
+	WorkDir     string   `json:"workdir"`
 }
 
 type registry struct {
@@ -77,11 +91,23 @@ type response struct {
 type managedProcess struct {
 	command *exec.Cmd
 	done    chan struct{}
+	started time.Time
 }
 
 type controlRequest struct {
 	Action string `json:"action"`
 	ID     string `json:"id,omitempty"`
+}
+
+func validWorkDir(value string) bool {
+	if value == "" {
+		return true
+	}
+	if !filepath.IsAbs(value) {
+		return false
+	}
+	info, err := os.Stat(value)
+	return err == nil && info.IsDir()
 }
 
 func loadRegistry() (registry, error) {
@@ -96,7 +122,7 @@ func loadRegistry() (registry, error) {
 	seen := map[string]bool{}
 	for _, app := range value.Apps {
 		target, targetError := url.Parse(app.ProxyURL)
-		if !validID.MatchString(app.ID) || app.Name == "" || app.Command == "" || app.Probe == "" || seen[app.ID] || targetError != nil || target.Scheme != "http" || (target.Hostname() != "127.0.0.1" && target.Hostname() != "localhost") {
+		if !validID.MatchString(app.ID) || app.Name == "" || app.Command == "" || app.Probe == "" || seen[app.ID] || targetError != nil || target.Scheme != "http" || (target.Hostname() != "127.0.0.1" && target.Hostname() != "localhost") || !validWorkDir(app.WorkDir) {
 			return registry{}, errors.New("invalid application registry")
 		}
 		seen[app.ID] = true
@@ -222,10 +248,17 @@ func stopApp(id string) response {
 		return response{OK: false, Action: "stop", ComputerConnected: true, Code: "state_update_failed"}
 	}
 	runHidden(10*time.Second, app.StopCommand, app.StopArgs...)
-	for attempt := 0; attempt < 20 && probeOpen(app.Probe); attempt++ {
-		time.Sleep(200 * time.Millisecond)
+	for attempt := 0; attempt < stopWaitAttempts && probeOpen(app.Probe); attempt++ {
+		time.Sleep(stopWaitInterval)
 	}
-	return stateResponse(app, "stop")
+	result := stateResponse(app, "stop")
+	if result.Running {
+		result.Code = "stopping"
+		if result.App != nil {
+			result.App.Code = "stopping"
+		}
+	}
+	return result
 }
 
 func statusApp(id string) response {
@@ -236,15 +269,46 @@ func statusApp(id string) response {
 	return stateResponse(app, "status")
 }
 
+func openLogFile(path string) (*os.File, error) {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxLogBytes {
+		_ = os.Remove(path + ".old")
+		_ = os.Rename(path, path+".old")
+	}
+	return os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+}
+
+func backoff(failures int) time.Duration {
+	delay := baseBackoff
+	for attempt := 1; attempt < failures; attempt++ {
+		delay *= 2
+		if delay >= maxBackoff {
+			return maxBackoff
+		}
+	}
+	return delay
+}
+
+func controlLog(format string, args ...any) {
+	file, err := openLogFile(filepath.Join(logsRoot, "control.log"))
+	if err != nil {
+		return
+	}
+	defer file.Close()
+	_, _ = fmt.Fprintf(file, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+}
+
 func launch(app appDefinition) (*managedProcess, error) {
 	if err := os.MkdirAll(logsRoot, 0o700); err != nil {
 		return nil, err
 	}
-	logFile, err := os.OpenFile(filepath.Join(logsRoot, app.ID+".log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	logFile, err := openLogFile(filepath.Join(logsRoot, app.ID+".log"))
 	if err != nil {
 		return nil, err
 	}
 	command := exec.Command(app.Command, app.Arguments...)
+	if app.WorkDir != "" {
+		command.Dir = app.WorkDir
+	}
 	command.Stdin = nil
 	command.Stdout = logFile
 	command.Stderr = logFile
@@ -253,7 +317,8 @@ func launch(app appDefinition) (*managedProcess, error) {
 		_ = logFile.Close()
 		return nil, err
 	}
-	managed := &managedProcess{command: command, done: make(chan struct{})}
+	controlLog("app %s launched pid=%d", app.ID, command.Process.Pid)
+	managed := &managedProcess{command: command, done: make(chan struct{}), started: time.Now()}
 	go func() {
 		_ = command.Wait()
 		_ = logFile.Close()
@@ -265,6 +330,8 @@ func launch(app appDefinition) (*managedProcess, error) {
 func supervise() {
 	_ = os.MkdirAll(enabledRoot, 0o700)
 	processes := map[string]*managedProcess{}
+	failures := map[string]int{}
+	retryAfter := map[string]time.Time{}
 	for {
 		value, err := loadRegistry()
 		if err == nil {
@@ -276,24 +343,41 @@ func supervise() {
 					select {
 					case <-managed.done:
 						delete(processes, app.ID)
+						if time.Since(managed.started) < stableRunPeriod {
+							failures[app.ID]++
+							delay := backoff(failures[app.ID])
+							retryAfter[app.ID] = time.Now().Add(delay)
+							controlLog("app %s exited early (failures=%d), retry in %s", app.ID, failures[app.ID], delay)
+						} else {
+							failures[app.ID] = 0
+							delete(retryAfter, app.ID)
+							controlLog("app %s exited", app.ID)
+						}
 						managed = nil
 					default:
 					}
 				}
 				if !isEnabled(app.ID) {
 					if managed != nil && managed.command.Process != nil {
+						controlLog("app %s disabled, killing pid=%d", app.ID, managed.command.Process.Pid)
 						_ = managed.command.Process.Kill()
 					}
 					continue
 				}
-				if !probeOpen(app.Probe) && managed == nil {
+				if !probeOpen(app.Probe) && managed == nil && time.Now().After(retryAfter[app.ID]) {
 					if started, startError := launch(app); startError == nil {
 						processes[app.ID] = started
+					} else {
+						failures[app.ID]++
+						delay := backoff(failures[app.ID])
+						retryAfter[app.ID] = time.Now().Add(delay)
+						controlLog("app %s launch failed (failures=%d), retry in %s: %v", app.ID, failures[app.ID], delay, startError)
 					}
 				}
 			}
 			for id, managed := range processes {
 				if !known[id] && managed.command.Process != nil {
+					controlLog("app %s removed from registry, killing pid=%d", id, managed.command.Process.Pid)
 					_ = managed.command.Process.Kill()
 					delete(processes, id)
 				}
@@ -359,6 +443,7 @@ func localControlHandler(writer http.ResponseWriter, request *http.Request) {
 	token, err := os.ReadFile(controlTokenFile)
 	expected := "Bearer " + strings.TrimSpace(string(token))
 	if err != nil || len(expected) < 40 || subtle.ConstantTimeCompare([]byte(request.Header.Get("Authorization")), []byte(expected)) != 1 {
+		controlLog("control auth failed remote=%s", request.RemoteAddr)
 		writer.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -392,6 +477,7 @@ func localControlHandler(writer http.ResponseWriter, request *http.Request) {
 			result = stopApp(input.ID)
 		}
 	}
+	controlLog("control action=%s id=%s code=%s", input.Action, input.ID, result.Code)
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(writer).Encode(result)
