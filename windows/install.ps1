@@ -99,10 +99,21 @@ if (-not $ttydCurrent) {
 }
 
 $frpcConfig = Join-Path $stateRoot 'frpc.toml'
+foreach ($credential in @('pc-wss.crt.pem', 'pc-wss.key.pem')) {
+    $source = Join-Path $bundle $credential
+    if (-not (Test-Path -LiteralPath $source)) { throw "Missing bundle file: $credential" }
+    Copy-Item -LiteralPath $source -Destination (Join-Path $stateRoot $credential) -Force
+}
+$pcCert = (Join-Path $stateRoot 'pc-wss.crt.pem').Replace('\', '/')
+$pcKey = (Join-Path $stateRoot 'pc-wss.key.pem').Replace('\', '/')
 $frpcLogPath = (Join-Path $logs 'frpc.log').Replace('\', '/')
 $frpcToml = @"
 serverAddr = "$($config.public_host)"
-serverPort = 7000
+serverPort = 443
+transport.protocol = "wss"
+transport.tls.enable = true
+transport.tls.certFile = "$pcCert"
+transport.tls.keyFile = "$pcKey"
 auth.method = "token"
 auth.token = "$($config.frp_token)"
 loginFailExit = false
@@ -120,9 +131,16 @@ remotePort = 58628
 [IO.File]::WriteAllText($frpcConfig, $frpcToml, [Text.UTF8Encoding]::new($false))
 
 # SSH 隧道时代遗留全部清除
-foreach ($legacyPath in @('sshd', 'run-control-hidden.vbs', 'run-tunnel-hidden.vbs', 'tunnel-client.key', 'server-known-hosts')) {
+foreach ($legacyPath in @('sshd', 'run-control-hidden.vbs', 'run-tunnel-hidden.vbs', 'run-kimi-hidden.vbs', 'tunnel-client.key', 'server-known-hosts')) {
     $target = Join-Path $stateRoot $legacyPath
     if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force $target }
+}
+foreach ($legacyProcess in @('wscript', 'ssh', 'sshd')) {
+    Get-Process -Name $legacyProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+}
+foreach ($legacyLog in @('control-sshd.log', 'tunnel.log', 'registration-test.log')) {
+    $target = Join-Path $logs $legacyLog
+    if (Test-Path -LiteralPath $target) { Remove-Item -Force $target -ErrorAction SilentlyContinue }
 }
 if (Get-ScheduledTask -TaskName 'AgentRemote-LocalControl' -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName 'AgentRemote-LocalControl' -ErrorAction SilentlyContinue
@@ -130,7 +148,7 @@ if (Get-ScheduledTask -TaskName 'AgentRemote-LocalControl' -ErrorAction Silently
 }
 
 $sid = $identity.User.Value
-foreach ($securedFile in @($controlTokenFile, $frpcConfig)) {
+foreach ($securedFile in @($controlTokenFile, $frpcConfig, (Join-Path $stateRoot 'pc-wss.key.pem'))) {
     & icacls.exe $securedFile /inheritance:r /grant:r "*$sid`:F" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "ACL update failed: $securedFile" }
 }
@@ -180,16 +198,35 @@ $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host',
     -Probe '127.0.0.1:58634' `
     -Enabled $false | Out-Null
 
+$frpcVbs = Join-Path $stateRoot 'run-frpc-hidden.vbs'
+$frpcVbsText = @"
+Option Explicit
+Dim shell, fso, exe, configPath, command, exitCode
+Set shell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+exe = fso.GetParentFolderName(WScript.ScriptFullName) & "\frpc.exe"
+configPath = fso.GetParentFolderName(WScript.ScriptFullName) & "\frpc.toml"
+command = Quote(exe) & " -c " & Quote(configPath)
+Do
+  exitCode = shell.Run(command, 0, True)
+  WScript.Sleep 5000
+Loop
+Function Quote(value)
+  Quote = Chr(34) & value & Chr(34)
+End Function
+"@
+[IO.File]::WriteAllText($frpcVbs, $frpcVbsText, [Text.UTF8Encoding]::new($false))
+
 $taskUser = $identity.Name
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
-$taskPrincipal = New-ScheduledTaskPrincipal -UserId $taskUser -LogonType Interactive -RunLevel Limited
+$interactivePrincipal = New-ScheduledTaskPrincipal -UserId $taskUser -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
 $taskActions = [ordered]@{
     'AgentRemote-Apps' = New-ScheduledTaskAction -Execute $controlExecutable -Argument 'serve'
-    'AgentRemote-Tunnel' = New-ScheduledTaskAction -Execute $frpcExecutable -Argument ('-c "' + $frpcConfig + '"')
+    'AgentRemote-Tunnel' = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -Argument ('"' + $frpcVbs + '"')
 }
 foreach ($entry in $taskActions.GetEnumerator()) {
-    Register-ScheduledTask -TaskName $entry.Key -Action $entry.Value -Trigger $trigger -Principal $taskPrincipal -Settings $settings -Description 'Agent Remote background service' -Force | Out-Null
+    Register-ScheduledTask -TaskName $entry.Key -Action $entry.Value -Trigger $trigger -Principal $interactivePrincipal -Settings $settings -Description 'Agent Remote background service' -Force | Out-Null
 }
 foreach ($task in $taskActions.Keys) { Start-ScheduledTask -TaskName $task }
 

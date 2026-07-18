@@ -27,6 +27,7 @@
 3. `-H=windowsgui` 不得从 Go 构建参数中删除（否则本地服务自己会弹窗）。
 4. 不恢复远程页的悬浮 UI；边缘手势走 `EdgeSwipeFrameLayout`。
 5. 升级客户端只能同包名同签名覆盖安装，禁止卸载（本机凭据会丢）。
+6. **代理 TUN 与隧道**：用户普遍常开代理（Clash 系 TUN 模式接管全流量），frp 走高端口原始 TCP 会被代理链路卡死。隧道一律走 **wss（WebSocket over 443）**，经 Caddy `/~!frp` 路由到 loopback 的 frps；frpc 客户端证书必须由 **bootstrap CA** 签发——Go 系 TLS 客户端只在服务端可接受 CA 匹配时出示证书，device-issuer 签的证书会被拒（`certificate required`）。frpc 这类控制台程序必须经 `wscript` 隐藏启动，直起必弹窗。
 
 ## 约定
 

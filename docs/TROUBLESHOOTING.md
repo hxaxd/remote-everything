@@ -14,7 +14,7 @@
 1. 检查 Windows `AgentRemote-Tunnel` 计划任务（frpc）与云端 `127.0.0.1:58628` 是否有隧道监听；frpc 日志在 `%LOCALAPPDATA%\AgentRemote\logs\frpc.log`，frps 日志在云端 `journalctl -u frps`。
 2. 检查 Windows `127.0.0.1:58627` 是否监听（`AgentRemote-Apps` 任务）。
 3. 看云端状态服务日志是超时、拒绝连接还是 401/403。
-4. 检查云端 `7000` 端口可达性，核对两端 frp token 一致（用哈希对比，不要打印令牌本身）。
+4. 检查 frpc 到云端 443 的 wss 连通性：`frpc.log` 出现 `start proxy success` 为正常；出现 `certificate required` 说明 PC 客户端证书不对（必须由 bootstrap CA 签发）；出现 `session shutdown`/`EOF` 说明网络中间层在拦（代理 TUN 未放行，需把服务器 IP 加代理直连规则）。
 
 ## 显示应用未打开
 

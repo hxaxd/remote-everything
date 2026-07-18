@@ -109,10 +109,23 @@ systemctl reload ssh
 systemctl daemon-reload
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl enable --now kimi-gateway-status.service kimi-enrollment.service frps.service caddy
+systemctl reload caddy
 
 bundle=/root/agent-remote-bundle
 install -d -m 700 "$bundle"
 install -m 600 /etc/kimi-gateway/bootstrap-client.p12 "$bundle/bootstrap-client.p12"
+# PC 隧道客户端证书（bootstrap CA 签发；Go 系 TLS 客户端只按 CA 链出示证书，故不用 device-issuer）
+if [ ! -s "$bundle/pc-wss.crt.pem" ]; then
+  build=$(mktemp -d)
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$build/pc.key.pem" >/dev/null 2>&1
+  openssl req -new -key "$build/pc.key.pem" -subj '/CN=Agent Remote Windows Host' -out "$build/pc.csr.pem"
+  printf '%s\n' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature' 'extendedKeyUsage=clientAuth' > "$build/pc.ext"
+  openssl x509 -req -in "$build/pc.csr.pem" -CA /etc/kimi-gateway/bootstrap-ca.crt.pem -CAkey /etc/kimi-gateway/bootstrap-ca.key.pem -CAcreateserial -sha256 -days 3650 -extfile "$build/pc.ext" -out "$build/pc.crt.pem" >/dev/null 2>&1
+  cat "$build/pc.crt.pem" /etc/kimi-gateway/bootstrap-ca.crt.pem > "$bundle/pc-wss.crt.pem"
+  install -m 600 "$build/pc.key.pem" "$bundle/pc-wss.key.pem"
+  chmod 644 "$bundle/pc-wss.crt.pem"
+  rm -rf "$build"
+fi
 control_token=$(cat /etc/kimi-gateway/control-token)
 bootstrap_password=$(cat /etc/kimi-gateway/bootstrap-password)
 printf '{"public_host":"%s","windows_user":"%s","control_token":"%s","frp_token":"%s","bootstrap_password":"%s","bootstrap_fingerprint":"%s"}\n' \

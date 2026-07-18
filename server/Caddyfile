@@ -42,6 +42,15 @@ https://__PUBLIC_HOST__ {
 				reverse_proxy 127.0.0.1:58629
 			}
 
+			handle /~!frp* {
+				reverse_proxy 127.0.0.1:7000 {
+					flush_interval -1
+					transport http {
+						dial_timeout 3s
+					}
+				}
+			}
+
 			@forbidden_remote path /__local_agent_control /api/v1/terminals /api/v1/terminals/* /api/v1/shutdown
 			respond @forbidden_remote 403
 
