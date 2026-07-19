@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 
-$projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectDir = Split-Path -Parent $PSScriptRoot
 $signingDir = Join-Path $env:LOCALAPPDATA 'RemoteEverythingSign'
 $keyStore = Join-Path $signingDir 'android-release.jks'
 $passwordFile = Join-Path $signingDir 'android-release.password'

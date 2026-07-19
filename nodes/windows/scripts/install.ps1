@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 
-$projectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+$windowsRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $windowsRoot)
 $bundle = (Resolve-Path -LiteralPath $BundleDir).Path
 $config = Get-Content -LiteralPath (Join-Path $bundle 'config.json') -Raw | ConvertFrom-Json
 if ($config.public_host -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid public host.' }
@@ -44,7 +45,7 @@ if (Get-ScheduledTask -TaskName 'RemoteEverything-Apps' -ErrorAction SilentlyCon
 }
 & $KimiExe server kill 2>$null
 Start-Sleep -Milliseconds 500
-Push-Location (Join-Path $projectRoot 'windows-control')
+Push-Location (Join-Path $windowsRoot 'control')
 try {
     & $go.Source build -trimpath -ldflags '-s -w -H=windowsgui' -o $controlExecutable .
     if ($LASTEXITCODE -ne 0) { throw 'Windows control executable build failed.' }
@@ -142,7 +143,7 @@ $kimiToken = (Get-Content -LiteralPath $kimiTokenFile -Raw).Trim()
 if ($kimiToken -notmatch '^[A-Za-z0-9_-]{20,200}$') { throw 'Invalid Kimi server token.' }
 $kimiWebUrl = "https://$($config.public_host)/__remote_everything/open/kimi#token=$kimiToken"
 $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host', '127.0.0.1', '--allowed-host', [string]$config.public_host, '--keep-alive', '--log-level', 'info')
-& (Join-Path $projectRoot 'windows\register-app.ps1') `
+& (Join-Path $PSScriptRoot 'register-app.ps1') `
     -Id 'kimi' `
     -Name 'Kimi Code' `
     -Description '远程连接和控制 Kimi Code' `
@@ -156,7 +157,7 @@ $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host',
     -StopArguments @('server', 'kill') `
     -Probe '127.0.0.1:58632' `
     -Enabled $true | Out-Null
-& (Join-Path $projectRoot 'windows\register-app.ps1') `
+& (Join-Path $PSScriptRoot 'register-app.ps1') `
     -Id 'files' `
     -Name '文件管理' `
     -Description '浏览、预览、上传和下载电脑文件' `
@@ -168,7 +169,7 @@ $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host',
     -Arguments @('files') `
     -Probe '127.0.0.1:58633' `
     -Enabled $true | Out-Null
-& (Join-Path $projectRoot 'windows\register-app.ps1') `
+& (Join-Path $PSScriptRoot 'register-app.ps1') `
     -Id 'terminal' `
     -Name '终端' `
     -Description '远程 PowerShell（默认关闭，谨慎开启）' `
@@ -213,7 +214,7 @@ foreach ($entry in $taskActions.GetEnumerator()) {
 }
 foreach ($task in $taskActions.Keys) { Start-ScheduledTask -TaskName $task }
 
-& (Join-Path $projectRoot 'configure-clients.ps1') -BundleDir $bundle | Out-Null
+& (Join-Path $projectRoot 'clients\android\scripts\configure.ps1') -BundleDir $bundle | Out-Null
 
 $routerReady = $false
 $kimiReady = $false

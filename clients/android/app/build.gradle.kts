@@ -11,7 +11,7 @@ val clientConfig = Properties().apply {
 
 fun clientConfigValue(key: String): String {
     val value = clientConfig.getProperty(key)
-        ?: error("Missing '$key' in android/remote-everything.properties. Run configure-clients.ps1 with your server bundle first.")
+        ?: error("Missing '$key' in clients/android/remote-everything.properties. Run scripts/configure.ps1 with your server bundle first.")
     return "\"$value\""
 }
 

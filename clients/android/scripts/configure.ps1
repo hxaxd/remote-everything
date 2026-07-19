@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$androidRoot = Split-Path -Parent $PSScriptRoot
 $bundle = (Resolve-Path -LiteralPath $BundleDir).Path
 $config = Get-Content -LiteralPath (Join-Path $bundle 'config.json') -Raw | ConvertFrom-Json
 if ($config.public_host -notmatch '^[A-Za-z0-9.-]+$') { throw 'Invalid public host.' }
@@ -23,14 +23,15 @@ $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
 $fingerprint = $certificate.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256).ToLowerInvariant()
 if ($fingerprint -ne [string]$config.bootstrap_fingerprint) { throw 'Bootstrap certificate fingerprint mismatch.' }
 
-Copy-Item -LiteralPath $p12 -Destination (Join-Path $root 'android\app\src\main\res\raw\bootstrap_client.p12') -Force
-Copy-Item -LiteralPath $p12 -Destination (Join-Path $root 'ios\RemoteEverything\bootstrap-client.p12') -Force
+$rawResources = Join-Path $androidRoot 'app\src\main\res\raw'
+New-Item -ItemType Directory -Path $rawResources -Force | Out-Null
+Copy-Item -LiteralPath $p12 -Destination (Join-Path $rawResources 'bootstrap_client.p12') -Force
 
 $hostName = [string]$config.public_host
 $origin = "https://$hostName"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
-$androidProperties = Join-Path $root 'android\remote-everything.properties'
+$androidProperties = Join-Path $androidRoot 'remote-everything.properties'
 $androidLines = @(
     "gatewayHost=$hostName"
     "gatewayOrigin=$origin"
@@ -40,18 +41,8 @@ $androidLines = @(
 )
 [IO.File]::WriteAllLines($androidProperties, $androidLines, $utf8)
 
-$iosPath = Join-Path $root 'ios\RemoteEverything\AppConfig.swift'
-$ios = [IO.File]::ReadAllText($iosPath)
-$ios = [regex]::Replace($ios, 'gatewayHost = "[^"]+"', "gatewayHost = `"$hostName`"")
-$ios = [regex]::Replace($ios, 'gatewayOrigin = "[^"]+"', "gatewayOrigin = `"$origin`"")
-$ios = [regex]::Replace($ios, 'controlToken = "[^"]+"', "controlToken = `"$($config.control_token)`"")
-$ios = [regex]::Replace($ios, 'bootstrapPassword = "[^"]+"', "bootstrapPassword = `"$($config.bootstrap_password)`"")
-$ios = [regex]::Replace($ios, 'bootstrapFingerprint = "[^"]+"', "bootstrapFingerprint = `"$($config.bootstrap_fingerprint)`"")
-[IO.File]::WriteAllText($iosPath, $ios, $utf8)
-
 [pscustomobject]@{
     public_host = $hostName
     bootstrap_fingerprint = $fingerprint
     android = 'configured'
-    ios = 'configured'
 } | ConvertTo-Json
