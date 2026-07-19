@@ -1,12 +1,12 @@
 [Unit]
-Description=Agent Remote Cloud Controller and Status Page
+Description=Remote Everything Cloud Controller and Status Page
 After=network.target
 
 [Service]
 Type=simple
-User=kimi-control
-Group=kimi-control
-ExecStart=/usr/local/sbin/agent-remote-gateway status-server
+User=remote-everything-control
+Group=remote-everything-control
+ExecStart=/usr/local/sbin/remote-everything-gateway status-server
 Restart=always
 RestartSec=2s
 NoNewPrivileges=yes
@@ -21,7 +21,7 @@ LockPersonality=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/var/lib/kimi-control
+ReadWritePaths=/var/lib/remote-everything-control
 SystemCallFilter=@system-service
 
 [Install]

@@ -1,12 +1,12 @@
 [Unit]
-Description=Agent Remote Device Enrollment
+Description=Remote Everything Device Enrollment
 After=network.target
 
 [Service]
 Type=simple
-User=kimi-enroll
-Group=kimi-enroll
-ExecStart=/usr/local/sbin/agent-remote-gateway enrollment-server
+User=remote-everything-enroll
+Group=remote-everything-enroll
+ExecStart=/usr/local/sbin/remote-everything-gateway enrollment-server
 Restart=always
 RestartSec=2s
 NoNewPrivileges=yes
@@ -21,7 +21,7 @@ LockPersonality=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-ReadWritePaths=/var/lib/kimi-enrollment
+ReadWritePaths=/var/lib/remote-everything-enrollment
 SystemCallFilter=@system-service
 
 [Install]

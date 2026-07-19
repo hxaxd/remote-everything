@@ -33,8 +33,8 @@ func setupEnrollment(t *testing.T) {
 	}
 	logOut = io.Discard
 	t.Cleanup(func() {
-		enrollStateDir = "/var/lib/kimi-enrollment/requests"
-		bootstrapFingerprintFile = "/etc/kimi-gateway/bootstrap-fingerprint"
+		enrollStateDir = "/var/lib/remote-everything-enrollment/requests"
+		bootstrapFingerprintFile = "/etc/remote-everything-gateway/bootstrap-fingerprint"
 		logOut = os.Stdout
 	})
 }
@@ -75,9 +75,9 @@ func makeProof(t *testing.T, deviceName string) deviceProof {
 
 func enrollPost(t *testing.T, payload string, fingerprint string) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/__kimi_enroll/request", strings.NewReader(payload))
+	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_enroll/request", strings.NewReader(payload))
 	if fingerprint != "" {
-		request.Header.Set("X-Kimi-Bootstrap-Fingerprint", fingerprint)
+		request.Header.Set("X-Remote-Everything-Bootstrap-Fingerprint", fingerprint)
 	}
 	recorder := httptest.NewRecorder()
 	enrollHTTPHandler(recorder, request)
@@ -88,7 +88,7 @@ func enrollGet(t *testing.T, target string, fingerprint string) *httptest.Respon
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, target, nil)
 	if fingerprint != "" {
-		request.Header.Set("X-Kimi-Bootstrap-Fingerprint", fingerprint)
+		request.Header.Set("X-Remote-Everything-Bootstrap-Fingerprint", fingerprint)
 	}
 	recorder := httptest.NewRecorder()
 	enrollHTTPHandler(recorder, request)
@@ -181,7 +181,7 @@ func TestEnrollCreateAndStatus(t *testing.T) {
 		t.Fatalf("expires_at not ~24h out: %v", until)
 	}
 
-	status := enrollGet(t, "/__kimi_enroll/status?id="+created.RequestID, "bootstrap-abc123")
+	status := enrollGet(t, "/__remote_everything_enroll/status?id="+created.RequestID, "bootstrap-abc123")
 	if status.Code != 200 {
 		t.Fatalf("status lookup: %d %s", status.Code, status.Body.String())
 	}
@@ -273,7 +273,7 @@ func TestEnrollInvalidPasswordAndDelivery(t *testing.T) {
 		t.Fatalf("expected invalid_credential_delivery: %s", recorder.Body.String())
 	}
 	if recorder := enrollPost(t, build("certificate", ""), "bootstrap-abc123"); responseCode(t, recorder) != "invalid_credential_delivery" {
-		t.Fatalf("expected invalid_credential_delivery for legacy certificate mode: %s", recorder.Body.String())
+		t.Fatalf("expected invalid_credential_delivery for unsupported certificate mode: %s", recorder.Body.String())
 	}
 }
 
@@ -312,10 +312,10 @@ func TestEnrollAuthAndRouting(t *testing.T) {
 	if recorder := enrollGet(t, "/other", "bootstrap-abc123"); recorder.Code != 404 || responseCode(t, recorder) != "not_found" {
 		t.Fatalf("expected not_found: %d", recorder.Code)
 	}
-	if recorder := enrollGet(t, "/__kimi_enroll/status?id=missing", "bootstrap-abc123"); recorder.Code != 404 || responseCode(t, recorder) != "request_not_found" {
+	if recorder := enrollGet(t, "/__remote_everything_enroll/status?id=missing", "bootstrap-abc123"); recorder.Code != 404 || responseCode(t, recorder) != "request_not_found" {
 		t.Fatalf("expected request_not_found: %d", recorder.Code)
 	}
-	if recorder := enrollGet(t, "/__kimi_enroll/status?id=../etc", "bootstrap-abc123"); recorder.Code != 404 || responseCode(t, recorder) != "request_not_found" {
+	if recorder := enrollGet(t, "/__remote_everything_enroll/status?id=../etc", "bootstrap-abc123"); recorder.Code != 404 || responseCode(t, recorder) != "request_not_found" {
 		t.Fatalf("expected request_not_found for traversal: %d", recorder.Code)
 	}
 }

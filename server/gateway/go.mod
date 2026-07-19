@@ -1,4 +1,4 @@
-module agent-remote-gateway
+module remote-everything-gateway
 
 go 1.26.5
 

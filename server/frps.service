@@ -1,12 +1,12 @@
 [Unit]
-Description=Agent Remote FRP Tunnel Server
+Description=Remote Everything FRP Tunnel Server
 After=network.target
 
 [Service]
 Type=simple
-User=kimi-frp
-Group=kimi-frp
-ExecStart=/usr/local/sbin/frps -c /etc/kimi-gateway/frps.toml
+User=remote-everything-frp
+Group=remote-everything-frp
+ExecStart=/usr/local/sbin/frps -c /etc/remote-everything-gateway/frps.toml
 Restart=always
 RestartSec=2s
 NoNewPrivileges=yes

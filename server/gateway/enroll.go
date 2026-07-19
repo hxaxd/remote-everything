@@ -32,7 +32,7 @@ func loadEnrollRequests() []enrollRequestFile {
 }
 
 // saveEnrollRequestCLI rewrites a state file as root: 0600, owned by the
-// enrollment service user, atomic replace — same as kimi-enroll.
+// enrollment service user, atomic replace — same as remote-everything-enroll.
 func saveEnrollRequestCLI(path string, item *enrollRequest) error {
 	contents, err := json.Marshal(item)
 	if err != nil {
@@ -253,6 +253,6 @@ func runEnrollCLI(args []string, stdout io.Writer) error {
 	case len(args) == 1 && args[0] == "rebuild":
 		return rebuildTrust()
 	default:
-		return errors.New("usage: agent-remote-enroll list | approve CODE | revoke FINGERPRINT | rebuild")
+		return errors.New("usage: remote-everything-enroll list | approve CODE | revoke FINGERPRINT | rebuild")
 	}
 }

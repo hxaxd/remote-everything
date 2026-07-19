@@ -5,21 +5,21 @@ plugins {
 }
 
 val clientConfig = Properties().apply {
-    val file = rootProject.file("agent-remote.properties")
+    val file = rootProject.file("remote-everything.properties")
     if (file.isFile) file.inputStream().use { load(it) }
 }
 
 fun clientConfigValue(key: String): String {
     val value = clientConfig.getProperty(key)
-        ?: error("Missing '$key' in android/agent-remote.properties. Run configure-clients.ps1 with your server bundle first.")
+        ?: error("Missing '$key' in android/remote-everything.properties. Run configure-clients.ps1 with your server bundle first.")
     return "\"$value\""
 }
 
 android {
-    namespace = "com.agentremote.app"
+    namespace = "com.remoteeverything.app"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.agentremote.app"
+        applicationId = "com.remoteeverything.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 7
@@ -31,15 +31,15 @@ android {
         buildConfigField("String", "BOOTSTRAP_FINGERPRINT", clientConfigValue("bootstrapFingerprint"))
     }
 
-    val releaseStore = providers.environmentVariable("AGENT_REMOTE_ANDROID_KEYSTORE").orNull
-    val releaseStorePassword = providers.environmentVariable("AGENT_REMOTE_ANDROID_STORE_PASSWORD").orNull
-    val releaseKeyPassword = providers.environmentVariable("AGENT_REMOTE_ANDROID_KEY_PASSWORD").orNull
+    val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
+    val releaseStorePassword = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD").orNull
+    val releaseKeyPassword = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD").orNull
     signingConfigs {
         if (releaseStore != null && releaseStorePassword != null && releaseKeyPassword != null) {
-            create("agentRemoteRelease") {
+            create("remoteEverythingRelease") {
                 storeFile = file(releaseStore)
                 storePassword = releaseStorePassword
-                keyAlias = "agent-remote"
+                keyAlias = "remote-everything"
                 keyPassword = releaseKeyPassword
             }
         }
@@ -49,7 +49,7 @@ android {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.findByName("agentRemoteRelease")
+            signingConfig = signingConfigs.findByName("remoteEverythingRelease")
         }
     }
     compileOptions {

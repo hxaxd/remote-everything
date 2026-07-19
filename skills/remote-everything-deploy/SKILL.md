@@ -1,6 +1,6 @@
 ---
-name: agent-remote-deploy
-description: Agent Remote 上线流程：本地验证→部署→全链路测试→实机验证的固定顺序
+name: remote-everything-deploy
+description: Remote Everything 上线流程：本地验证→部署→全链路测试→实机验证的固定顺序
 whenToUse: 当用户要求部署、上线、发布、把改动同步到服务器或 Windows 时
 arguments:
   - target

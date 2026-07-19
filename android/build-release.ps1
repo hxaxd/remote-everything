@@ -1,13 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$signingDir = Join-Path $env:LOCALAPPDATA 'AgentRemoteSign'
-$legacySigningDir = Join-Path $env:LOCALAPPDATA 'AgentRemote\signing'
-if (-not (Test-Path -LiteralPath $signingDir) -and (Test-Path -LiteralPath $legacySigningDir)) {
-    New-Item -ItemType Directory -Force $signingDir | Out-Null
-    Move-Item -LiteralPath (Join-Path $legacySigningDir '*') -Destination $signingDir -Force
-    Remove-Item -LiteralPath $legacySigningDir -Force
-}
+$signingDir = Join-Path $env:LOCALAPPDATA 'RemoteEverythingSign'
 $keyStore = Join-Path $signingDir 'android-release.jks'
 $passwordFile = Join-Path $signingDir 'android-release.password'
 $androidSdk = @($env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk')) |
@@ -31,13 +25,13 @@ if (-not (Test-Path -LiteralPath $passwordFile)) {
 }
 $password = (Get-Content -LiteralPath $passwordFile -Raw).Trim()
 if (-not (Test-Path -LiteralPath $keyStore)) {
-    & $keytool -genkeypair -keystore $keyStore -storepass $password -keypass $password -alias agent-remote -keyalg RSA -keysize 4096 -validity 36500 -dname 'CN=Agent Remote, OU=Personal, O=Agent Remote, C=CN'
+    & $keytool -genkeypair -keystore $keyStore -storepass $password -keypass $password -alias remote-everything -keyalg RSA -keysize 4096 -validity 36500 -dname 'CN=Remote Everything, OU=Personal, O=Remote Everything, C=CN'
     if ($LASTEXITCODE -ne 0) { throw 'Android signing key creation failed.' }
 }
 
 $env:JAVA_HOME = $javaHome
-$env:AGENT_REMOTE_ANDROID_KEYSTORE = $keyStore
-$env:AGENT_REMOTE_ANDROID_STORE_PASSWORD = $password
-$env:AGENT_REMOTE_ANDROID_KEY_PASSWORD = $password
+$env:REMOTE_EVERYTHING_ANDROID_KEYSTORE = $keyStore
+$env:REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD = $password
+$env:REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD = $password
 & (Join-Path $projectDir 'gradlew.bat') --no-daemon --console=plain :app:assembleRelease
 if ($LASTEXITCODE -ne 0) { throw 'Android release build failed.' }

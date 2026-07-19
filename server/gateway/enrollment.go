@@ -30,8 +30,8 @@ const (
 	enrollCodeAlphabet    = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 	enrollSweepInterval   = time.Hour
 	enrollRequestLifetime = 24 * time.Hour
-	enrollRequestPath     = "/__kimi_enroll/request"
-	enrollStatusPath      = "/__kimi_enroll/status"
+	enrollRequestPath     = "/__remote_everything_enroll/request"
+	enrollStatusPath      = "/__remote_everything_enroll/status"
 )
 
 var (
@@ -359,7 +359,7 @@ func enrollBootstrapAuthorized(request *http.Request) bool {
 		logLine("enrollment-server", "error", "bootstrap fingerprint unavailable", "path", request.URL.Path)
 		return false
 	}
-	supplied := strings.ToLower(strings.TrimSpace(request.Header.Get("X-Kimi-Bootstrap-Fingerprint")))
+	supplied := strings.ToLower(strings.TrimSpace(request.Header.Get("X-Remote-Everything-Bootstrap-Fingerprint")))
 	return subtle.ConstantTimeCompare([]byte(supplied), []byte(expected)) == 1
 }
 

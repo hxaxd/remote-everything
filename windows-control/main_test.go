@@ -39,7 +39,7 @@ func testRegistry(t *testing.T) {
 
 func TestLocalControl(t *testing.T) {
 	testRegistry(t)
-	request := httptest.NewRequest(http.MethodPost, "/__local_agent_control", bytes.NewBufferString(`{"action":"list"}`))
+	request := httptest.NewRequest(http.MethodPost, "/__local_remote_control", bytes.NewBufferString(`{"action":"list"}`))
 	request.Header.Set("Authorization", "Bearer 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	recorder := httptest.NewRecorder()
 	localControlHandler(recorder, request)
@@ -52,7 +52,7 @@ func TestLocalControl(t *testing.T) {
 	}
 
 	denied := httptest.NewRecorder()
-	localControlHandler(denied, httptest.NewRequest(http.MethodPost, "/__local_agent_control", bytes.NewBufferString(`{"action":"list"}`)))
+	localControlHandler(denied, httptest.NewRequest(http.MethodPost, "/__local_remote_control", bytes.NewBufferString(`{"action":"list"}`)))
 	if denied.Code != http.StatusUnauthorized {
 		t.Fatalf("unexpected denied status: %d", denied.Code)
 	}
@@ -81,7 +81,7 @@ func TestInvalidWorkDirRejected(t *testing.T) {
 		Apps: []appDefinition{{
 			ID: "kimi", Name: "Kimi Code", Description: "Remote", Icon: "K", Accent: "#2563eb",
 			WebURL: "https://example.com/", ProxyURL: "http://127.0.0.1:2", Command: "missing.exe", Probe: "127.0.0.1:1",
-			WorkDir: `C:\definitely-not-existing-agent-remote-dir`,
+			WorkDir: `C:\definitely-not-existing-remote-everything-dir`,
 		}},
 	}
 	contents, err := json.Marshal(value)

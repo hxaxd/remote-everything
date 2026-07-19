@@ -1,4 +1,4 @@
-package com.agentremote.app
+package com.remoteeverything.app
 
 import android.annotation.SuppressLint
 import android.content.ClipData
@@ -200,7 +200,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(28), dp(72), dp(28), dp(32))
         }
-        root.addView(Ui.label(this, "Agent 远程", 30f, Ui.textPrimary, Typeface.BOLD))
+        root.addView(Ui.label(this, "远程万物", 30f, Ui.textPrimary, Typeface.BOLD))
         root.addView(Ui.label(this, "启动失败，但应用没有退出", 17f, Ui.danger, Typeface.BOLD).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(28), 0, dp(10))
@@ -223,7 +223,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(24), dp(56), dp(24), dp(32))
         }
-        root.addView(Ui.label(this, "Agent 远程", 30f, Ui.textPrimary, Typeface.BOLD))
+        root.addView(Ui.label(this, "远程万物", 30f, Ui.textPrimary, Typeface.BOLD))
         root.addView(Ui.label(this, "安全连接这台设备", 15f, Ui.textSecondary).apply { setPadding(0, dp(8), 0, dp(26)) })
 
         val cardView = Ui.card(this).apply { setPadding(dp(22), dp(24), dp(22), dp(24)) }
@@ -246,7 +246,7 @@ class MainActivity : ComponentActivity() {
             visibility = View.GONE
             setOnClickListener {
                 (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                    .setPrimaryClip(ClipData.newPlainText("Agent 远程审批码", code.text))
+                    .setPrimaryClip(ClipData.newPlainText("远程万物审批码", code.text))
                 Toast.makeText(this@MainActivity, "审批码已复制", Toast.LENGTH_SHORT).show()
             }
         }
@@ -288,7 +288,7 @@ class MainActivity : ComponentActivity() {
                     AppConfig.ENROLL_REQUEST_URL,
                     "POST",
                     bootstrap,
-                    mapOf("X-Kimi-Bootstrap-Fingerprint" to AppConfig.BOOTSTRAP_FINGERPRINT),
+                    mapOf("X-Remote-Everything-Bootstrap-Fingerprint" to AppConfig.BOOTSTRAP_FINGERPRINT),
                     payload,
                 )
                 require(response.status == 200) { "注册请求失败（${response.status}）" }
@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity() {
                         query,
                         "GET",
                         bootstrap,
-                        mapOf("X-Kimi-Bootstrap-Fingerprint" to AppConfig.BOOTSTRAP_FINGERPRINT),
+                        mapOf("X-Remote-Everything-Bootstrap-Fingerprint" to AppConfig.BOOTSTRAP_FINGERPRINT),
                     )
                     if (polled.status == 404) {
                         main.post { showEnrollment() }
@@ -349,7 +349,7 @@ class MainActivity : ComponentActivity() {
         webView = null
         applyOrientation(null)
         val content = contentRoot().apply { setPadding(dp(20), dp(48), dp(20), dp(32)) }
-        content.addView(header("Agent 远程", "我的应用") {
+        content.addView(header("远程万物", "我的应用") {
             TextView(this).apply {
                 text = "⚙"
                 textSize = 22f

@@ -1,4 +1,4 @@
-package com.agentremote.app
+package com.remoteeverything.app
 
 import android.content.Context
 import android.graphics.Color

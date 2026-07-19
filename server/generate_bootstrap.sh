@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-target=${TARGET_DIR:-/etc/kimi-gateway}
+target=${TARGET_DIR:-/etc/remote-everything-gateway}
 build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
 install -d -m 755 "$target"
@@ -9,14 +9,14 @@ pass=$(openssl rand -hex 24)
 
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$build/ca.key.pem" >/dev/null 2>&1
 openssl req -new -x509 -key "$build/ca.key.pem" -sha256 -days 3650 \
-  -subj '/CN=Agent Remote Bootstrap CA' \
+  -subj '/CN=Remote Everything Bootstrap CA' \
   -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
   -addext 'keyUsage=critical,keyCertSign,cRLSign' \
   -out "$build/ca.crt.pem"
 
 openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$build/client.key.pem" >/dev/null 2>&1
 openssl req -new -key "$build/client.key.pem" \
-  -subj '/CN=Agent Remote Bootstrap Client' \
+  -subj '/CN=Remote Everything Bootstrap Client' \
   -out "$build/client.csr.pem"
 printf '%s\n' \
   'basicConstraints=critical,CA:FALSE' \
@@ -31,7 +31,7 @@ openssl pkcs12 -export \
   -inkey "$build/client.key.pem" \
   -in "$build/client.crt.pem" \
   -certfile "$build/ca.crt.pem" \
-  -name 'Agent Remote enrollment bootstrap' \
+  -name 'Remote Everything enrollment bootstrap' \
   -passout "pass:$pass" \
   -out "$build/bootstrap-client.p12"
 

@@ -50,8 +50,8 @@ func setupStatus(t *testing.T) *statusFixture {
 	localControlURL = fixture.upstream.URL
 	t.Cleanup(func() {
 		fixture.upstream.Close()
-		appsCacheFile = "/var/lib/kimi-control/apps-cache.json"
-		localControlURL = "http://127.0.0.1:58628/__local_agent_control"
+		appsCacheFile = "/var/lib/remote-everything-control/apps-cache.json"
+		localControlURL = "http://127.0.0.1:58628/__local_remote_control"
 		controlToken = ""
 		logOut = os.Stdout
 	})
@@ -88,17 +88,17 @@ func TestStatusHealthz(t *testing.T) {
 
 func TestStatusUnauthorized(t *testing.T) {
 	setupStatus(t)
-	for _, target := range []string{"/__agent_remote/apps", "/__agent_remote/apps/kimi/status", "/__kimi_remote/status"} {
+	for _, target := range []string{"/__remote_everything/apps", "/__remote_everything/apps/kimi/status"} {
 		recorder := statusRequest(t, "GET", target, "", "")
 		if recorder.Code != 401 || recorder.Body.String() != `{"ok":false,"code":"unauthorized"}` {
 			t.Fatalf("%s: expected 401: %d %s", target, recorder.Code, recorder.Body.String())
 		}
 	}
-	recorder := statusRequest(t, "POST", "/__agent_remote/apps/kimi/start", "wrong", "")
+	recorder := statusRequest(t, "POST", "/__remote_everything/apps/kimi/start", "wrong", "")
 	if recorder.Code != 401 {
 		t.Fatalf("wrong token: %d", recorder.Code)
 	}
-	recorder = statusRequest(t, "GET", "/__agent_remote/apps", "test-control-token", "")
+	recorder = statusRequest(t, "GET", "/__remote_everything/apps", "test-control-token", "")
 	if recorder.Code != 200 {
 		t.Fatalf("authorized: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -113,7 +113,7 @@ func TestStatusAppIDValidation(t *testing.T) {
 		t.Fatalf("bad action: %s", got)
 	}
 	// Routes reject invalid ids before auth.
-	recorder := statusRequest(t, "POST", "/__agent_remote/apps/Bad-ID/start", "test-control-token", "")
+	recorder := statusRequest(t, "POST", "/__remote_everything/apps/Bad-ID/start", "test-control-token", "")
 	if recorder.Code != 404 || recorder.Body.String() != `{"ok":false,"code":"not_found"}` {
 		t.Fatalf("bad route id: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -183,7 +183,7 @@ func TestStatusOpenRoute(t *testing.T) {
 		return 200, `{"ok":true,"apps":[{"id":"kimi"}]}`
 	}
 	// No Authorization header on purpose: the open route is not token-gated.
-	recorder := statusRequest(t, "GET", "/__agent_remote/open/kimi", "", "")
+	recorder := statusRequest(t, "GET", "/__remote_everything/open/kimi", "", "")
 	if recorder.Code != 302 {
 		t.Fatalf("open: %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -191,13 +191,13 @@ func TestStatusOpenRoute(t *testing.T) {
 		t.Fatalf("open location: %v", recorder.Header())
 	}
 	cookie := recorder.Header().Get("Set-Cookie")
-	if cookie != "AgentRemoteApp=kimi; Path=/; Max-Age=86400; Secure; HttpOnly; SameSite=Strict" {
+	if cookie != "RemoteEverythingApp=kimi; Path=/; Max-Age=86400; Secure; HttpOnly; SameSite=Strict" {
 		t.Fatalf("open cookie: %q", cookie)
 	}
 	if recorder.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("open cache control: %v", recorder.Header())
 	}
-	unknown := statusRequest(t, "GET", "/__agent_remote/open/unknown", "", "")
+	unknown := statusRequest(t, "GET", "/__remote_everything/open/unknown", "", "")
 	if unknown.Code != 404 {
 		t.Fatalf("open unknown: %d", unknown.Code)
 	}
@@ -211,13 +211,13 @@ func TestStatusPage(t *testing.T) {
 	fixture.handler = func(action, id string) (int, string) {
 		return 200, `{"ok":true,"computer_connected":true,"running":true,"code":"ready"}`
 	}
-	recorder := statusRequest(t, "GET", "/", "", "AgentRemoteApp=kimi")
+	recorder := statusRequest(t, "GET", "/", "", "RemoteEverythingApp=kimi")
 	if recorder.Code != 200 || !strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("page: %d %v", recorder.Code, recorder.Header())
 	}
 	body := recorder.Body.String()
 	if !strings.Contains(body, "远程应用正在运行") || !strings.Contains(body, "#22c55e") ||
-		!strings.Contains(body, "Agent 远程云端入口正常") || !strings.Contains(body, `lang="zh-CN"`) {
+		!strings.Contains(body, "远程万物云端入口正常") || !strings.Contains(body, `lang="zh-CN"`) {
 		t.Fatalf("page body wrong: %s", body)
 	}
 	if recorder.Header().Get("Content-Security-Policy") != statusCSP {
@@ -228,7 +228,7 @@ func TestStatusPage(t *testing.T) {
 	}
 
 	// Unknown cookie value falls back to kimi.
-	statusRequest(t, "GET", "/", "", "AgentRemoteApp=not!!valid")
+	statusRequest(t, "GET", "/", "", "RemoteEverythingApp=not!!valid")
 	if fixture.requests[1] != "status/kimi" {
 		t.Fatalf("invalid cookie should fall back: %v", fixture.requests)
 	}
@@ -244,19 +244,19 @@ func TestStatusPage(t *testing.T) {
 
 func TestStatusPostRoutes(t *testing.T) {
 	fixture := setupStatus(t)
-	recorder := statusRequest(t, "POST", "/__agent_remote/apps/kimi/start", "test-control-token", "")
+	recorder := statusRequest(t, "POST", "/__remote_everything/apps/kimi/start", "test-control-token", "")
 	if recorder.Code != 200 || fixture.requests[0] != "start/kimi" {
 		t.Fatalf("start: %d %v", recorder.Code, fixture.requests)
 	}
-	recorder = statusRequest(t, "POST", "/__kimi_remote/stop", "test-control-token", "")
+	recorder = statusRequest(t, "POST", "/__remote_everything/apps/kimi/stop", "test-control-token", "")
 	if recorder.Code != 200 || fixture.requests[1] != "stop/kimi" {
 		t.Fatalf("stop: %d %v", recorder.Code, fixture.requests)
 	}
-	if recorder := statusRequest(t, "POST", "/__agent_remote/apps", "test-control-token", ""); recorder.Code != 404 {
+	if recorder := statusRequest(t, "POST", "/__remote_everything/apps", "test-control-token", ""); recorder.Code != 404 {
 		t.Fatalf("post apps: %d", recorder.Code)
 	}
 	// GET on a start/stop route falls through to the status page, like Python.
-	recorder = statusRequest(t, "GET", "/__agent_remote/apps/kimi/start", "", "")
+	recorder = statusRequest(t, "GET", "/__remote_everything/apps/kimi/start", "", "")
 	if recorder.Code != 200 || !strings.Contains(recorder.Body.String(), "远程应用正在运行") {
 		t.Fatalf("get start route should render page: %d", recorder.Code)
 	}

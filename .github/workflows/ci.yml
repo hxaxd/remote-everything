@@ -39,7 +39,7 @@ jobs:
       - name: dummy client config
         working-directory: android
         run: |
-          cat > agent-remote.properties <<'EOF'
+          cat > remote-everything.properties <<'EOF'
           gatewayHost=example.invalid
           gatewayOrigin=https://example.invalid
           controlToken=0000000000000000000000000000000000000000000000000000000000000000
@@ -88,7 +88,7 @@ jobs:
           fi
       - name: no pkcs12 or local config
         run: |
-          if git ls-files | grep -Ei '\.p12$|agent-remote\.properties$|local\.properties$|AGENTS\.local\.md$'; then
+          if git ls-files | grep -Ei '\.p12$|remote-everything\.properties$|local\.properties$|AGENTS\.local\.md$'; then
             echo "::error::forbidden file tracked in repository"
             exit 1
           fi

@@ -6,7 +6,7 @@
 
 同包名同签名**覆盖安装**，不要卸载（卸载会丢失本机凭据，需要重新审批）。升级后实机走一遍：目录 → 启动/停止 → 进入 → 边缘菜单。升级本身不影响远端服务，无断线。
 
-签名材料位于 `%LOCALAPPDATA%\AgentRemoteSign\`（`android-release.jks` + 同名 `.password` 文件，与运行时状态目录分离，卸载运行时不会触碰）。**务必离线备份**：签名密钥丢失 = 无法发布同签名更新 = 用户必须卸载重装并重新审批。
+签名材料位于 `%LOCALAPPDATA%\RemoteEverythingSign\`（`android-release.jks` + 同名 `.password` 文件，与运行时状态目录分离，卸载运行时不会触碰）。**务必离线备份**：签名密钥丢失 = 无法发布同签名更新 = 用户必须卸载重装并重新审批。
 
 ## Windows 控制服务
 
@@ -15,8 +15,8 @@
 ## 云服务器
 
 ```powershell
-scp -r .\server "root@<服务器>:/root/agent-remote-server"
-ssh "root@<服务器>" "PUBLIC_HOST='<地址>' WINDOWS_USER='<用户>' /root/agent-remote-server/install_gateway.sh"
+scp -r .\server "root@<服务器>:/root/remote-everything-server"
+ssh "root@<服务器>" "PUBLIC_HOST='<地址>' WINDOWS_USER='<用户>' /root/remote-everything-server/install_gateway.sh"
 ```
 
 `install_gateway.sh` 幂等：已存在的密钥、令牌、证书一律保留，只更新程序与配置。随后跑服务端全链路测试（命令见 `AGENTS.md` 构建与验证一节）。中断窗口为各服务 reload/restart 的秒级时间。

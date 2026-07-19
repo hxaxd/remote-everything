@@ -1,4 +1,4 @@
-package com.agentremote.app
+package com.remoteeverything.app
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
@@ -26,9 +26,9 @@ import javax.net.ssl.SSLEngine
 import javax.net.ssl.X509ExtendedKeyManager
 
 class DeviceIdentity(private val context: Context) {
-    private val proofAlias = "agent_remote_device_key_v1"
-    private val wrapAlias = "agent_remote_credential_wrap_v1"
-    private val preferences = context.getSharedPreferences("agent_remote_identity", Context.MODE_PRIVATE)
+    private val proofAlias = "remote_everything_device_key_v1"
+    private val wrapAlias = "remote_everything_credential_wrap_v1"
+    private val preferences = context.getSharedPreferences("remote_everything_identity", Context.MODE_PRIVATE)
     private val softwareDir: File get() = File(context.filesDir, "identity_sw").apply { mkdirs() }
 
     // 硬件密钥库优先；卓易通等容器调不了 AndroidKeyStore 时回退软件密钥（安全性见 docs/SECURITY.md）
@@ -231,7 +231,7 @@ class StaticIdentityKeyManager(
     private val privateKey: PrivateKey,
     private val chain: Array<X509Certificate>,
 ) : X509ExtendedKeyManager() {
-    private val identityAlias = "agent-remote"
+    private val identityAlias = "remote-everything"
 
     private fun supports(keyType: String?): Boolean {
         if (keyType == null) return true
