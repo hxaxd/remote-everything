@@ -10,7 +10,7 @@
 
 ## Windows 控制服务
 
-重跑 `windows/install.ps1 -BundleDir <bundle>`：脚本会先停任务、杀旧进程、重新构建并恢复任务，幂等可重跑。中断窗口约几秒（计划任务重启期间手机端显示电脑离线，自动恢复）。
+重跑 `nodes/windows/scripts/install.ps1 -BundleDir <bundle>`：脚本会先停任务、杀旧进程、重新构建并恢复任务，幂等可重跑。中断窗口约几秒（计划任务重启期间手机端显示电脑离线，自动恢复）。
 
 ## 云服务器
 
