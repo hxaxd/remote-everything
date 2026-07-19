@@ -1,5 +1,5 @@
-# 秘密与本地配置（绝不提交）
-bundle/
+# 秘密与本地配置
+server/bundle/
 *.p12
 remote-everything.properties
 AGENTS.local.md
@@ -24,7 +24,7 @@ __pycache__/
 Thumbs.db
 
 # Windows 控制程序本地构建输出
-windows-control/remote-everything-control.exe
+nodes/windows/control/remote-everything-control.exe
 
 # 网关本地构建输出与临时产物
 server/gateway/remote-everything-gateway*
