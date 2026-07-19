@@ -31,7 +31,7 @@ class DeviceIdentity(private val context: Context) {
     private val preferences = context.getSharedPreferences("remote_everything_identity", Context.MODE_PRIVATE)
     private val softwareDir: File get() = File(context.filesDir, "identity_sw").apply { mkdirs() }
 
-    // 硬件密钥库优先；卓易通等容器调不了 AndroidKeyStore 时回退软件密钥（安全性见 docs/SECURITY.md）
+    // 硬件密钥库优先；卓易通等容器调不了 AndroidKeyStore 时回退软件密钥（安全性见 skills/docs/SECURITY.md）
     val hardwareBacked: Boolean by lazy { mode() == "hw" }
 
     private fun mode(): String {
