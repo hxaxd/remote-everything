@@ -24,13 +24,13 @@ $fingerprint = $certificate.GetCertHashString([Security.Cryptography.HashAlgorit
 if ($fingerprint -ne [string]$config.bootstrap_fingerprint) { throw 'Bootstrap certificate fingerprint mismatch.' }
 
 Copy-Item -LiteralPath $p12 -Destination (Join-Path $root 'android\app\src\main\res\raw\bootstrap_client.p12') -Force
-Copy-Item -LiteralPath $p12 -Destination (Join-Path $root 'ios\AgentRemote\bootstrap-client.p12') -Force
+Copy-Item -LiteralPath $p12 -Destination (Join-Path $root 'ios\RemoteEverything\bootstrap-client.p12') -Force
 
 $hostName = [string]$config.public_host
 $origin = "https://$hostName"
 $utf8 = [Text.UTF8Encoding]::new($false)
 
-$androidProperties = Join-Path $root 'android\agent-remote.properties'
+$androidProperties = Join-Path $root 'android\remote-everything.properties'
 $androidLines = @(
     "gatewayHost=$hostName"
     "gatewayOrigin=$origin"
@@ -40,7 +40,7 @@ $androidLines = @(
 )
 [IO.File]::WriteAllLines($androidProperties, $androidLines, $utf8)
 
-$iosPath = Join-Path $root 'ios\AgentRemote\AppConfig.swift'
+$iosPath = Join-Path $root 'ios\RemoteEverything\AppConfig.swift'
 $ios = [IO.File]::ReadAllText($iosPath)
 $ios = [regex]::Replace($ios, 'gatewayHost = "[^"]+"', "gatewayHost = `"$hostName`"")
 $ios = [regex]::Replace($ios, 'gatewayOrigin = "[^"]+"', "gatewayOrigin = `"$origin`"")

@@ -38,7 +38,7 @@ if ($StopCommand) { $stopCommandPath = (Resolve-Path -LiteralPath $StopCommand).
 if (-not $Icon) { $Icon = $Name.Substring(0, 1).ToUpperInvariant() }
 if ($Icon.Length -gt 4) { throw 'Application icon text is too long.' }
 
-$stateRoot = Join-Path $env:LOCALAPPDATA 'AgentRemote'
+$stateRoot = Join-Path $env:LOCALAPPDATA 'RemoteEverything'
 $enabledRoot = Join-Path $stateRoot 'enabled'
 $registryPath = Join-Path $stateRoot 'apps.json'
 New-Item -ItemType Directory -Path $stateRoot, $enabledRoot -Force | Out-Null
@@ -76,7 +76,7 @@ if ($Enabled) {
 elseif (Test-Path -LiteralPath $enabledPath) {
     Remove-Item -LiteralPath $enabledPath -Force
 }
-if (Get-ScheduledTask -TaskName 'AgentRemote-Apps' -ErrorAction SilentlyContinue) {
-    Start-ScheduledTask -TaskName 'AgentRemote-Apps'
+if (Get-ScheduledTask -TaskName 'RemoteEverything-Apps' -ErrorAction SilentlyContinue) {
+    Start-ScheduledTask -TaskName 'RemoteEverything-Apps'
 }
 $value.apps | Where-Object id -eq $Id | ConvertTo-Json -Depth 8

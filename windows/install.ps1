@@ -31,15 +31,15 @@ if (-not $KimiExe -or -not (Test-Path -LiteralPath $KimiExe)) { throw 'Kimi Code
 $go = Get-Command go.exe -ErrorAction SilentlyContinue
 if (-not $go) { throw 'Go compiler was not found.' }
 
-$stateRoot = Join-Path $env:LOCALAPPDATA 'AgentRemote'
+$stateRoot = Join-Path $env:LOCALAPPDATA 'RemoteEverything'
 $logs = Join-Path $stateRoot 'logs'
 $controlTokenFile = Join-Path $stateRoot 'control-token'
 New-Item -ItemType Directory -Path $stateRoot, $logs -Force | Out-Null
 [IO.File]::WriteAllText($controlTokenFile, [string]$config.control_token, [Text.UTF8Encoding]::new($false))
 
-$controlExecutable = Join-Path $stateRoot 'agent-remote-control.exe'
-if (Get-ScheduledTask -TaskName 'AgentRemote-Apps' -ErrorAction SilentlyContinue) {
-    Stop-ScheduledTask -TaskName 'AgentRemote-Apps' -ErrorAction SilentlyContinue
+$controlExecutable = Join-Path $stateRoot 'remote-everything-control.exe'
+if (Get-ScheduledTask -TaskName 'RemoteEverything-Apps' -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask -TaskName 'RemoteEverything-Apps' -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 }
 & $KimiExe server kill 2>$null
@@ -60,7 +60,7 @@ if (Test-Path -LiteralPath $frpcExecutable) {
     $frpcCurrent = ((& $frpcExecutable --version 2>$null) | Out-String) -match [regex]::Escape($FrpVersion)
 }
 if (-not $frpcCurrent) {
-    $downloadDir = Join-Path $env:TEMP "agent-remote-frp-$FrpVersion"
+    $downloadDir = Join-Path $env:TEMP "remote-everything-frp-$FrpVersion"
     $zipName = "frp_${FrpVersion}_windows_amd64.zip"
     New-Item -ItemType Directory -Force $downloadDir | Out-Null
     $downloaded = $false
@@ -84,7 +84,7 @@ if (Test-Path -LiteralPath $ttydExecutable) {
     $ttydCurrent = ((& $ttydExecutable --version 2>$null) | Out-String) -match [regex]::Escape($ttydVersion)
 }
 if (-not $ttydCurrent) {
-    $downloadDir = Join-Path $env:TEMP "agent-remote-ttyd-$ttydVersion"
+    $downloadDir = Join-Path $env:TEMP "remote-everything-ttyd-$ttydVersion"
     New-Item -ItemType Directory -Force $downloadDir | Out-Null
     $downloaded = $false
     if (Get-Command gh -ErrorAction SilentlyContinue) {
@@ -122,30 +122,13 @@ log.level = "info"
 log.maxDays = 7
 
 [[proxies]]
-name = "agent-remote"
+name = "remote-everything"
 type = "tcp"
 localIP = "127.0.0.1"
 localPort = 58627
 remotePort = 58628
 "@
 [IO.File]::WriteAllText($frpcConfig, $frpcToml, [Text.UTF8Encoding]::new($false))
-
-# SSH 隧道时代遗留全部清除
-foreach ($legacyPath in @('sshd', 'run-control-hidden.vbs', 'run-tunnel-hidden.vbs', 'run-kimi-hidden.vbs', 'tunnel-client.key', 'server-known-hosts')) {
-    $target = Join-Path $stateRoot $legacyPath
-    if (Test-Path -LiteralPath $target) { Remove-Item -Recurse -Force $target }
-}
-foreach ($legacyProcess in @('wscript', 'ssh', 'sshd')) {
-    Get-Process -Name $legacyProcess -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-}
-foreach ($legacyLog in @('control-sshd.log', 'tunnel.log', 'registration-test.log')) {
-    $target = Join-Path $logs $legacyLog
-    if (Test-Path -LiteralPath $target) { Remove-Item -Force $target -ErrorAction SilentlyContinue }
-}
-if (Get-ScheduledTask -TaskName 'AgentRemote-LocalControl' -ErrorAction SilentlyContinue) {
-    Stop-ScheduledTask -TaskName 'AgentRemote-LocalControl' -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName 'AgentRemote-LocalControl' -Confirm:$false
-}
 
 $sid = $identity.User.Value
 foreach ($securedFile in @($controlTokenFile, $frpcConfig, (Join-Path $stateRoot 'pc-wss.key.pem'))) {
@@ -157,7 +140,7 @@ $kimiTokenFile = Join-Path $env:USERPROFILE '.kimi-code\server.token'
 if (-not (Test-Path -LiteralPath $kimiTokenFile)) { throw 'Kimi server token was not found.' }
 $kimiToken = (Get-Content -LiteralPath $kimiTokenFile -Raw).Trim()
 if ($kimiToken -notmatch '^[A-Za-z0-9_-]{20,200}$') { throw 'Invalid Kimi server token.' }
-$kimiWebUrl = "https://$($config.public_host)/__agent_remote/open/kimi#token=$kimiToken"
+$kimiWebUrl = "https://$($config.public_host)/__remote_everything/open/kimi#token=$kimiToken"
 $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host', '127.0.0.1', '--allowed-host', [string]$config.public_host, '--keep-alive', '--log-level', 'info')
 & (Join-Path $projectRoot 'windows\register-app.ps1') `
     -Id 'kimi' `
@@ -179,7 +162,7 @@ $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host',
     -Description '浏览、预览、上传和下载电脑文件' `
     -Icon 'F' `
     -Accent '#22c55e' `
-    -WebUrl "https://$($config.public_host)/__agent_remote/open/files" `
+    -WebUrl "https://$($config.public_host)/__remote_everything/open/files" `
     -ProxyUrl 'http://127.0.0.1:58633' `
     -Command $controlExecutable `
     -Arguments @('files') `
@@ -191,7 +174,7 @@ $kimiArguments = @('server', 'run', '--foreground', '--port', '58632', '--host',
     -Description '远程 PowerShell（默认关闭，谨慎开启）' `
     -Icon '>_' `
     -Accent '#f59e0b' `
-    -WebUrl "https://$($config.public_host)/__agent_remote/open/terminal" `
+    -WebUrl "https://$($config.public_host)/__remote_everything/open/terminal" `
     -ProxyUrl 'http://127.0.0.1:58634' `
     -Command $ttydExecutable `
     -Arguments @('-i','127.0.0.1','-p','58634','-W','powershell.exe') `
@@ -222,11 +205,11 @@ $trigger = New-ScheduledTaskTrigger -AtLogOn -User $taskUser
 $interactivePrincipal = New-ScheduledTaskPrincipal -UserId $taskUser -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero)
 $taskActions = [ordered]@{
-    'AgentRemote-Apps' = New-ScheduledTaskAction -Execute $controlExecutable -Argument 'serve'
-    'AgentRemote-Tunnel' = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -Argument ('"' + $frpcVbs + '"')
+    'RemoteEverything-Apps' = New-ScheduledTaskAction -Execute $controlExecutable -Argument 'serve'
+    'RemoteEverything-Tunnel' = New-ScheduledTaskAction -Execute "$env:SystemRoot\System32\wscript.exe" -Argument ('"' + $frpcVbs + '"')
 }
 foreach ($entry in $taskActions.GetEnumerator()) {
-    Register-ScheduledTask -TaskName $entry.Key -Action $entry.Value -Trigger $trigger -Principal $interactivePrincipal -Settings $settings -Description 'Agent Remote background service' -Force | Out-Null
+    Register-ScheduledTask -TaskName $entry.Key -Action $entry.Value -Trigger $trigger -Principal $interactivePrincipal -Settings $settings -Description 'Remote Everything background service' -Force | Out-Null
 }
 foreach ($task in $taskActions.Keys) { Start-ScheduledTask -TaskName $task }
 

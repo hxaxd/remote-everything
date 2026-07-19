@@ -1,10 +1,10 @@
-package com.agentremote.app
+package com.remoteeverything.app
 
 import android.content.Context
 import android.content.pm.ActivityInfo
 
 class SettingsStore(context: Context) {
-    private val prefs = context.getSharedPreferences("agent_remote_settings", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("remote_everything_settings", Context.MODE_PRIVATE)
 
     // 方向：global 设置取 system/portrait/landscape；应用级可取 global（跟随全局）
     fun globalOrientation(): String = prefs.getString("global_orientation", "system") ?: "system"

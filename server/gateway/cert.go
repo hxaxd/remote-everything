@@ -113,7 +113,7 @@ func loadIssuer() (*ecdsa.PrivateKey, *x509.Certificate, error) {
 	return issuerKey, issuerCert, nil
 }
 
-// issueDeviceCertificate reproduces the certificate fields of kimi-enroll.
+// issueDeviceCertificate reproduces the certificate fields of remote-everything-enroll.
 func issueDeviceCertificate(issuerKey *ecdsa.PrivateKey, issuerCert *x509.Certificate, publicKey *ecdsa.PublicKey, deviceName, keyFingerprint string, now time.Time) (*x509.Certificate, []byte, string, error) {
 	serialBytes := make([]byte, 20)
 	if _, err := rand.Read(serialBytes); err != nil {

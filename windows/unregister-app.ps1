@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$stateRoot = Join-Path $env:LOCALAPPDATA 'AgentRemote'
+$stateRoot = Join-Path $env:LOCALAPPDATA 'RemoteEverything'
 $registryPath = Join-Path $stateRoot 'apps.json'
 if (-not (Test-Path -LiteralPath $registryPath)) { throw 'Application registry was not found.' }
 $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json

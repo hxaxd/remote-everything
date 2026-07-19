@@ -5,11 +5,11 @@ Push-Location (Join-Path $root 'gateway')
 try {
     $env:GOOS = 'linux'
     $env:GOARCH = 'amd64'
-    & go build -trimpath -ldflags '-s -w' -o agent-remote-gateway .
+    & go build -trimpath -ldflags '-s -w' -o remote-everything-gateway .
     if ($LASTEXITCODE -ne 0) { throw 'Gateway build failed.' }
 }
 finally {
     Pop-Location
     Remove-Item Env:\GOOS, Env:\GOARCH -ErrorAction SilentlyContinue
 }
-Write-Output (Join-Path $root 'gateway\agent-remote-gateway')
+Write-Output (Join-Path $root 'gateway\remote-everything-gateway')

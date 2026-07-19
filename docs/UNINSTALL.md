@@ -5,8 +5,8 @@
 ## 1. 吊销设备（可选但推荐）
 
 ```bash
-ssh <服务器> "agent-remote-enroll list"
-ssh <服务器> "agent-remote-enroll revoke <设备证书指纹>"
+ssh <服务器> "remote-everything-enroll list"
+ssh <服务器> "remote-everything-enroll revoke <设备证书指纹>"
 ```
 
 ## 2. Android
@@ -17,30 +17,29 @@ ssh <服务器> "agent-remote-enroll revoke <设备证书指纹>"
 
 ```powershell
 # 停止并删除计划任务
-Stop-ScheduledTask -TaskName 'AgentRemote-*' -ErrorAction SilentlyContinue
-Unregister-ScheduledTask -TaskName 'AgentRemote-Apps','AgentRemote-LocalControl','AgentRemote-Tunnel' -Confirm:$false
+Stop-ScheduledTask -TaskName 'RemoteEverything-*' -ErrorAction SilentlyContinue
+Unregister-ScheduledTask -TaskName 'RemoteEverything-Apps','RemoteEverything-Tunnel' -Confirm:$false
 
 # 停止被控应用（默认 Kimi Web）
-& "$env:LOCALAPPDATA\AgentRemote\agent-remote-control.exe" stop kimi 2>$null
+& "$env:LOCALAPPDATA\RemoteEverything\remote-everything-control.exe" stop kimi 2>$null
 
 # 删除状态目录（含控制程序、frpc、日志、应用注册表、令牌与 frpc 配置）
-Remove-Item -Recurse -Force "$env:LOCALAPPDATA\AgentRemote"
+Remove-Item -Recurse -Force "$env:LOCALAPPDATA\RemoteEverything"
 ```
 
-被删除的内容：计划任务（`AgentRemote-Apps`、`AgentRemote-Tunnel`，旧版还可能有 `AgentRemote-LocalControl`）、`%LOCALAPPDATA%\AgentRemote\` 整个目录。旧版曾安装的 OpenSSH Server 系统功能（新版不再安装）可保留（无害），要移除用 `Remove-WindowsCapability -Online -Name 'OpenSSH.Server~~~~0.0.1.0'`。
+被删除的内容：计划任务（`RemoteEverything-Apps`、`RemoteEverything-Tunnel`）以及 `%LOCALAPPDATA%\RemoteEverything\` 整个目录。
 
-Android 签名材料在独立的 `%LOCALAPPDATA%\AgentRemoteSign\`，不随运行时目录删除；彻底退出时才手动删除（删除后无法再发布同签名更新）。
+Android 签名材料在独立的 `%LOCALAPPDATA%\RemoteEverythingSign\`，不随运行时目录删除；彻底退出时才手动删除（删除后无法再发布同签名更新）。
 
 ## 4. 云服务器
 
 ```bash
-systemctl disable --now kimi-gateway-status kimi-enrollment frps
-rm -f /etc/systemd/system/kimi-gateway-*.service /etc/systemd/system/frps.service
-rm -rf /etc/kimi-gateway /var/lib/kimi-enrollment /var/lib/kimi-control /var/lib/kimi-tunnel /var/lib/kimi-frp /opt/kimi-gateway
-rm -f /etc/ssh/sshd_config.d/90-kimi-tunnel.conf && systemctl reload ssh
-userdel kimi-tunnel 2>/dev/null; userdel kimi-control 2>/dev/null; userdel kimi-enroll 2>/dev/null; userdel kimi-frp 2>/dev/null
-rm -f /usr/local/sbin/agent-remote-enroll /usr/local/sbin/agent-remote-gateway /usr/local/sbin/frps /usr/local/sbin/agent-remote-register-windows-host /usr/local/sbin/kimi-enroll
-rm -rf /root/agent-remote-bundle /root/agent-remote-server
+systemctl disable --now remote-everything-gateway-status remote-everything-enrollment frps
+rm -f /etc/systemd/system/remote-everything-gateway-*.service /etc/systemd/system/frps.service
+rm -rf /etc/remote-everything-gateway /var/lib/remote-everything-enrollment /var/lib/remote-everything-control /var/lib/remote-everything-frp
+userdel remote-everything-control 2>/dev/null; userdel remote-everything-enroll 2>/dev/null; userdel remote-everything-frp 2>/dev/null
+rm -f /usr/local/sbin/remote-everything-enroll /usr/local/sbin/remote-everything-gateway /usr/local/sbin/frps
+rm -rf /root/remote-everything-bundle /root/remote-everything-server
 ```
 
 Caddy 本身按需处理：还原 `/etc/caddy/Caddyfile` 或 `systemctl disable --now caddy`。Caddy 是通过 apt 安装的，要彻底移除用 `apt-get remove --purge caddy`。

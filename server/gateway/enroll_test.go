@@ -52,14 +52,14 @@ func setupCLI(t *testing.T) *cliFixture {
 		return nil
 	}
 	t.Cleanup(func() {
-		enrollStateDir = "/var/lib/kimi-enrollment/requests"
-		approvedDir = "/etc/kimi-gateway/approved-clients"
-		bootstrapCAFile = "/etc/kimi-gateway/bootstrap-ca.crt.pem"
-		trustBundleFile = "/etc/kimi-gateway/client-trust.pem"
-		issuerKeyFile = "/etc/kimi-gateway/device-issuer.key.pem"
-		issuerCertFile = "/etc/kimi-gateway/device-issuer.crt.pem"
+		enrollStateDir = "/var/lib/remote-everything-enrollment/requests"
+		approvedDir = "/etc/remote-everything-gateway/approved-clients"
+		bootstrapCAFile = "/etc/remote-everything-gateway/bootstrap-ca.crt.pem"
+		trustBundleFile = "/etc/remote-everything-gateway/client-trust.pem"
+		issuerKeyFile = "/etc/remote-everything-gateway/device-issuer.key.pem"
+		issuerCertFile = "/etc/remote-everything-gateway/device-issuer.crt.pem"
 		caddyConfigFile = "/etc/caddy/Caddyfile"
-		bootstrapFingerprintFile = "/etc/kimi-gateway/bootstrap-fingerprint"
+		bootstrapFingerprintFile = "/etc/remote-everything-gateway/bootstrap-fingerprint"
 		euidFunc = platformEUID
 		chownFunc = platformChownUser
 		execFunc = runChecked
@@ -86,7 +86,7 @@ func setupCLI(t *testing.T) *cliFixture {
 	}
 	issuerTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Agent Remote Device Issuer"},
+		Subject:               pkix.Name{CommonName: "Remote Everything Device Issuer"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(3650 * 24 * time.Hour),
 		IsCA:                  true,

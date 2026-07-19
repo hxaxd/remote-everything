@@ -20,8 +20,8 @@ const (
 
 var (
 	statusAppID     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-	statusAppRoute  = regexp.MustCompile(`^/__agent_remote/apps/([a-z0-9][a-z0-9._-]{0,63})/(status|start|stop)$`)
-	statusOpenRoute = regexp.MustCompile(`^/__agent_remote/open/([a-z0-9][a-z0-9._-]{0,63})$`)
+	statusAppRoute  = regexp.MustCompile(`^/__remote_everything/apps/([a-z0-9][a-z0-9._-]{0,63})/(status|start|stop)$`)
+	statusOpenRoute = regexp.MustCompile(`^/__remote_everything/open/([a-z0-9][a-z0-9._-]{0,63})$`)
 
 	controlToken string
 	statusClient = &http.Client{Timeout: 7 * time.Second}
@@ -164,7 +164,7 @@ func selectedApp(cookieHeader string) string {
 	for _, part := range strings.Split(cookieHeader, ";") {
 		part = strings.TrimSpace(part)
 		name, value, found := strings.Cut(part, "=")
-		if !found || name != "AgentRemoteApp" {
+		if !found || name != "RemoteEverythingApp" {
 			continue
 		}
 		if len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"' {
@@ -216,7 +216,7 @@ const statusPageTemplate = `<!doctype html>
 </head>
 <body>
   <main>
-    <div class="state"><span class="dot"></span><span>Agent 远程云端入口正常</span></div>
+    <div class="state"><span class="dot"></span><span>远程万物云端入口正常</span></div>
     <h1>::TITLE::</h1>
     <p>::DETAIL::</p>
     <button type="button" onclick="location.reload()">立即重试</button>
@@ -291,7 +291,7 @@ func statusGetHandler(writer http.ResponseWriter, request *http.Request) {
 	switch {
 	case path == "/healthz":
 		writeStatusJSON(writer, http.StatusOK, map[string]bool{"ok": true})
-	case path == "/__agent_remote/apps":
+	case path == "/__remote_everything/apps":
 		if !statusAuthorized(request) {
 			writeStatusJSON(writer, http.StatusUnauthorized, errorBody("unauthorized"))
 			return
@@ -315,7 +315,7 @@ func statusGetHandler(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writer.Header().Set("Location", "/")
-		writer.Header().Set("Set-Cookie", "AgentRemoteApp="+appID+"; Path=/; Max-Age=86400; Secure; HttpOnly; SameSite=Strict")
+		writer.Header().Set("Set-Cookie", "RemoteEverythingApp="+appID+"; Path=/; Max-Age=86400; Secure; HttpOnly; SameSite=Strict")
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("Content-Length", "0")
 		writer.WriteHeader(http.StatusFound)
@@ -325,12 +325,6 @@ func statusGetHandler(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writeStatusJSON(writer, http.StatusOK, applicationAction(appRoute[1], "status"))
-	case path == "/__kimi_remote/status":
-		if !statusAuthorized(request) {
-			writeStatusJSON(writer, http.StatusUnauthorized, errorBody("unauthorized"))
-			return
-		}
-		writeStatusJSON(writer, http.StatusOK, applicationAction("kimi", "status"))
 	default:
 		appID := selectedApp(request.Header.Get("Cookie"))
 		body := renderStatusPage(applicationAction(appID, "status"))
@@ -348,14 +342,6 @@ func statusPostHandler(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 		writeStatusJSON(writer, http.StatusOK, applicationAction(match[1], match[2]))
-		return
-	}
-	if path == "/__kimi_remote/start" || path == "/__kimi_remote/stop" {
-		if !statusAuthorized(request) {
-			writeStatusJSON(writer, http.StatusUnauthorized, errorBody("unauthorized"))
-			return
-		}
-		writeStatusJSON(writer, http.StatusOK, applicationAction("kimi", path[strings.LastIndexByte(path, '/')+1:]))
 		return
 	}
 	writeStatusJSON(writer, http.StatusNotFound, errorBody("not_found"))

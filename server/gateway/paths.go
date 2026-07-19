@@ -7,18 +7,18 @@ import (
 
 // Server paths, overridable in tests.
 var (
-	enrollStateDir           = "/var/lib/kimi-enrollment/requests"
-	bootstrapFingerprintFile = "/etc/kimi-gateway/bootstrap-fingerprint"
-	controlTokenFile         = "/etc/kimi-gateway/control-token"
-	appsCacheFile            = "/var/lib/kimi-control/apps-cache.json"
-	localControlURL          = "http://127.0.0.1:58628/__local_agent_control"
-	approvedDir              = "/etc/kimi-gateway/approved-clients"
-	bootstrapCAFile          = "/etc/kimi-gateway/bootstrap-ca.crt.pem"
-	trustBundleFile          = "/etc/kimi-gateway/client-trust.pem"
-	issuerKeyFile            = "/etc/kimi-gateway/device-issuer.key.pem"
-	issuerCertFile           = "/etc/kimi-gateway/device-issuer.crt.pem"
+	enrollStateDir           = "/var/lib/remote-everything-enrollment/requests"
+	bootstrapFingerprintFile = "/etc/remote-everything-gateway/bootstrap-fingerprint"
+	controlTokenFile         = "/etc/remote-everything-gateway/control-token"
+	appsCacheFile            = "/var/lib/remote-everything-control/apps-cache.json"
+	localControlURL          = "http://127.0.0.1:58628/__local_remote_control"
+	approvedDir              = "/etc/remote-everything-gateway/approved-clients"
+	bootstrapCAFile          = "/etc/remote-everything-gateway/bootstrap-ca.crt.pem"
+	trustBundleFile          = "/etc/remote-everything-gateway/client-trust.pem"
+	issuerKeyFile            = "/etc/remote-everything-gateway/device-issuer.key.pem"
+	issuerCertFile           = "/etc/remote-everything-gateway/device-issuer.crt.pem"
 	caddyConfigFile          = "/etc/caddy/Caddyfile"
-	enrollUser               = "kimi-enroll"
+	enrollUser               = "remote-everything-enroll"
 )
 
 // Injectable hooks so tests can replace platform behavior.

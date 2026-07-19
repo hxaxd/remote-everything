@@ -41,13 +41,13 @@ payload = json.dumps({
     "credential_delivery": "pkcs12",
     "credential_password": credential_password,
 }).encode("utf-8")
-bootstrap_fingerprint = open("/etc/kimi-gateway/bootstrap-fingerprint", encoding="utf-8").read().strip()
+bootstrap_fingerprint = open("/etc/remote-everything-gateway/bootstrap-fingerprint", encoding="utf-8").read().strip()
 headers = {
     "Content-Type": "application/json",
-    "X-Kimi-Bootstrap-Fingerprint": bootstrap_fingerprint,
+    "X-Remote-Everything-Bootstrap-Fingerprint": bootstrap_fingerprint,
 }
 request = urllib.request.Request(
-    "http://127.0.0.1:58631/__kimi_enroll/request",
+    "http://127.0.0.1:58631/__remote_everything_enroll/request",
     data=payload,
     method="POST",
     headers=headers,
@@ -55,14 +55,14 @@ request = urllib.request.Request(
 with urllib.request.urlopen(request, timeout=5) as response:
     created = json.loads(response.read())
 
-enroll_cli = "/usr/local/sbin/agent-remote-enroll"
+enroll_cli = "/usr/local/sbin/remote-everything-enroll"
 subprocess.run([enroll_cli, "approve", created["registration_code"]], check=True, stdout=subprocess.DEVNULL)
-state_file = f"/var/lib/kimi-enrollment/requests/{created['request_id']}.json"
+state_file = f"/var/lib/remote-everything-enrollment/requests/{created['request_id']}.json"
 state = json.loads(open(state_file, encoding="utf-8").read())
 if "credential_password" in state:
     raise SystemExit("credential password retained after approval")
 status_request = urllib.request.Request(
-    f"http://127.0.0.1:58631/__kimi_enroll/status?id={created['request_id']}",
+    f"http://127.0.0.1:58631/__remote_everything_enroll/status?id={created['request_id']}",
     headers=headers,
 )
 with urllib.request.urlopen(status_request, timeout=5) as response:
@@ -91,42 +91,42 @@ with tempfile.TemporaryDirectory() as directory:
     ))
     context = ssl.create_default_context()
     context.load_cert_chain(certificate_path, key_path)
-    token = open("/etc/kimi-gateway/control-token", encoding="utf-8").read().strip()
+    token = open("/etc/remote-everything-gateway/control-token", encoding="utf-8").read().strip()
     public_request = urllib.request.Request(
-        f"https://{public_host}/__kimi_remote/status",
+        f"https://{public_host}/__remote_everything/apps/kimi/status",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(public_request, context=context, timeout=10) as response:
         public_state = json.loads(response.read())
     apps_request = urllib.request.Request(
-        f"https://{public_host}/__agent_remote/apps",
+        f"https://{public_host}/__remote_everything/apps",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(apps_request, context=context, timeout=10) as response:
         public_apps = json.loads(response.read())
-    open_request = urllib.request.Request(f"https://{public_host}/__agent_remote/open/kimi")
+    open_request = urllib.request.Request(f"https://{public_host}/__remote_everything/open/kimi")
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=context), NoRedirect())
     try:
         opener.open(open_request, timeout=10)
         raise SystemExit("application route did not redirect")
     except urllib.error.HTTPError as redirect:
-        if redirect.code != 302 or redirect.headers.get("Location") != "/" or "AgentRemoteApp=kimi" not in redirect.headers.get("Set-Cookie", ""):
+        if redirect.code != 302 or redirect.headers.get("Location") != "/" or "RemoteEverythingApp=kimi" not in redirect.headers.get("Set-Cookie", ""):
             raise
     routed_request = urllib.request.Request(
         f"https://{public_host}/",
-        headers={"Cookie": "AgentRemoteApp=kimi"},
+        headers={"Cookie": "RemoteEverythingApp=kimi"},
     )
     with urllib.request.urlopen(routed_request, context=context, timeout=10) as response:
         routed_status = response.status
     stop_request = urllib.request.Request(
-        f"https://{public_host}/__agent_remote/apps/kimi/stop",
+        f"https://{public_host}/__remote_everything/apps/kimi/stop",
         method="POST",
         headers={"Authorization": f"Bearer {token}"},
     )
     with urllib.request.urlopen(stop_request, context=context, timeout=10) as response:
         stopped = json.loads(response.read())
     start_request = urllib.request.Request(
-        f"https://{public_host}/__agent_remote/apps/kimi/start",
+        f"https://{public_host}/__remote_everything/apps/kimi/start",
         method="POST",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -136,7 +136,7 @@ with tempfile.TemporaryDirectory() as directory:
     for _ in range(12):
         time.sleep(1)
         status_request = urllib.request.Request(
-            f"https://{public_host}/__agent_remote/apps/kimi/status",
+            f"https://{public_host}/__remote_everything/apps/kimi/status",
             headers={"Authorization": f"Bearer {token}"},
         )
         with urllib.request.urlopen(status_request, context=context, timeout=10) as response:

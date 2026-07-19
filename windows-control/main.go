@@ -23,7 +23,7 @@ import (
 const createNoWindow = 0x08000000
 
 var (
-	stateRoot        = filepath.Join(os.Getenv("LOCALAPPDATA"), "AgentRemote")
+	stateRoot        = filepath.Join(os.Getenv("LOCALAPPDATA"), "RemoteEverything")
 	appsFile         = filepath.Join(stateRoot, "apps.json")
 	enabledRoot      = filepath.Join(stateRoot, "enabled")
 	logsRoot         = filepath.Join(stateRoot, "logs")
@@ -388,7 +388,7 @@ func supervise() {
 }
 
 func selectedApplication(request *http.Request) (appDefinition, error) {
-	cookie, err := request.Cookie("AgentRemoteApp")
+	cookie, err := request.Cookie("RemoteEverythingApp")
 	if err != nil || !validID.MatchString(cookie.Value) {
 		return appDefinition{}, os.ErrNotExist
 	}
@@ -398,7 +398,7 @@ func selectedApplication(request *http.Request) (appDefinition, error) {
 func removeRoutingCookie(request *http.Request) {
 	values := make([]string, 0)
 	for _, cookie := range request.Cookies() {
-		if cookie.Name != "AgentRemoteApp" {
+		if cookie.Name != "RemoteEverythingApp" {
 			values = append(values, cookie.Name+"="+cookie.Value)
 		}
 	}
@@ -417,13 +417,13 @@ func gatewayMessage(writer http.ResponseWriter, status int, title string, detail
 }
 
 func gatewayHandler(writer http.ResponseWriter, request *http.Request) {
-	if request.URL.Path == "/__local_agent_control" {
+	if request.URL.Path == "/__local_remote_control" {
 		localControlHandler(writer, request)
 		return
 	}
 	app, err := selectedApplication(request)
 	if err != nil {
-		gatewayMessage(writer, http.StatusOK, "尚未选择远程应用", "请从 Agent 远程手机客户端的应用目录进入。")
+		gatewayMessage(writer, http.StatusOK, "尚未选择远程应用", "请从 远程万物手机客户端的应用目录进入。")
 		return
 	}
 	target, err := url.Parse(app.ProxyURL)

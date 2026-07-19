@@ -1,7 +1,7 @@
 ---
-name: agent-remote-add-tavern
-description: 接入酒馆 SillyTavern（AI 角色扮演）为 Agent Remote 被控应用的完整预案与注意事项
-whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 Agent Remote 时
+name: remote-everything-add-tavern
+description: 接入酒馆 SillyTavern（AI 角色扮演）为 Remote Everything 被控应用的完整预案与注意事项
+whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 Remote Everything 时
 ---
 
 酒馆 = SillyTavern（AI 角色扮演应用），本机位于 `~/learn/SillyTavern`（官方 git remote，工作树应保持干净）。接入前按本预案执行，不要跳过注意事项。
@@ -18,7 +18,7 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
 
 ## 注意事项（用户已定调，勿擅自动）
 
-- **鉴权方案未决**：酒馆是独立复杂应用、自带多租户能力，与 Agent Remote 单用户模型的关系需要专门设计。不要擅自开 basicAuth、不要擅自改它的多租户配置，接入前先和用户讨论。
+- **鉴权方案未决**：酒馆是独立复杂应用、自带多租户能力，与 Remote Everything 单用户模型的关系需要专门设计。不要擅自开 basicAuth、不要擅自改它的多租户配置，接入前先和用户讨论。
 - `config.yaml` 当前 `listen: true`（监听 0.0.0.0:18000，无应用层鉴权）。收口为 `listen: false` 前必须确认用户没有从其他设备局域网直连。
 - 端口 18000 是它自己的配置，注册时 Probe/ProxyUrl 以 `config.yaml` 实际 `port` 为准。
 
@@ -28,7 +28,7 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
 .\windows\register-app.ps1 `
   -Id 'tavern' -Name '酒馆' -Description 'SillyTavern AI 角色扮演' `
   -Icon 'T' -Accent '#a855f7' `
-  -WebUrl "https://$env:PUBLIC_HOST/__agent_remote/open/tavern" `
+  -WebUrl "https://$env:PUBLIC_HOST/__remote_everything/open/tavern" `
   -ProxyUrl 'http://127.0.0.1:18000' `
   -Command 'C:\Users\<用户>\AppData\Roaming\fnm\node-versions\<版本>\installation\node.exe' `
   -Arguments @('server.js') `
@@ -37,4 +37,4 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
   -Enabled $true
 ```
 
-注册后按 `agent-remote-add-app` skill 的第 4、5 步验证（目录状态流转 + 手机端进入）。
+注册后按 `remote-everything-add-app` skill 的第 4、5 步验证（目录状态流转 + 手机端进入）。
