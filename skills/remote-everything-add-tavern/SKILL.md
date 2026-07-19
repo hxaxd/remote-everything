@@ -10,7 +10,7 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
 
 ## 已验证事实（2026-07-17）
 
-- 启动：`node server.js`（`NODE_ENV=production`），**必须有工作目录**——用 `register-app.ps1 -WorkDir` 指向安装目录（windows-control 已支持 `workdir` 字段）。
+- 启动：`node server.js`（`NODE_ENV=production`），**必须有工作目录**——用 `register-app.ps1 -WorkDir` 指向安装目录（`nodes/windows/control` 已支持 `workdir` 字段）。
 - Node 无系统 PATH：用 fnm 绝对路径 `C:\Users\<用户>\AppData\Roaming\fnm\node-versions\<版本>\installation\node.exe`（先 `ls` 确认最新版本）；bun（`~/.bun/bin/bun`）为备选。
 - 更新：先确认 `git status` 干净，再 `git pull --rebase --autostash`；有本地改动就停下来报告，不擅自处理。
 - 冒烟：后台启动约 10 秒后 `curl http://127.0.0.1:18000/` 应返回 200。
@@ -25,7 +25,7 @@ whenToUse: 当用户要求把酒馆、SillyTavern、AI 角色扮演应用接入 
 ## 注册命令模板（鉴权方案定了再用）
 
 ```powershell
-.\windows\register-app.ps1 `
+.\nodes\windows\scripts\register-app.ps1 `
   -Id 'tavern' -Name '酒馆' -Description 'SillyTavern AI 角色扮演' `
   -Icon 'T' -Accent '#a855f7' `
   -WebUrl "https://$env:PUBLIC_HOST/__remote_everything/open/tavern" `

@@ -13,8 +13,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - name: windows-control
-        working-directory: windows-control
+      - name: Windows control
+        working-directory: nodes/windows/control
         run: |
           gofmt -l .
           go vet ./...
@@ -37,7 +37,7 @@ jobs:
       - name: accept sdk licenses
         run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
       - name: dummy client config
-        working-directory: android
+        working-directory: clients/android
         run: |
           cat > remote-everything.properties <<'EOF'
           gatewayHost=example.invalid
@@ -48,11 +48,11 @@ jobs:
           EOF
       - name: dummy bootstrap credential
         run: |
-          mkdir -p android/app/src/main/res/raw
+          mkdir -p clients/android/app/src/main/res/raw
           openssl req -x509 -newkey rsa:2048 -keyout /tmp/ci-key.pem -out /tmp/ci-cert.pem -days 1 -nodes -subj '/CN=ci-dummy'
-          openssl pkcs12 -export -inkey /tmp/ci-key.pem -in /tmp/ci-cert.pem -out android/app/src/main/res/raw/bootstrap_client.p12 -password pass:ci-dummy
+          openssl pkcs12 -export -inkey /tmp/ci-key.pem -in /tmp/ci-cert.pem -out clients/android/app/src/main/res/raw/bootstrap_client.p12 -password pass:ci-dummy
       - name: assembleDebug
-        working-directory: android
+        working-directory: clients/android
         run: bash ./gradlew --no-daemon --console=plain :app:assembleDebug
 
   shell:
