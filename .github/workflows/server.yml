@@ -1,0 +1,47 @@
+name: Server
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lan:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, ubuntu-latest, macos-latest]
+    name: LAN server (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+      - name: Build and test
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l internal server/lan)
+          test -z "$unformatted" || { echo "Unformatted Go files: $unformatted" >&2; exit 1; }
+          go vet ./internal/... ./server/lan/...
+          go test ./internal/... ./server/lan/...
+          go build ./server/lan
+
+  public:
+    name: Public server (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+      - name: Build and test
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l internal server/public)
+          test -z "$unformatted" || { echo "Unformatted Go files: $unformatted" >&2; exit 1; }
+          go vet ./internal/... ./server/public/...
+          go test -race ./internal/... ./server/public/...
+          go build ./server/public
+          python -c "compile(open(r'server/public/tests/pairing_pkcs12.py',encoding='utf-8').read(),r'x','exec')"

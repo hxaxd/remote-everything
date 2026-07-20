@@ -1,3 +1,1 @@
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
+# No project-specific keep rules are required.

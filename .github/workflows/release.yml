@@ -1,0 +1,259 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Match tag to Android versionName
+        shell: bash
+        run: |
+          version=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"[[:space:]]*$/\1/p' clients/android/app/build.gradle.kts)
+          test -n "$version" || { echo "::error::Android versionName was not found"; exit 1; }
+          test "v$version" = "$GITHUB_REF_NAME" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match Android versionName $version"
+            exit 1
+          }
+
+  node-validation:
+    name: Reuse node validation
+    needs: version
+    uses: ./.github/workflows/nodes.yml
+
+  server-validation:
+    name: Reuse server validation
+    needs: version
+    uses: ./.github/workflows/server.yml
+
+  client-validation:
+    name: Reuse client validation
+    needs: version
+    uses: ./.github/workflows/clients.yml
+
+  repository-validation:
+    name: Reuse repository validation
+    needs: version
+    uses: ./.github/workflows/repository.yml
+
+  components:
+    name: Components (${{ matrix.goos }}-${{ matrix.goarch }})
+    needs: [node-validation, server-validation, client-validation, repository-validation]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            node: windows
+            suffix: .exe
+            node_ldflags: -s -w -H=windowsgui
+          - runner: windows-latest
+            goos: windows
+            goarch: arm64
+            node: windows
+            suffix: .exe
+            node_ldflags: -s -w -H=windowsgui
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            node: linux
+            suffix: ""
+            node_ldflags: -s -w
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            node: linux
+            suffix: ""
+            node_ldflags: -s -w
+          - runner: macos-latest
+            goos: darwin
+            asset_os: macos
+            goarch: amd64
+            node: macos
+            suffix: ""
+            node_ldflags: -s -w
+          - runner: macos-latest
+            goos: darwin
+            asset_os: macos
+            goarch: arm64
+            node: macos
+            suffix: ""
+            node_ldflags: -s -w
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - name: Build node and LAN server
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          ASSET_OS: ${{ matrix.asset_os || matrix.goos }}
+        run: |
+          mkdir -p dist
+          node_asset="remote-everything-control-${ASSET_OS}-${GOARCH}${{ matrix.suffix }}"
+          lan_asset="remote-everything-lan-server-${ASSET_OS}-${GOARCH}${{ matrix.suffix }}"
+          (
+            cd "nodes/${{ matrix.node }}"
+            go build -trimpath -ldflags="${{ matrix.node_ldflags }}" -o "../../dist/$node_asset" .
+          )
+          (
+            cd server/lan
+            go build -trimpath -ldflags="-s -w" -o "../../dist/$lan_asset" .
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: components-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  gateway:
+    name: Public gateway (linux-${{ matrix.goarch }})
+    needs: [node-validation, server-validation, client-validation, repository-validation]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+          cache: false
+      - name: Build public gateway
+        working-directory: server/public
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: go build -trimpath -ldflags="-s -w" -o "../../remote-everything-gateway-linux-${GOARCH}" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway-linux-${{ matrix.goarch }}
+          path: remote-everything-gateway-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Signed Android APK
+    needs: [node-validation, server-validation, client-validation, repository-validation]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Accept SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
+      - name: Restore release signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.REMOTE_EVERYTHING_ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "::error::REMOTE_EVERYTHING_ANDROID_KEYSTORE_BASE64 is not configured"; exit 1; }
+          test -n "$STORE_PASSWORD" || { echo "::error::REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD is not configured"; exit 1; }
+          test -n "$KEY_PASSWORD" || { echo "::error::REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD is not configured"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/android-release.jks"
+          test -s "$RUNNER_TEMP/android-release.jks" || { echo "::error::decoded Android keystore is empty"; exit 1; }
+      - name: Assemble signed release APK
+        working-directory: clients/android
+        env:
+          REMOTE_EVERYTHING_ANDROID_KEYSTORE: ${{ runner.temp }}/android-release.jks
+          REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD: ${{ secrets.REMOTE_EVERYTHING_ANDROID_STORE_PASSWORD }}
+          REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD: ${{ secrets.REMOTE_EVERYTHING_ANDROID_KEY_PASSWORD }}
+        run: bash ./gradlew --no-daemon --console=plain :app:assembleRelease
+      - name: Verify universal APK contents
+        working-directory: clients/android
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -s "$apk" || { echo "::error::signed release APK was not produced"; exit 1; }
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -n "$apksigner" || { echo "::error::apksigner was not found"; exit 1; }
+          "$apksigner" verify "$apk"
+          actual=$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          expected=$(printf '%s' "${{ secrets.REMOTE_EVERYTHING_ANDROID_SIGNING_SHA256 }}" | tr -d ':' | tr 'A-F' 'a-f')
+          test -n "$expected" || { echo "::error::expected Android signing fingerprint is not configured"; exit 1; }
+          test "$actual" = "$expected" || { echo "::error::Android signing identity mismatch"; exit 1; }
+          if unzip -l "$apk" | grep -Ei '\.p12$|remote-everything\.properties$'; then
+            echo "::error::deployment credential packaged in universal client"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: clients/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: [components, gateway, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Verify assets and create checksums
+        shell: bash
+        run: |
+          expected=(
+            app-release.apk
+            remote-everything-control-windows-amd64.exe
+            remote-everything-control-windows-arm64.exe
+            remote-everything-control-linux-amd64
+            remote-everything-control-linux-arm64
+            remote-everything-control-macos-amd64
+            remote-everything-control-macos-arm64
+            remote-everything-lan-server-windows-amd64.exe
+            remote-everything-lan-server-windows-arm64.exe
+            remote-everything-lan-server-linux-amd64
+            remote-everything-lan-server-linux-arm64
+            remote-everything-lan-server-macos-amd64
+            remote-everything-lan-server-macos-arm64
+            remote-everything-gateway-linux-amd64
+            remote-everything-gateway-linux-arm64
+          )
+          cd release
+          for asset in "${expected[@]}"; do
+            test -s "$asset" || { echo "::error::missing release asset: $asset"; exit 1; }
+          done
+          sha256sum "${expected[@]}" > SHA256SUMS
+      - name: Create immutable release
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::error::release $GITHUB_REF_NAME already exists"
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME"

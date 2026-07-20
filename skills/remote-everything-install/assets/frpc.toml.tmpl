@@ -1,0 +1,21 @@
+serverAddr = "{{PUBLIC_HOST}}"
+serverPort = 443
+loginFailExit = false
+transport.protocol = "wss"
+transport.wireProtocol = "v2"
+transport.tls.enable = true
+transport.tls.certFile = "{{TUNNEL_CLIENT_CERT}}"
+transport.tls.keyFile = "{{TUNNEL_CLIENT_KEY}}"
+transport.tls.serverName = "{{PUBLIC_HOST}}"
+auth.method = "token"
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "{{FRPS_TOKEN_FILE}}"
+log.to = "{{FRPC_LOG}}"
+log.level = "info"
+
+[[proxies]]
+name = "node-{{INSTALLATION_ID}}"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = {{NODE_PORT}}
+remotePort = {{NODE_TUNNEL_PORT}}

@@ -1,50 +1,46 @@
 package com.remoteeverything.app
 
-import android.content.Context
+import android.annotation.SuppressLint
+import android.net.http.SslCertificate
+import android.net.http.SslError
+import androidx.core.net.toUri
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.net.URL
 import java.security.KeyStore
 import java.security.PrivateKey
+import java.security.cert.CertificateException
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509ExtendedKeyManager
+import javax.net.ssl.X509TrustManager
 
 data class HttpResult(val status: Int, val body: String) {
     fun json(): JSONObject = JSONObject(body)
 }
 
-object SecureHttp {
-    fun bootstrapKeyManager(context: Context): X509ExtendedKeyManager {
-        val password = AppConfig.BOOTSTRAP_PASSWORD.toCharArray()
-        val store = KeyStore.getInstance("PKCS12")
-        context.resources.openRawResource(R.raw.bootstrap_client).use { store.load(it, password) }
-        val names = store.aliases()
-        var alias: String? = null
-        while (names.hasMoreElements()) {
-            val candidate = names.nextElement()
-            if (store.isKeyEntry(candidate)) {
-                alias = candidate
-                break
-            }
-        }
-        val selected = requireNotNull(alias) { "注册凭证中没有客户端身份" }
-        val privateKey = store.getKey(selected, password) as PrivateKey
-        val chain = store.getCertificateChain(selected).map { it as X509Certificate }.toTypedArray()
-        return StaticIdentityKeyManager(privateKey, chain)
-    }
+data class ClientIdentity(
+    val privateKey: PrivateKey,
+    val chain: Array<X509Certificate>,
+) {
+    val keyManager: X509ExtendedKeyManager = StaticIdentityKeyManager(privateKey, chain)
+}
 
+object SecureHttp {
     fun request(
+        config: ConnectionConfig,
         url: String,
         method: String,
-        keyManager: X509ExtendedKeyManager,
+        identity: ClientIdentity? = null,
         headers: Map<String, String> = emptyMap(),
         body: String? = null,
     ): HttpResult {
+        require(config.isGatewayUri(url.toUri())) { "请求地址不属于配置的服务" }
         val connection = URL(url).openConnection() as HttpsURLConnection
-        connection.sslSocketFactory = sslContext(keyManager).socketFactory
+        connection.sslSocketFactory = sslContext(config, identity).socketFactory
         connection.requestMethod = method
         connection.connectTimeout = 8_000
         connection.readTimeout = 12_000
@@ -64,11 +60,40 @@ object SecureHttp {
         return HttpResult(status, response)
     }
 
-    private fun sslContext(keyManager: KeyManager): SSLContext {
-        val trustFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
-        trustFactory.init(null as KeyStore?)
-        return SSLContext.getInstance("TLS").apply {
-            init(arrayOf(keyManager), trustFactory.trustManagers, null)
+    fun acceptsPinnedWebViewError(config: ConnectionConfig, error: SslError?): Boolean {
+        if (config.mode != "lan" || error == null || error.primaryError != SslError.SSL_UNTRUSTED || !config.isGatewayUri(error.url.toUri())) return false
+        val bytes = SslCertificate.saveState(error.certificate).getByteArray("x509-certificate") ?: return false
+        val parsed = CertificateFactory.getInstance("X.509")
+            .generateCertificate(ByteArrayInputStream(bytes)) as X509Certificate
+        parsed.checkValidity()
+        return GatewaySecurityPolicy.fingerprint(parsed.encoded) == config.gatewayFingerprint && GatewaySecurityPolicy.certificateCoversHost(parsed, config.gatewayHost)
+    }
+
+    private fun sslContext(config: ConnectionConfig, identity: ClientIdentity?): SSLContext =
+        SSLContext.getInstance("TLS").apply {
+            val trustManagers = if (config.mode == "lan") {
+                arrayOf(PinnedTrustManager(config.gatewayFingerprint))
+            } else {
+                val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                factory.init(null as KeyStore?)
+                factory.trustManagers
+            }
+            val keyManagers = identity?.let { arrayOf(it.keyManager) }
+            init(keyManagers, trustManagers, null)
         }
+
+    @SuppressLint("CustomX509TrustManager")
+    private class PinnedTrustManager(private val expected: String) : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+            throw CertificateException("客户端信任检查不可用")
+        }
+
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+            val certificate = chain?.firstOrNull() ?: throw CertificateException("服务器未提供证书")
+            certificate.checkValidity()
+            if (GatewaySecurityPolicy.fingerprint(certificate.encoded) != expected) throw CertificateException("服务器证书指纹不匹配")
+        }
+
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
     }
 }
