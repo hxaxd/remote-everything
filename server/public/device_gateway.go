@@ -52,6 +52,16 @@ func (service *publicService) activateDevice(request *http.Request) (any, string
 		if parseErr != nil || !time.Now().UTC().Before(expires) {
 			return nil, "invitation_expired", errors.New("pending device expired")
 		}
+		if record.ApprovalRequestedAt == "" {
+			record.ApprovalRequestedAt = isoUTC(time.Now())
+			if err := service.writeDeviceRecord(record); err != nil {
+				return nil, "activation_failed", err
+			}
+			auditLine("device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
+		}
+		if record.ApprovedAt == "" {
+			return nil, "approval_pending", errors.New("device approval pending")
+		}
 	}
 	apps, connected := service.gateway.ConnectedList()
 	if !connected {
@@ -112,6 +122,9 @@ func (service *publicService) statusHTTPHandler(writer http.ResponseWriter, requ
 		apps, code, err := service.activateDevice(request)
 		if err != nil {
 			status := http.StatusUnauthorized
+			if code == "approval_pending" {
+				status = http.StatusAccepted
+			}
 			if code == "computer_offline" || code == "activation_failed" {
 				status = http.StatusServiceUnavailable
 			}

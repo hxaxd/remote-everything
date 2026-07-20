@@ -107,7 +107,17 @@ class RenderTests(unittest.TestCase):
         }
         result, output, _ = self.render("caddy", caddy)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertNotIn("{{", output.read_text(encoding="utf-8"))
+        rendered = output.read_text(encoding="utf-8")
+        self.assertNotIn("{{", rendered)
+        self.assertNotIn("profile shortlived", rendered)
+        self.assertNotIn("default_sni", rendered)
+        self.assertNotIn("strict_sni_host insecure_off", rendered)
+        result, output, _ = self.render("caddy", {**caddy, "public_host": "192.0.2.1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rendered = output.read_text(encoding="utf-8")
+        self.assertIn("profile shortlived", rendered)
+        self.assertIn("default_sni 192.0.2.1", rendered)
+        self.assertIn("strict_sni_host insecure_off", rendered)
         for invalid in (
             {**caddy, "device_ca_file": "relative.pem"},
             {**caddy, "status_upstream": "192.0.2.1:5003"},

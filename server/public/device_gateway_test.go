@@ -17,9 +17,11 @@ func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
 	service := setupPublicTest(t)
 	token := strings.Repeat("01", 32)
 	fingerprint := strings.Repeat("ab", 32)
+	now := time.Now().UTC().Truncate(time.Second)
 	if err := service.writeDeviceRecord(deviceRecord{
 		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: fingerprint,
-		Status: "approved", CreatedAt: isoUTC(time.Now()), CertificateExpiresAt: isoUTC(time.Now().Add(825 * 24 * time.Hour)), ActivatedAt: isoUTC(time.Now()),
+		Status: "approved", CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(now.Add(825 * 24 * time.Hour)),
+		ApprovalRequestedAt: isoUTC(now), ApprovedAt: isoUTC(now), ActivatedAt: isoUTC(now),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +36,7 @@ func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
 			_, _ = io.WriteString(writer, `{"ok":true,"action":"`+input["action"]+`","computer_connected":true,"enabled":true,"running":true,"code":"ready","app":{"id":"fixture","name":"Fixture","description":"","icon":"F","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}}`)
 			return
 		}
-		if request.Header.Get(clientFingerprintHeader) != "" || request.Header.Get("Authorization") != "" || request.Header.Get("X-Remote-Everything-Control-Token") != "" {
+		if request.Header.Get(clientFingerprintHeader) != "" || request.Header.Get("X-Remote-Everything-Control-Token") != "" || request.Header.Get("Authorization") != "secret" {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}

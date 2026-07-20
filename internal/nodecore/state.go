@@ -348,10 +348,32 @@ func RepairPorts(root string) (InitResult, error) {
 	if err != nil {
 		return InitResult{}, err
 	}
-	state.ListenAddress, err = allocateLoopback(58627)
-	if err != nil {
+	reserved := make(map[string]bool)
+	var registry Registry
+	if err := decodeSingleJSON(node.appsFile, &registry); err != nil && !os.IsNotExist(err) {
 		return InitResult{}, err
 	}
+	for _, app := range registry.Apps {
+		if address, err := proxyAddress(app.ProxyURL); err == nil {
+			reserved[address] = true
+		}
+	}
+	chosen := ""
+	preferred := 58627
+	for attempts := 0; attempts < 8 && chosen == ""; attempts++ {
+		candidate, err := allocateLoopback(preferred)
+		if err != nil {
+			return InitResult{}, err
+		}
+		if !reserved[candidate] {
+			chosen = candidate
+		}
+		preferred = 0
+	}
+	if chosen == "" {
+		return InitResult{}, errors.New("no loopback port available outside registered applications")
+	}
+	state.ListenAddress = chosen
 	contents, err := json.Marshal(state)
 	if err != nil {
 		return InitResult{}, err

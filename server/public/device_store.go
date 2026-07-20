@@ -23,6 +23,8 @@ type deviceRecord struct {
 	CreatedAt              string `json:"created_at"`
 	CertificateExpiresAt   string `json:"certificate_expires_at"`
 	PendingExpiresAt       string `json:"pending_expires_at,omitempty"`
+	ApprovalRequestedAt    string `json:"approval_requested_at,omitempty"`
+	ApprovedAt             string `json:"approved_at,omitempty"`
 	ActivatedAt            string `json:"activated_at,omitempty"`
 	RevokedAt              string `json:"revoked_at,omitempty"`
 	ReplacedByFingerprint  string `json:"replaced_by_fingerprint,omitempty"`
@@ -61,15 +63,35 @@ func validateDeviceRecord(record deviceRecord) error {
 		if err != nil || !expires.After(created) || expires.After(certificateExpires) || record.ActivatedAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
 			return errors.New("invalid pending expiration")
 		}
+		if record.ApprovalRequestedAt == "" {
+			if record.ApprovedAt != "" {
+				return errors.New("invalid pending approval state")
+			}
+		} else {
+			requested, requestErr := parseTimestamp(record.ApprovalRequestedAt)
+			if requestErr != nil || requested.Before(created) || requested.After(expires) {
+				return errors.New("invalid approval request time")
+			}
+			if record.ApprovedAt != "" {
+				approved, approveErr := parseTimestamp(record.ApprovedAt)
+				if approveErr != nil || approved.Before(requested) || approved.After(expires) {
+					return errors.New("invalid approval time")
+				}
+			}
+		}
 	case "approved":
+		requested, requestErr := parseTimestamp(record.ApprovalRequestedAt)
+		approved, approveErr := parseTimestamp(record.ApprovedAt)
 		activated, err := parseTimestamp(record.ActivatedAt)
-		if err != nil || activated.Before(created) || !activated.Before(certificateExpires) || record.PendingExpiresAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
+		if requestErr != nil || approveErr != nil || err != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || !activated.Before(certificateExpires) || record.PendingExpiresAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
 			return errors.New("invalid approved device state")
 		}
 	case "revoked":
+		requested, requestErr := parseTimestamp(record.ApprovalRequestedAt)
+		approved, approveErr := parseTimestamp(record.ApprovedAt)
 		activated, activatedErr := parseTimestamp(record.ActivatedAt)
 		revoked, revokedErr := parseTimestamp(record.RevokedAt)
-		if activatedErr != nil || revokedErr != nil || activated.Before(created) || !activated.Before(certificateExpires) || revoked.Before(activated) || record.PendingExpiresAt != "" || (record.ReplacedByFingerprint != "" && (!validHex64.MatchString(record.ReplacedByFingerprint) || record.ReplacedByFingerprint == record.CertificateFingerprint)) {
+		if requestErr != nil || approveErr != nil || activatedErr != nil || revokedErr != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || !activated.Before(certificateExpires) || revoked.Before(activated) || record.PendingExpiresAt != "" || (record.ReplacedByFingerprint != "" && (!validHex64.MatchString(record.ReplacedByFingerprint) || record.ReplacedByFingerprint == record.CertificateFingerprint)) {
 			return errors.New("invalid revoked device state")
 		}
 	}
@@ -157,6 +179,30 @@ func (service *publicService) deviceRevoke(fingerprint string, output io.Writer)
 			return err
 		}
 		auditLine("device revoked", "fingerprint", fingerprint)
+	}
+	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": changed})
+}
+
+func (service *publicService) deviceApprove(fingerprint string, output io.Writer) error {
+	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
+	record, err := service.loadDeviceRecord(fingerprint)
+	if err != nil || (record.Status != "pending" && record.Status != "approved") || record.ApprovalRequestedAt == "" {
+		return errors.New("pending approval fingerprint not found")
+	}
+	if record.Status == "approved" {
+		return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": false})
+	}
+	expires, _ := parseTimestamp(record.PendingExpiresAt)
+	if !time.Now().UTC().Before(expires) {
+		return errors.New("pending approval expired")
+	}
+	changed := record.ApprovedAt == ""
+	if changed {
+		record.ApprovedAt = isoUTC(time.Now())
+		if err := service.writeDeviceRecord(record); err != nil {
+			return err
+		}
+		auditLine("device approved", "fingerprint", fingerprint, "device_name", record.DeviceName)
 	}
 	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": changed})
 }
