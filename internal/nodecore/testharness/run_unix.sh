@@ -42,6 +42,7 @@ dump_logs() {
     done >&2
   fi
   ps -axo pid=,ppid=,pgid=,state=,command= | grep -F "$temp_root" >&2 || true
+  ps -axo pid=,ppid=,pgid=,state=,command= | grep -F "$harness_dir/fixture_server.py" >&2 || true
 }
 wait_port() {
   local port=$1 expected=$2 stage=$3
