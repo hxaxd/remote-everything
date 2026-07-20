@@ -67,6 +67,9 @@ func proxyAddress(rawURL string) (string, error) {
 	if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" || target.User != nil || target.Fragment != "" {
 		return "", errors.New("proxy_url must be loopback HTTP")
 	}
+	if target.Path != "" && target.Path != "/" || target.RawQuery != "" {
+		return "", errors.New("proxy_url must not contain a path or query")
+	}
 	port, err := strconv.Atoi(target.Port())
 	if err != nil || port < 1 || port > 65535 {
 		return "", errors.New("proxy_url must contain a valid port")

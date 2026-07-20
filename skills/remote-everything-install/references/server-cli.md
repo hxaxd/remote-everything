@@ -11,11 +11,11 @@ remote-everything-lan-server serve --state PATH
 
 先初始化同一状态目录中的节点。`init` 创建 schema 1 的 `lan.json`，自动选择入口端口并输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹、setup URI 和可选二维码。`serve` 只读取持久化地址。
 
-续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；手机扫描输出载荷，以相同 `installation_id` 原子替换该 profile 的指纹，不新建实例。
+续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；手机扫描输出载荷，以相同 `installation_id` 原子替换该 profile 的指纹，不新建实例。入口端口即手机 profile 的 origin：`ports repair` 改变端口后原 profile 全部失效，必须再执行一次 `certificate renew` 让手机重扫替换。
 
 ## public：仅 Linux
 
-以下命令必须以网关 systemd unit 的 `User` 账户执行，使 `0600` 状态文件与运行中的网关同属一人；先从真实 unit 读取账户，不以 root 直接运行管理命令。
+以下命令必须以网关 systemd unit 的 `User` 账户执行，使 `0600` 状态文件与运行中的网关同属一人；先从真实 unit 读取账户，不以 root 直接运行管理命令。`init` 先于 unit 存在：Agent 必须先创建或选定该服务账户并以之执行，使初始状态文件与后续 unit 的 `User` 一致。
 
 ```text
 remote-everything-gateway init --state PATH --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY
@@ -39,4 +39,4 @@ Agent 通过已有 SSH 或等价的加密管理通道把整个 bundle 送到节�
 
 组件停服后，`ports repair` 原子重分配该组件的全部监听地址并保持身份与证书；Agent 同步运行记录、FRP 和反向代理引用后重启。
 
-`invite` 创建 1 分钟至 24 小时有效的单事务邀请并输出 setup URI/二维码。配对签发 pending PKCS#12；网关在 pending 期内暂存密码加密的响应，使同一设备名和密码可以从网络丢包中幂等恢复。手机持证请求激活后写入 `approval_requested_at` 并等待；Agent 向用户展示设备名和完整指纹，得到确认后执行 `approve`。手机再次调用激活路径，网关确认批准状态和节点目录真实可达后原子激活并删除暂存响应。`renew` 只接受 approved 旧指纹并生成同类二维码；新证书也须人工批准，激活时再吊销旧证书并批准新证书。`invitation list` 只返回 hash、期限和阶段，不返回 token、密码摘要或凭据；`invitation cancel` 删除未使用邀请，或同时删除其 paired-pending 授权。服务启动会清除没有任何有效邀请引用的孤儿 pending。设备 `list` 返回申请、批准、激活与证书时间；`revoke` 原子吊销并立即阻止后续请求。
+`invite` 创建 1 分钟至 24 小时有效的单事务邀请并输出 setup URI/二维码。配对签发 pending PKCS#12；网关在 pending 期内暂存密码加密的响应，使同一设备名和密码可以从网络丢包中幂等恢复。手机持证请求激活后写入 `approval_requested_at` 并等待；Agent 向用户展示设备名和完整指纹，得到确认后执行 `approve`。手机再次调用激活路径，网关确认批准状态和节点目录真实可达后原子激活并删除暂存响应。`renew` 只接受 approved 旧指纹并生成同类二维码；新证书也须人工批准，激活时再吊销旧证书并批准新证书。`invitation list` 返回 hash、设备名、证书指纹、期限和阶段，不返回 token、密码摘要或凭据；`invitation cancel` 删除未使用邀请，或同时删除其 paired-pending 授权。服务启动会清除没有任何有效邀请引用的孤儿 pending。设备 `list` 返回申请、批准、激活与证书时间；`revoke` 原子吊销并立即阻止后续请求。

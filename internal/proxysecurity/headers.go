@@ -5,7 +5,6 @@ import "net/http"
 const RoutingCookieName = "RemoteEverythingApp"
 
 var internalHeaderNames = [...]string{
-	"Authorization",
 	"X-Remote-Everything-Client-Fingerprint",
 	"X-Remote-Everything-Control-Token",
 }

@@ -81,8 +81,8 @@ func TestOpenAndProxy(t *testing.T) {
 		t.Fatalf("open: %d %v", opened.Code, opened.Header())
 	}
 	proxied := request(t, handler, "GET", "/path?q=1", testToken)
-	if proxied.Code != http.StatusOK || proxied.Body.String() != "/path?q=1|" {
-		t.Fatalf("proxy leaked authorization or changed path: %d %q", proxied.Code, proxied.Body.String())
+	if proxied.Code != http.StatusOK || proxied.Body.String() != "/path?q=1|Bearer "+testToken {
+		t.Fatalf("proxy lost application authorization or changed path: %d %q", proxied.Code, proxied.Body.String())
 	}
 	forbidden := request(t, handler, "POST", "/__local_remote_control", testToken)
 	if forbidden.Code != http.StatusForbidden {

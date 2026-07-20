@@ -66,7 +66,7 @@ def validate_caddy_contract(text):
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         raise ValueError("Caddy routes must be ordered pairing, tunnel, device")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "path('/~!frp')", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:

@@ -90,10 +90,6 @@ func (node *Node) stopApp(id string) actionResponse {
 		time.Sleep(200 * time.Millisecond)
 	}
 	result := node.stateResponse(app, "stop")
-	if result.Running {
-		result.Code = "stopping"
-		result.App.Code = "stopping"
-	}
 	if stopErr != nil {
 		result.OK = false
 		result.ErrorCode = "stop_command_failed"
