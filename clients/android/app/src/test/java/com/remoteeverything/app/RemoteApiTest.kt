@@ -15,9 +15,10 @@ class RemoteApiTest {
 
     @Test
     fun catalogRequiresExactSchemaAndConsistentApplicationState() {
-        val valid = """{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","computer_connected":true,"enabled":false,"running":false,"code":"stopped"}]}"""
+        val valid = """{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","launch_fragment":"#workspace=main","computer_connected":true,"enabled":false,"running":false,"code":"stopped"}]}"""
         val snapshot = RemoteApi.decodeCatalog(config, JSONObject(valid))
         assertEquals("stopped", snapshot.apps.single().code)
+        assertEquals("https://remote.example.com/__remote_everything/open/editor#workspace=main", snapshot.apps.single().openUrl)
 
         val unknownTopLevel = JSONObject(valid).put("legacy", true)
         assertThrows(IllegalArgumentException::class.java) {
@@ -46,7 +47,7 @@ class RemoteApiTest {
 
     @Test
     fun actionCannotSucceedWithMissingOrInconsistentState() {
-        val valid = JSONObject("""{"ok":true,"action":"start","computer_connected":true,"enabled":true,"running":false,"code":"starting","app":{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","computer_connected":true,"enabled":true,"running":false,"code":"starting"}}""")
+        val valid = JSONObject("""{"ok":true,"action":"start","computer_connected":true,"enabled":true,"running":false,"code":"starting","app":{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","launch_fragment":"","computer_connected":true,"enabled":true,"running":false,"code":"starting"}}""")
         assertEquals(true, RemoteApi.decodeAction(config, "start", valid))
 
         assertThrows(IllegalArgumentException::class.java) {

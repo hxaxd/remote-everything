@@ -18,10 +18,12 @@ LAN 用无 bootstrap 的 `init` 创建节点身份；同目录的 LAN 入口读�
 应用定义拒绝未知字段和尾随 JSON：
 
 ```json
-{"id":"demo","name":"Demo","description":"","icon":"D","accent":"#2563eb","proxy_url":"http://127.0.0.1:3000","command":"/absolute/app","arguments":[],"stop_command":"","stop_arguments":[],"workdir":"/absolute/workdir"}
+{"id":"demo","name":"Demo","description":"","icon":"D","accent":"#2563eb","launch_fragment":"","proxy_url":"http://127.0.0.1:3000","command":"/absolute/app","arguments":[],"stop_command":"","stop_arguments":[],"workdir":"/absolute/workdir"}
 ```
 
 `id` 最长 64，仅小写字母、数字、点、下划线和连字符。`proxy_url` 必须是有效端口上的 `127.0.0.1` HTTP 地址，且不能指向节点自身；探活从该地址派生。命令和非空工作目录必须为绝对路径。
+
+`launch_fragment` 为空或以 `#` 开头，用于应用首次打开时向自身前端传递片段参数；它只会出现在已鉴权设备的应用目录中。
 
 显示名称为去除首尾空白后的 1—80 个 Unicode 字符，描述最多 240，图标最多 4；三者拒绝控制字符。`accent` 必须是六位十六进制颜色。代理 URL 拒绝 fragment。
 

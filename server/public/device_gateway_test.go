@@ -17,9 +17,11 @@ func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
 	service := setupPublicTest(t)
 	token := strings.Repeat("01", 32)
 	fingerprint := strings.Repeat("ab", 32)
+	now := time.Now().UTC().Truncate(time.Second)
 	if err := service.writeDeviceRecord(deviceRecord{
 		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: fingerprint,
-		Status: "approved", CreatedAt: isoUTC(time.Now()), CertificateExpiresAt: isoUTC(time.Now().Add(825 * 24 * time.Hour)), ActivatedAt: isoUTC(time.Now()),
+		Status: "approved", CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(now.Add(825 * 24 * time.Hour)),
+		ApprovalRequestedAt: isoUTC(now), ApprovedAt: isoUTC(now), ActivatedAt: isoUTC(now),
 	}); err != nil {
 		t.Fatal(err)
 	}
