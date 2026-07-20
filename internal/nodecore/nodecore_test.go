@@ -73,6 +73,45 @@ func TestRepairPortsPreservesInstallationIdentity(t *testing.T) {
 	}
 }
 
+func TestRepairPortsSkipsRegisteredApplicationAddress(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:58627")
+	if err != nil {
+		t.Skip("preferred port unavailable on this machine")
+	}
+	root := t.TempDir()
+	if _, err := Initialize(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	node, err := Open(root, testPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := AppDefinition{
+		ID: "fixture", Name: "Fixture", Icon: "F", Accent: "#2563eb", ProxyURL: "http://127.0.0.1:58627", Command: executable,
+		Arguments: []string{}, StopArgs: []string{},
+	}
+	if err := node.saveRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{app}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := RepairPorts(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.ListenAddress == "127.0.0.1:58627" {
+		t.Fatalf("repair stole registered application address: %+v", repaired)
+	}
+	if _, err := Open(root, testPlatform{}); err != nil {
+		t.Fatalf("node cannot start after repair: %v", err)
+	}
+}
+
 func TestRegistryRejectsUnknownFieldsAndNodeSelfProxy(t *testing.T) {
 	node, result := initializeTestNode(t)
 	executable, err := os.Executable()
@@ -141,6 +180,22 @@ func TestRegistryAcceptsOnlyHashLaunchFragments(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsProxyURLWithPathOrQuery(t *testing.T) {
+	node, _ := initializeTestNode(t)
+	executable, _ := os.Executable()
+	app := AppDefinition{
+		ID: "fixture", Name: "Fixture", Icon: "F", Accent: "#2563eb",
+		ProxyURL: "http://127.0.0.1:60000", Command: executable, Arguments: []string{}, StopArgs: []string{},
+	}
+	for _, proxyURL := range []string{"http://127.0.0.1:60000/base", "http://127.0.0.1:60000?x=1"} {
+		invalid := app
+		invalid.ProxyURL = proxyURL
+		if err := node.validateRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{invalid}}); err == nil {
+			t.Fatalf("proxy_url with path or query accepted: %q", proxyURL)
+		}
+	}
+}
+
 func TestGatewayMessageEscapesApplicationMetadata(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	gatewayMessage(recorder, http.StatusBadGateway, `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`)
@@ -176,10 +231,13 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok" {
 		t.Fatalf("proxy response = %d %q", recorder.Code, recorder.Body.String())
 	}
-	for _, name := range []string{"Authorization", "X-Remote-Everything-Client-Fingerprint", "X-Remote-Everything-Control-Token"} {
+	for _, name := range []string{"X-Remote-Everything-Client-Fingerprint", "X-Remote-Everything-Control-Token"} {
 		if received.Get(name) != "" {
 			t.Fatalf("internal header leaked: %s", name)
 		}
+	}
+	if received.Get("Authorization") != "secret" {
+		t.Fatal("application authorization header lost")
 	}
 }
 

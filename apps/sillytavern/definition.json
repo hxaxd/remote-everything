@@ -1,0 +1,1 @@
+{"id":"sillytavern","name":"酒馆","description":"远程使用 SillyTavern","icon":"酒","accent":"#a855f7","launch_fragment":"","proxy_url":"http://127.0.0.1:{{PORT}}","command":"{{NODE_BINARY}}","arguments":["server.js"],"stop_command":"","stop_arguments":[],"workdir":"{{SILLYTAVERN_DIR}}"}

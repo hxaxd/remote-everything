@@ -36,7 +36,7 @@ func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
 			_, _ = io.WriteString(writer, `{"ok":true,"action":"`+input["action"]+`","computer_connected":true,"enabled":true,"running":true,"code":"ready","app":{"id":"fixture","name":"Fixture","description":"","icon":"F","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}}`)
 			return
 		}
-		if request.Header.Get(clientFingerprintHeader) != "" || request.Header.Get("Authorization") != "" || request.Header.Get("X-Remote-Everything-Control-Token") != "" {
+		if request.Header.Get(clientFingerprintHeader) != "" || request.Header.Get("X-Remote-Everything-Control-Token") != "" || request.Header.Get("Authorization") != "secret" {
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
