@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -75,6 +76,10 @@ func (process *macProcess) Terminate() {
 }
 
 func runGuard(parts []string) error {
+	trace := os.Getenv("REMOTE_EVERYTHING_TEST_TRACE") == "1"
+	if trace {
+		_, _ = fmt.Fprintln(os.Stderr, "guard: entered")
+	}
 	separator := -1
 	for index, part := range parts {
 		if part == "--" {
@@ -92,14 +97,23 @@ func runGuard(parts []string) error {
 	if flags.Parse(parts[:separator]) != nil || flags.NArg() != 0 || *parent <= 1 || os.Getppid() != *parent {
 		return errors.New("invalid guard parent")
 	}
+	if trace {
+		_, _ = fmt.Fprintln(os.Stderr, "guard: arguments validated")
+	}
 	command := exec.Command(parts[separator+1], parts[separator+2:]...)
 	command.Dir = *workdir
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if trace {
+		_, _ = fmt.Fprintln(os.Stderr, "guard: starting application")
+	}
 	if err := command.Start(); err != nil {
 		return err
+	}
+	if trace {
+		_, _ = fmt.Fprintf(os.Stderr, "guard: application started pid=%d\n", command.Process.Pid)
 	}
 	terminate := func() { _ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }
 	defer terminate()

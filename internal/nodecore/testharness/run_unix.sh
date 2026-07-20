@@ -41,6 +41,7 @@ dump_logs() {
       sed -n '1,160p' "$log"
     done >&2
   fi
+  ps -axo pid=,ppid=,pgid=,state=,command= | grep -F "$temp_root" >&2 || true
 }
 wait_port() {
   local port=$1 expected=$2 stage=$3
@@ -75,7 +76,7 @@ init_json=$("$temp_root/control" init --state "$state_root" --control-token-file
 printf '%s' "$init_json" | assert_json 'value["ok"] and value["control_token_file"].endswith("control-token") and len(value["installation_id"]) == 64' 'init creates node state'
 "$temp_root/control" init --state "$state_root" --control-token-file "$temp_root/control-token" | assert_json 'value["ok"]' 'init is idempotent'
 control_port=$(printf '%s' "$init_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["listen_address"].rsplit(":",1)[1])')
-"$temp_root/control" serve --state "$state_root" &
+REMOTE_EVERYTHING_TEST_TRACE=1 "$temp_root/control" serve --state "$state_root" &
 control_pid=$!
 wait_port "$control_port" open control
 
