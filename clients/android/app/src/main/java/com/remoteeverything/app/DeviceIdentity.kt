@@ -5,89 +5,26 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.io.ByteArrayInputStream
-import java.io.File
 import java.net.Socket
-import java.security.KeyFactory
-import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.Principal
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.Signature
 import java.security.cert.X509Certificate
-import java.security.spec.PKCS8EncodedKeySpec
-import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.SSLEngine
 import javax.net.ssl.X509ExtendedKeyManager
 
-class DeviceIdentity(private val context: Context) {
-    private val proofAlias = "remote_everything_device_key_v1"
-    private val wrapAlias = "remote_everything_credential_wrap_v1"
+class DeviceIdentity(private val context: Context) : SetupIdentityStore {
+    private val wrapAlias = "remote_everything_credential_wrap"
     private val preferences = context.getSharedPreferences("remote_everything_identity", Context.MODE_PRIVATE)
-    private val softwareDir: File get() = File(context.filesDir, "identity_sw").apply { mkdirs() }
-
-    // 硬件密钥库优先；卓易通等容器调不了 AndroidKeyStore 时回退软件密钥（安全性见 skills/docs/SECURITY.md）
-    val hardwareBacked: Boolean by lazy { mode() == "hw" }
-
-    private fun mode(): String {
-        preferences.getString("identity_mode", null)?.let { return it }
-        val chosen = try {
-            hardwareProofPublicKey()
-            "hw"
-        } catch (error: Throwable) {
-            "sw"
-        }
-        preferences.edit().putString("identity_mode", chosen).apply()
-        return chosen
-    }
+    private val validInstallationId = Regex("^[a-f0-9]{64}$")
 
     private fun keyStore(): KeyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-
-    private fun hardwareProofPublicKey(): java.security.PublicKey {
-        val store = keyStore()
-        store.getCertificate(proofAlias)?.publicKey?.let { return it }
-        val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-        generator.initialize(
-            KeyGenParameterSpec.Builder(
-                proofAlias,
-                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
-            )
-                .setAlgorithmParameterSpec(java.security.spec.ECGenParameterSpec("secp256r1"))
-                .setDigests(KeyProperties.DIGEST_SHA256)
-                .setUserAuthenticationRequired(false)
-                .build(),
-        )
-        return generator.generateKeyPair().public
-    }
-
-    private fun softwareProofKeyPair(): java.security.KeyPair {
-        val privateFile = File(softwareDir, "proof.pkcs8")
-        val publicFile = File(softwareDir, "proof.x509")
-        val factory = KeyFactory.getInstance("EC")
-        if (privateFile.isFile && publicFile.isFile) {
-            return java.security.KeyPair(
-                factory.generatePublic(X509EncodedKeySpec(publicFile.readBytes())),
-                factory.generatePrivate(PKCS8EncodedKeySpec(privateFile.readBytes())),
-            )
-        }
-        val generator = KeyPairGenerator.getInstance("EC")
-        generator.initialize(java.security.spec.ECGenParameterSpec("secp256r1"))
-        val pair = generator.generateKeyPair()
-        privateFile.writeBytes(pair.private.encoded)
-        publicFile.writeBytes(pair.public.encoded)
-        return pair
-    }
-
-    fun ensureKey(): java.security.PublicKey =
-        if (hardwareBacked) hardwareProofPublicKey() else softwareProofKeyPair().public
-
-    private fun proofPrivateKey(): PrivateKey =
-        if (hardwareBacked) keyStore().getKey(proofAlias, null) as PrivateKey else softwareProofKeyPair().private
 
     private fun hardwareWrappingKey(): SecretKey {
         (keyStore().getKey(wrapAlias, null) as? SecretKey)?.let { return it }
@@ -105,78 +42,97 @@ class DeviceIdentity(private val context: Context) {
         return generator.generateKey()
     }
 
-    private fun softwareWrappingKey(): SecretKey {
-        val file = File(softwareDir, "wrap.key")
-        if (file.isFile) return SecretKeySpec(file.readBytes(), "AES")
-        val key = ByteArray(32).also(SecureRandom()::nextBytes)
-        file.writeBytes(key)
-        return SecretKeySpec(key, "AES")
-    }
+    private fun wrappingKey(): SecretKey = hardwareWrappingKey()
 
-    private fun wrappingKey(): SecretKey =
-        if (hardwareBacked) hardwareWrappingKey() else softwareWrappingKey()
-
-    fun publicKeyPem(): String {
-        val body = Base64.encodeToString(ensureKey().encoded, Base64.NO_WRAP).chunked(64).joinToString("\n")
-        return "-----BEGIN PUBLIC KEY-----\n$body\n-----END PUBLIC KEY-----\n"
-    }
-
-    fun createProof(deviceName: String): Proof {
-        ensureKey()
-        val nonce = ByteArray(32).also(SecureRandom()::nextBytes)
-        val message = "KIMI-REMOTE-ENROLL-V1\u0000$deviceName\u0000".toByteArray(Charsets.UTF_8) + nonce
-        val signer = Signature.getInstance("SHA256withECDSA")
-        signer.initSign(proofPrivateKey())
-        signer.update(message)
-        return Proof(
-            nonce = Base64.encodeToString(nonce, Base64.NO_WRAP),
-            signature = Base64.encodeToString(signer.sign(), Base64.NO_WRAP),
-        )
-    }
-
-    fun credentialPassword(): String {
-        preferences.getString("pending_credential_password", null)?.let {
+    override fun credentialPassword(installationId: String): String {
+        requireInstallationId(installationId)
+        preferences.getString("pending_password_$installationId", null)?.let {
             return unseal(it).toString(Charsets.US_ASCII)
         }
         val password = Base64.encodeToString(
             ByteArray(24).also(SecureRandom()::nextBytes),
             Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING,
         )
-        check(preferences.edit().putString("pending_credential_password", seal(password.toByteArray(Charsets.US_ASCII))).commit())
+        preferences.commitChanges { putString("pending_password_$installationId", seal(password.toByteArray(Charsets.US_ASCII))) }
         return password
     }
 
-    fun installCredential(encoded: String, password: String) {
+    override fun stageCredential(installationId: String, encoded: String, password: String) {
+        requireInstallationId(installationId)
         val bytes = Base64.decode(encoded, Base64.DEFAULT)
         val loaded = loadCredential(bytes, password)
         verifyCredential(loaded)
-        check(
-            preferences.edit()
-                .putString("credential_pkcs12", seal(bytes))
-                .putString("credential_password", seal(password.toByteArray(Charsets.US_ASCII)))
-                .remove("pending_credential_password")
-                .commit(),
-        )
-        requireNotNull(credential()) { "设备身份保存失败" }
+        preferences.commitChanges {
+            putString("staged_pkcs12_$installationId", seal(bytes))
+            putString("staged_credential_password_$installationId", seal(password.toByteArray(Charsets.US_ASCII)))
+            remove("pending_password_$installationId")
+        }
+        requireNotNull(stagedCredential(installationId)) { "待激活设备身份保存失败" }
     }
 
-    fun isApproved(): Boolean = runCatching { credential() != null }.getOrDefault(false)
-
-    fun privateKey(): PrivateKey = requireNotNull(credential()) { "设备尚未批准" }.privateKey
-
-    fun certificate(): X509Certificate? = credential()?.chain?.firstOrNull()
-
-    fun certificateChain(): Array<X509Certificate> = credential()?.chain?.clone() ?: emptyArray()
-
-    fun keyManager(): X509ExtendedKeyManager {
-        val loaded = requireNotNull(credential()) { "设备尚未批准" }
-        return StaticIdentityKeyManager(loaded.privateKey, loaded.chain)
+    override fun promoteCredential(installationId: String) {
+        requireInstallationId(installationId)
+        val credential = requireNotNull(preferences.getString("staged_pkcs12_$installationId", null)) { "没有待激活设备身份" }
+        val password = requireNotNull(preferences.getString("staged_credential_password_$installationId", null)) { "没有待激活设备密码" }
+        preferences.commitChanges {
+            putString("credential_pkcs12_$installationId", credential)
+            putString("credential_password_$installationId", password)
+            remove("staged_pkcs12_$installationId")
+            remove("staged_credential_password_$installationId")
+        }
+        requireNotNull(credential(installationId)) { "设备身份保存失败" }
     }
 
-    private fun credential(): Credential? {
-        val encoded = preferences.getString("credential_pkcs12", null) ?: return null
-        val password = preferences.getString("credential_password", null) ?: return null
+    fun hasCredential(installationId: String): Boolean = runCatching { credential(installationId) != null }.getOrDefault(false)
+
+    override fun hasStagedCredential(installationId: String): Boolean = runCatching { stagedCredential(installationId) != null }.getOrDefault(false)
+
+    override fun discardStagedCredential(installationId: String) {
+        requireInstallationId(installationId)
+        preferences.commitChanges {
+            remove("staged_pkcs12_$installationId")
+            remove("staged_credential_password_$installationId")
+            remove("pending_password_$installationId")
+        }
+    }
+
+    fun removeCredential(installationId: String) {
+        requireInstallationId(installationId)
+        preferences.commitChanges {
+            remove("credential_pkcs12_$installationId")
+            remove("credential_password_$installationId")
+            remove("staged_pkcs12_$installationId")
+            remove("staged_credential_password_$installationId")
+            remove("pending_password_$installationId")
+        }
+    }
+
+    fun clientIdentity(installationId: String): ClientIdentity {
+        val loaded = requireNotNull(credential(installationId)) { "设备尚未配对" }
+        return ClientIdentity(loaded.privateKey, loaded.chain.clone())
+    }
+
+    override fun stagedClientIdentity(installationId: String): ClientIdentity {
+        val loaded = requireNotNull(stagedCredential(installationId)) { "设备身份尚未进入激活阶段" }
+        return ClientIdentity(loaded.privateKey, loaded.chain.clone())
+    }
+
+    private fun credential(installationId: String): Credential? {
+        requireInstallationId(installationId)
+        val encoded = preferences.getString("credential_pkcs12_$installationId", null) ?: return null
+        val password = preferences.getString("credential_password_$installationId", null) ?: return null
         return loadCredential(unseal(encoded), unseal(password).toString(Charsets.US_ASCII))
+    }
+
+    private fun stagedCredential(installationId: String): Credential? {
+        requireInstallationId(installationId)
+        val encoded = preferences.getString("staged_pkcs12_$installationId", null) ?: return null
+        val password = preferences.getString("staged_credential_password_$installationId", null) ?: return null
+        return loadCredential(unseal(encoded), unseal(password).toString(Charsets.US_ASCII))
+    }
+
+    private fun requireInstallationId(value: String) {
+        require(validInstallationId.matches(value)) { "安装实例标识无效" }
     }
 
     private fun loadCredential(bytes: ByteArray, password: String): Credential {
@@ -184,8 +140,7 @@ class DeviceIdentity(private val context: Context) {
         store.load(ByteArrayInputStream(bytes), password.toCharArray())
         val alias = store.aliases().toList().firstOrNull(store::isKeyEntry) ?: error("设备身份中没有私钥")
         val privateKey = store.getKey(alias, password.toCharArray()) as? PrivateKey ?: error("设备身份私钥无效")
-        val chain: Array<X509Certificate> =
-            store.getCertificateChain(alias)?.map { it as X509Certificate }?.toTypedArray() ?: emptyArray()
+        val chain = store.getCertificateChain(alias)?.map { it as X509Certificate }?.toTypedArray() ?: emptyArray()
         require(chain.isNotEmpty()) { "设备身份中没有证书" }
         return Credential(privateKey, chain)
     }
@@ -223,7 +178,6 @@ class DeviceIdentity(private val context: Context) {
         return cipher.doFinal(packed.copyOfRange(12, packed.size))
     }
 
-    data class Proof(val nonce: String, val signature: String)
     private data class Credential(val privateKey: PrivateKey, val chain: Array<X509Certificate>)
 }
 

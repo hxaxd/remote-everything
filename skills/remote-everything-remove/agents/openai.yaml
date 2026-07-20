@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote Everything 清理"
+  short_description: "依据运行记录停止组件、移除系统集成并清理运行目录"
+  default_prompt: "使用 $remote-everything-remove 清理当前设备上的 Remote Everything。"

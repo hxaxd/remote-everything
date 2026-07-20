@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hxaxd/remote-everything/runtime.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "installation_id", "root", "platform", "mode", "release", "created_at", "updated_at", "components", "dependencies", "integrations", "verification"],
+  "properties": {
+    "schema": {"const": 1},
+    "installation_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "root": {"type": "string", "minLength": 1},
+    "platform": {"enum": ["windows", "linux", "macos"]},
+    "mode": {"enum": ["lan", "public"]},
+    "release": {
+      "type": "object", "additionalProperties": false, "required": ["tag", "source"],
+      "properties": {"tag": {"type": "string"}, "source": {"type": "string"}}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "components": {"type": "array", "items": {"$ref": "#/$defs/component"}},
+    "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}},
+    "integrations": {"type": "array", "items": {"$ref": "#/$defs/integration"}},
+    "verification": {"type": "object"}
+  },
+  "$defs": {
+    "component": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "managed", "executable", "sha256", "arguments", "working_directory", "log", "manager", "expected", "observed", "verification"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1}, "managed": {"type": "boolean"},
+        "executable": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "arguments": {"type": "array", "items": {"type": "string"}}, "working_directory": {"type": "string", "minLength": 1},
+        "log": {"type": "string", "minLength": 1}, "manager": {"type": "object"}, "expected": {"type": "object"},
+        "observed": {"type": "object"}, "verification": {"type": "object"}
+      }
+    },
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "managed", "version", "source", "path", "sha256"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1}, "managed": {"type": "boolean"}, "version": {"type": "string"},
+        "source": {"type": "string"}, "path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "integration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "managed", "type", "owner", "definition", "insertion", "restore", "verification"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1}, "managed": {"type": "boolean"}, "type": {"type": "string"},
+        "owner": {"type": "string"}, "definition": {"type": "string", "minLength": 1}, "insertion": {}, "restore": {}, "verification": {"type": "object"}
+      }
+    }
+  }
+}
