@@ -12,6 +12,7 @@ type applicationState struct {
 	Description       string `json:"description"`
 	Icon              string `json:"icon"`
 	Accent            string `json:"accent"`
+	LaunchFragment    string `json:"launch_fragment"`
 	ComputerConnected bool   `json:"computer_connected"`
 	Enabled           bool   `json:"enabled"`
 	Running           bool   `json:"running"`
@@ -46,6 +47,7 @@ func (node *Node) currentApplicationState(app AppDefinition) applicationState {
 		Description:       app.Description,
 		Icon:              app.Icon,
 		Accent:            app.Accent,
+		LaunchFragment:    app.LaunchFragment,
 		ComputerConnected: true,
 		Enabled:           enabled,
 		Running:           running,

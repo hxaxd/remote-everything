@@ -68,6 +68,13 @@ class AppConfigTest {
         }
     }
 
+    @Test
+    fun connectionActionReflectsWhetherInputAlreadyExists() {
+        assertEquals("粘贴并连接", connectionActionLabel(""))
+        assertEquals("粘贴并连接", connectionActionLabel("   "))
+        assertEquals("连接", connectionActionLabel("remote-everything://setup?..."))
+    }
+
     private fun setupUri(vararg entries: Pair<String, String>): String =
         "remote-everything://setup?" + entries.joinToString("&") { (key, value) -> "${encode(key)}=${encode(value)}" }
 

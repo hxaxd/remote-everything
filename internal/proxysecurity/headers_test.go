@@ -18,6 +18,9 @@ func TestStripInternalHeaders(t *testing.T) {
 			t.Fatalf("internal header %q was preserved", name)
 		}
 	}
+	if header.Get("Authorization") != "secret" {
+		t.Fatal("application authorization header was removed")
+	}
 	if header.Get("X-Application-Header") != "preserved" {
 		t.Fatal("application header was removed")
 	}

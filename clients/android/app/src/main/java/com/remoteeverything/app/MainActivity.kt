@@ -14,6 +14,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.WebView
 import android.widget.Button
 import android.widget.FrameLayout
@@ -53,11 +54,12 @@ class MainActivity : ComponentActivity() {
     private var settingsOpen = false
     private var screenGeneration = 0
     private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
-        result.contents?.let(::showScannedSetup)
+        result.contents?.let(::beginSetup)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableFullscreen()
         settings = SettingsStore(this)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -78,11 +80,12 @@ class MainActivity : ComponentActivity() {
         runCatching {
             identity = DeviceIdentity(this)
             setupTransaction = SetupTransaction(settings, identity, "${Build.MANUFACTURER} ${Build.MODEL} · Android")
-            setupTransaction.recover()
+            val pending = setupTransaction.recover()
             connection = settings.activeProfile()
-            enableFullscreen()
             val configured = connection
-            if (configured == null || (configured.mode == "public" && !identity.hasCredential(configured.installationId))) {
+            if (pending != null) {
+                showPendingActivation(pending)
+            } else if (configured == null || (configured.mode == "public" && !identity.hasCredential(configured.installationId))) {
                 showConnectionSetup()
             } else {
                 showCatalog()
@@ -93,11 +96,34 @@ class MainActivity : ComponentActivity() {
     private fun enableFullscreen() {
         runCatching {
             WindowCompat.setDecorFitsSystemWindows(window, false)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 hide(WindowInsetsCompat.Type.systemBars())
                 systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             }
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility =
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                    View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                    View.SYSTEM_UI_FLAG_LAYOUT_STABLE
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        enableFullscreen()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) enableFullscreen()
     }
 
     private fun applyOrientation(appId: String?) {
@@ -133,21 +159,18 @@ class MainActivity : ComponentActivity() {
         setContentView(fullScroll(root))
     }
 
-    private fun showConnectionSetup() {
+    private fun showConnectionSetup(message: String = "") {
         cancelCatalogPolling()
         screenGeneration += 1
-        val generation = screenGeneration
         settingsOpen = false
         applyOrientation(null)
-        val staged = settings.stagedProfile()?.takeIf { identity.hasStagedCredential(it.installationId) }
         val view = ScreenRenderer.connectionSetup(
             context = this,
             profiles = settings.profiles(),
-            staged = staged,
+            initialStatus = message,
             canOpen = { it.mode != "public" || identity.hasCredential(it.installationId) },
             onScan = { scanLauncher.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setPrompt("扫描 Remote Everything 初始化二维码").setBeepEnabled(false).setOrientationLocked(false)) },
-            onPaste = { value, status, button -> startSetup(value, status, button, generation) },
-            onResume = { profile, status, button -> resumePublicActivation(profile, status, button, generation) },
+            onConnect = ::beginSetup,
             onOpen = { profile, _ -> settings.setActiveProfile(profile.installationId); connection = profile; showCatalog() },
             onDelete = ::confirmRemoveProfile,
         )
@@ -173,56 +196,123 @@ class MainActivity : ComponentActivity() {
             .show()
     }
 
-    private fun showScannedSetup(value: String) {
-        val view = ScreenRenderer.connecting(this) { status, button -> startSetup(value, status, button, screenGeneration) }
-        setContentView(view.root)
-        startSetup(value, view.status, view.retry, screenGeneration)
-    }
-
-    private fun startSetup(value: String, status: TextView, button: Button?, generation: Int) {
+    private fun beginSetup(value: String) {
         val setup = runCatching { AppConfig.parseSetup(value) }.getOrElse {
-            status.setTextColor(Ui.danger)
-            status.text = it.message ?: "初始化链接无效"
+            showConnectionSetup(it.message ?: "初始化链接无效")
             return
         }
-        button?.isEnabled = false
-        status.setTextColor(Ui.textSecondary)
-        status.text = if (setup.profile.mode == "public") "正在配对并验证完整链路…" else "正在验证节点证书和应用目录…"
+        showSetupProgress(setup.profile, setup) { callback -> setupTransaction.begin(setup, callback) }
+    }
+
+    private fun showPendingActivation(config: ConnectionConfig) {
+        showSetupProgress(config, null) { callback -> setupTransaction.retryActivation(config, callback) }
+    }
+
+    private fun showSetupProgress(
+        config: ConnectionConfig,
+        setup: SetupPayload?,
+        operation: ((SetupState) -> Unit) -> SetupState,
+    ) {
+        cancelCatalogPolling()
+        screenGeneration += 1
+        val generation = screenGeneration
+        settingsOpen = false
+        applyOrientation(null)
+        val view = ScreenRenderer.connecting(this)
+        setContentView(view.root)
+        val initialState: SetupState = if (setup == null) SetupState.Activating(config) else SetupState.Pairing(config)
+        executeSetup(config, setup, view, generation, initialState, operation)
+    }
+
+    private fun executeSetup(
+        config: ConnectionConfig,
+        setup: SetupPayload?,
+        view: ConnectingView,
+        generation: Int,
+        initialState: SetupState,
+        operation: ((SetupState) -> Unit) -> SetupState,
+    ) {
+        showSetupState(view, initialState)
         executor.execute {
             val result = runCatching {
-                setupTransaction.connect(setup)
+                operation { state -> main.post { if (generation == screenGeneration) showSetupState(view, state) } }
+            }.getOrElse { error ->
+                val cause = generateSequence(error) { it.cause }.last()
+                SetupState.Failed(config, cause.message ?: "初始化失败", SetupAction.RESTART_SETUP)
             }
             main.post {
                 if (generation != screenGeneration) return@post
-                result.onSuccess { configured ->
-                    connection = configured
-                    showCatalog()
-                }.onFailure { error ->
-                    button?.isEnabled = true
-                    status.setTextColor(Ui.danger)
-                    status.text = error.message ?: "连接失败"
+                when (result) {
+                    is SetupState.Ready -> {
+                        connection = result.config
+                        showCatalog()
+                    }
+                    is SetupState.Failed -> showSetupFailure(view, result, setup, generation)
+                    is SetupState.AwaitingApproval -> {
+                        showSetupState(view, result)
+                        main.postDelayed({
+                            if (generation == screenGeneration) {
+                                executeSetup(result.config, setup, view, generation, SetupState.Activating(result.config, result.pendingExpiresAt)) { callback ->
+                                    setupTransaction.retryActivation(result.config, callback)
+                                }
+                            }
+                        }, 2_000)
+                    }
+                    else -> showSetupState(view, result)
                 }
             }
         }
     }
 
-    private fun resumePublicActivation(config: ConnectionConfig, status: TextView, button: Button, generation: Int) {
-        button.isEnabled = false
-        status.setTextColor(Ui.textSecondary)
-        status.text = "正在继续验证完整链路…"
-        executor.execute {
-            val result = runCatching { setupTransaction.activate(config) }
-            main.post {
-                if (generation != screenGeneration) return@post
-                result.onSuccess {
-                    connection = it
-                    showCatalog()
-                }.onFailure {
-                    button.isEnabled = true
-                    status.setTextColor(Ui.danger)
-                    status.text = it.message ?: "激活失败"
+    private fun showSetupState(view: ConnectingView, state: SetupState) {
+        view.progress.visibility = View.VISIBLE
+        view.action.visibility = View.GONE
+        view.cancel.visibility = if (state is SetupState.AwaitingApproval) View.VISIBLE else View.GONE
+        if (state is SetupState.AwaitingApproval) {
+            view.cancel.setOnClickListener {
+                setupTransaction.discardPending()
+                showConnectionSetup()
+            }
+        }
+        view.status.setTextColor(Ui.textSecondary)
+        view.status.text = when (state) {
+            is SetupState.Pairing -> if (state.config.mode == "public") "正在验证邀请并申请设备身份…" else "正在验证节点证书和应用目录…"
+            is SetupState.Activating -> "设备身份已签发，正在验证完整链路…"
+            is SetupState.AwaitingApproval -> "设备申请已提交，正在等待你在 Agent 中批准…"
+            is SetupState.Ready -> "连接已完成"
+            is SetupState.Failed -> state.message
+        }
+    }
+
+    private fun showSetupFailure(view: ConnectingView, state: SetupState.Failed, setup: SetupPayload?, generation: Int) {
+        view.progress.visibility = View.GONE
+        view.status.setTextColor(Ui.danger)
+        view.status.text = state.message
+        view.action.visibility = View.VISIBLE
+        view.action.text = when (state.action) {
+            SetupAction.RETRY_PAIRING -> "重试配对"
+            SetupAction.RETRY_ACTIVATION -> "重试激活"
+            SetupAction.RESTART_SETUP -> "重新初始化"
+        }
+        view.action.setOnClickListener {
+            when (state.action) {
+                SetupAction.RETRY_PAIRING -> {
+                    val payload = setup ?: return@setOnClickListener showConnectionSetup("初始化链接已丢失，请重新输入")
+                    executeSetup(state.config, payload, view, generation, SetupState.Pairing(state.config)) { callback -> setupTransaction.retryPairing(payload, callback) }
+                }
+                SetupAction.RETRY_ACTIVATION -> executeSetup(state.config, setup, view, generation, SetupState.Activating(state.config)) { callback ->
+                    setupTransaction.retryActivation(state.config, callback)
+                }
+                SetupAction.RESTART_SETUP -> {
+                    setupTransaction.discardPending()
+                    showConnectionSetup(state.message)
                 }
             }
+        }
+        view.cancel.visibility = View.VISIBLE
+        view.cancel.setOnClickListener {
+            setupTransaction.discardPending()
+            showConnectionSetup()
         }
     }
 
@@ -290,6 +380,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }.onFailure { error ->
                     val cause = generateSequence(error) { it.cause }.last()
+                    if (cause is DeviceAuthorizationException) {
+                        identity.removeCredential(config.installationId)
+                        settings.removeProfile(config.installationId)
+                        if (connection?.installationId == config.installationId) connection = null
+                        showConnectionSetup("设备授权已失效，请重新初始化")
+                        return@onFailure
+                    }
                     val detail = cause.message?.takeIf(String::isNotBlank) ?: cause.javaClass.simpleName
                     body.addView(messageCard("目录暂时不可用", "连接失败：$detail\n\n应用会自动重试。"))
                 }

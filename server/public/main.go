@@ -101,6 +101,6 @@ func main() {
 			}
 		}
 	}
-	fmt.Fprintln(os.Stderr, "usage: remote-everything-gateway init --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | invite --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH | revoke FINGERPRINT)")
+	fmt.Fprintln(os.Stderr, "usage: remote-everything-gateway init --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | invite --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH | revoke FINGERPRINT)")
 	os.Exit(64)
 }

@@ -77,7 +77,9 @@ with tempfile.TemporaryDirectory() as directory:
     if key_public != certificate_public:
         raise SystemExit("pkcs12 key does not match certificate")
     with open(certificate_path, encoding="ascii") as file:
-        certificate_der = ssl.PEM_cert_to_DER_cert(file.read())
+        certificate_pem = file.read()
+    certificate_pem = certificate_pem[certificate_pem.index("-----BEGIN CERTIFICATE-----"):]
+    certificate_der = ssl.PEM_cert_to_DER_cert(certificate_pem)
     fingerprint = hashlib.sha256(certificate_der).hexdigest()
     if fingerprint != paired["certificate_fingerprint"]:
         raise SystemExit("certificate fingerprint mismatch")
@@ -89,6 +91,15 @@ with tempfile.TemporaryDirectory() as directory:
         data=b"{}",
         method="POST",
         headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(activate_request, context=context, timeout=10) as response:
+        approval_pending = json.loads(response.read())
+        if response.status != 202 or approval_pending.get("code") != "approval_pending":
+            raise SystemExit("unapproved device activated")
+    subprocess.run(
+        [gateway_binary, "device", "--state", server_state_root, "approve", fingerprint],
+        check=True,
+        stdout=subprocess.DEVNULL,
     )
     with urllib.request.urlopen(activate_request, context=context, timeout=10) as response:
         public_apps = json.loads(response.read())
