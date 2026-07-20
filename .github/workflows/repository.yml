@@ -55,7 +55,8 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
           "$(go env GOPATH)/bin/staticcheck" ./...
           "$(go env GOPATH)/bin/govulncheck" ./...
-          if git grep -niE -- 'BEGIN ([A-Z ]+ )?PRIVATE KEY|REMOTE_EVERYTHING_PAIRING_PASSWORD|(password|token|secret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/-]{24,}' -- ':!**/*_test.go' ':!clients/android/app/src/test/**'; then
+          credential_pattern='BEGIN ([A-Z ]+ )?PRIVATE KEY|REMOTE_EVERYTHING_PAIRING_''PASSWORD|(pass''word|to''ken|se''cret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/-]{24,}'
+          if git grep -niE -- "$credential_pattern" -- ':!**/*_test.go' ':!clients/android/app/src/test/**'; then
             echo "::error::possible credential material in repository"
             exit 1
           fi

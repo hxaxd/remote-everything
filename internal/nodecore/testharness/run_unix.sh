@@ -33,14 +33,24 @@ with socket.socket() as sock:
     raise SystemExit(0 if sock.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)
 PY
 }
+dump_logs() {
+  if [[ -d "${state_root:-}/logs" ]]; then
+    for log in "$state_root"/logs/*; do
+      [[ -f "$log" ]] || continue
+      printf '%s\n' "$log"
+      sed -n '1,160p' "$log"
+    done >&2
+  fi
+}
 wait_port() {
-  local port=$1 expected=$2
+  local port=$1 expected=$2 stage=$3
   for _ in {1..100}; do
     if port_open "$port"; then actual=open; else actual=closed; fi
     [[ "$actual" == "$expected" ]] && return
     sleep 0.1
   done
-  fail "port $port did not become $expected"
+  dump_logs
+  fail "$stage port $port did not become $expected"
 }
 control() {
   curl -sS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
@@ -67,7 +77,7 @@ printf '%s' "$init_json" | assert_json 'value["ok"] and value["control_token_fil
 control_port=$(printf '%s' "$init_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["listen_address"].rsplit(":",1)[1])')
 "$temp_root/control" serve --state "$state_root" &
 control_pid=$!
-wait_port "$control_port" open
+wait_port "$control_port" open control
 
 status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
   --data '{"action":"list"}' "http://127.0.0.1:$control_port/__local_remote_control")
@@ -107,13 +117,13 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Cookie: RemoteEverythingApp
 [[ "$status" == 502 ]] || fail 'selected stopped application returns gateway error'
 
 control '{"action":"start","id":"fixture"}' | assert_json 'value["ok"] and value["enabled"]' 'start enables application'
-wait_port "$app_port" open
+wait_port "$app_port" open fixture-start
 control '{"action":"status","id":"fixture"}' | assert_json 'value["running"] and value["code"] == "ready"' 'status becomes ready'
 curl -sS -H 'Cookie: RemoteEverythingApp=fixture; KeepMe=yes' \
   "http://127.0.0.1:$control_port/deep?q=1" | assert_json 'value["path"] == "/deep?q=1" and value["cookie"] == "KeepMe=yes"' 'proxy semantics are stable'
 control '{"action":"status","id":"missing"}' | assert_json 'not value["ok"] and value["code"] == "app_not_found"' 'unknown application error is stable'
 control '{"action":"stop","id":"fixture"}' | assert_json 'value["ok"] and not value["enabled"]' 'stop disables application'
-wait_port "$app_port" closed
+wait_port "$app_port" closed fixture-stop
 
 tree_port=$(free_port)
 tree_pid_file="$temp_root/tree.pid"
@@ -135,15 +145,15 @@ for _ in {1..100}; do [[ -s "$tree_pid_file" ]] && break; sleep 0.05; done
 control '{"action":"stop","id":"tree"}' >/dev/null
 tree_pid=$(cat "$tree_pid_file")
 if kill -0 "$tree_pid" 2>/dev/null; then fail 'launcher descendant survived direct parent exit'; fi
-wait_port "$tree_port" closed
+wait_port "$tree_port" closed tree-stop
 "$temp_root/control" app remove --state "$state_root" tree >/dev/null
 
 control '{"action":"start","id":"fixture"}' >/dev/null
-wait_port "$app_port" open
+wait_port "$app_port" open fixture-restart
 kill -KILL "$control_pid"
 wait "$control_pid" 2>/dev/null || true
 control_pid=
-wait_port "$app_port" closed
+wait_port "$app_port" closed parent-exit
 
 "$temp_root/control" app remove --state "$state_root" fixture | assert_json 'value["ok"] and value["changed"]' 'app remove deletes application'
 "$temp_root/control" app remove --state "$state_root" fixture | assert_json 'value["ok"] and not value["changed"]' 'app remove is idempotent'
