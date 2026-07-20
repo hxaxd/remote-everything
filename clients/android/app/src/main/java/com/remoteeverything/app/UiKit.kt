@@ -34,16 +34,16 @@ object Ui {
             setTypeface(typeface, style)
         }
 
-    fun rounded(color: Int, radiusDp: Float, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
+    fun rounded(view: View, color: Int, radiusDp: Float, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.RECTANGLE
         setColor(color)
-        cornerRadius = radiusDp
-        if (stroke != null) setStroke(2, stroke)
+        cornerRadius = radiusDp * view.resources.displayMetrics.density
+        if (stroke != null) setStroke(dp(view, 1), stroke)
     }
 
     fun card(context: Context): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
-        background = rounded(card, 22f, cardBorder)
+        background = rounded(this, card, 22f, cardBorder)
     }
 
     fun primaryButton(context: Context, text: String): Button = Button(context).apply {
@@ -51,7 +51,7 @@ object Ui {
         setTextColor(Color.WHITE)
         textSize = 15f
         isAllCaps = false
-        background = rounded(accent, 14f)
+        background = rounded(this, accent, 14f)
     }
 
     fun ghostButton(context: Context, text: String): Button = Button(context).apply {
@@ -59,7 +59,7 @@ object Ui {
         setTextColor(textSecondary)
         textSize = 15f
         isAllCaps = false
-        background = rounded(card, 14f, cardBorder)
+        background = rounded(this, card, 14f, cardBorder)
     }
 
     fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)

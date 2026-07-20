@@ -1,18 +1,5 @@
-import java.util.Properties
-
 plugins {
   alias(libs.plugins.android.application)
-}
-
-val clientConfig = Properties().apply {
-    val file = rootProject.file("remote-everything.properties")
-    if (file.isFile) file.inputStream().use { load(it) }
-}
-
-fun clientConfigValue(key: String): String {
-    val value = clientConfig.getProperty(key)
-        ?: error("Missing '$key' in clients/android/remote-everything.properties. Run scripts/configure.ps1 with your server bundle first.")
-    return "\"$value\""
 }
 
 android {
@@ -22,13 +9,8 @@ android {
         applicationId = "com.remoteeverything.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.6"
-        buildConfigField("String", "GATEWAY_HOST", clientConfigValue("gatewayHost"))
-        buildConfigField("String", "GATEWAY_ORIGIN", clientConfigValue("gatewayOrigin"))
-        buildConfigField("String", "CONTROL_TOKEN", clientConfigValue("controlToken"))
-        buildConfigField("String", "BOOTSTRAP_PASSWORD", clientConfigValue("bootstrapPassword"))
-        buildConfigField("String", "BOOTSTRAP_FINGERPRINT", clientConfigValue("bootstrapFingerprint"))
+        versionCode = 11
+        versionName = "2.0.0"
     }
 
     val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
@@ -39,7 +21,7 @@ android {
             create("remoteEverythingRelease") {
                 storeFile = file(releaseStore)
                 storePassword = releaseStorePassword
-                keyAlias = "remote-everything"
+                keyAlias = "agent-remote"
                 keyPassword = releaseKeyPassword
             }
         }
@@ -48,6 +30,7 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.findByName("remoteEverythingRelease")
         }
@@ -77,4 +60,7 @@ kotlin {
 dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.activity.ktx)
+  implementation(libs.zxing.embedded)
+  testImplementation(libs.junit)
+  testImplementation(libs.json)
 }
