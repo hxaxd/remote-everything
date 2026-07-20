@@ -1,8 +1,11 @@
 package com.remoteeverything.app
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -13,8 +16,16 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 
-data class ConnectingView(val root: View, val status: TextView, val retry: Button)
+data class ConnectingView(
+    val root: View,
+    val status: TextView,
+    val progress: ProgressBar,
+    val action: Button,
+    val cancel: Button,
+)
 data class CatalogView(val root: View, val body: LinearLayout)
+
+fun connectionActionLabel(value: String): String = if (value.isBlank()) "粘贴并连接" else "连接"
 
 object ScreenRenderer {
 	private fun dp(context: Context, value: Int): Int = (value * context.resources.displayMetrics.density + 0.5f).toInt()
@@ -98,18 +109,17 @@ object ScreenRenderer {
     fun connectionSetup(
         context: Context,
         profiles: List<ConnectionConfig>,
-        staged: ConnectionConfig?,
+        initialStatus: String,
         canOpen: (ConnectionConfig) -> Boolean,
         onScan: () -> Unit,
-        onPaste: (String, TextView, Button) -> Unit,
-        onResume: (ConnectionConfig, TextView, Button) -> Unit,
+        onConnect: (String) -> Unit,
         onOpen: (ConnectionConfig, TextView) -> Unit,
         onDelete: (ConnectionConfig) -> Unit,
     ): View {
         val root = contentRoot(context).apply { setPadding(dp(context, 24), dp(context, 48), dp(context, 24), dp(context, 32)) }
         root.addView(Ui.label(context, "远程万物", 30f, Ui.textPrimary, Typeface.BOLD))
         root.addView(Ui.label(context, "扫描 Agent 展示的初始化二维码", 15f, Ui.textSecondary).apply { setPadding(0, dp(context, 8), 0, dp(context, 24)) })
-        val status = Ui.label(context, "", 13f, Ui.danger).apply { setPadding(0, dp(context, 14), 0, dp(context, 8)) }
+        val status = Ui.label(context, initialStatus, 13f, Ui.danger).apply { setPadding(0, dp(context, 14), 0, dp(context, 8)) }
         root.addView(Ui.primaryButton(context, "扫描连接").apply { setOnClickListener { onScan() } }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 50)))
         val setupLink = EditText(context).apply {
             hint = "或粘贴一条初始化链接"
@@ -121,14 +131,39 @@ object ScreenRenderer {
             isSingleLine = true
         }
         root.addView(setupLink, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 52)).apply { topMargin = dp(context, 16) })
-        root.addView(Ui.ghostButton(context, "粘贴并连接").apply {
-            setOnClickListener { onPaste(setupLink.text.toString(), status, this) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply { topMargin = dp(context, 8) })
-        staged?.let { profile ->
-            root.addView(Ui.ghostButton(context, "继续激活 ${profile.name}").apply {
-                setOnClickListener { onResume(profile, status, this) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply { topMargin = dp(context, 8) })
+        val connect = Ui.ghostButton(context, connectionActionLabel("")).apply {
+            setOnClickListener {
+                var value = setupLink.text.toString().trim()
+                if (value.isEmpty()) {
+                    value = runCatching {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.primaryClip
+                            ?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            ?.trim()
+                            .orEmpty()
+                    }.getOrDefault("")
+                    if (value.isEmpty()) {
+                        status.text = "剪贴板中没有初始化链接"
+                        return@setOnClickListener
+                    }
+                    setupLink.setText(value)
+                    setupLink.setSelection(value.length)
+                }
+                onConnect(value)
+            }
         }
+        setupLink.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                connect.text = connectionActionLabel(value?.toString().orEmpty())
+                if (status.text.isNotEmpty()) status.text = ""
+            }
+            override fun afterTextChanged(value: Editable?) = Unit
+        })
+        root.addView(connect, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply { topMargin = dp(context, 8) })
         if (profiles.isNotEmpty()) {
             root.addView(sectionLabel(context, "已有连接").apply { setPadding(0, dp(context, 24), 0, dp(context, 8)) })
             profiles.forEach { profile ->
@@ -147,15 +182,23 @@ object ScreenRenderer {
         return fullScroll(context, root)
     }
 
-    fun connecting(context: Context, onRetry: (TextView, Button) -> Unit): ConnectingView {
+    fun connecting(context: Context): ConnectingView {
         val status = Ui.label(context, "正在验证初始化信息…", 13f, Ui.textSecondary)
         val root = contentRoot(context).apply { setPadding(dp(context, 24), dp(context, 64), dp(context, 24), dp(context, 32)) }
         root.addView(Ui.label(context, "正在连接", 28f, Ui.textPrimary, Typeface.BOLD))
         root.addView(status, Ui.matchWrap())
-        val retry = Ui.ghostButton(context, "重试连接").apply { setOnClickListener { onRetry(status, this) } }
-        root.addView(retry,
+        val progress = ProgressBar(context).apply { isIndeterminate = true }
+        root.addView(progress, LinearLayout.LayoutParams(dp(context, 36), dp(context, 36)).apply {
+            topMargin = dp(context, 20)
+            gravity = Gravity.CENTER_HORIZONTAL
+        })
+        val action = Ui.primaryButton(context, "重试").apply { visibility = View.GONE }
+        root.addView(action,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply { topMargin = dp(context, 16) })
-        return ConnectingView(root, status, retry)
+        val cancel = Ui.ghostButton(context, "取消并返回连接设置").apply { visibility = View.GONE }
+        root.addView(cancel,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 48)).apply { topMargin = dp(context, 8) })
+        return ConnectingView(fullScroll(context, root), status, progress, action, cancel)
     }
 
     fun catalog(context: Context, onSettings: () -> Unit): CatalogView {

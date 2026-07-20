@@ -44,6 +44,7 @@ type ApplicationState struct {
 	Description       string `json:"description"`
 	Icon              string `json:"icon"`
 	Accent            string `json:"accent"`
+	LaunchFragment    string `json:"launch_fragment"`
 	ComputerConnected bool   `json:"computer_connected"`
 	Enabled           bool   `json:"enabled"`
 	Running           bool   `json:"running"`
@@ -174,7 +175,7 @@ func validCatalog(value ControlResponse) bool {
 		} else if app.Running {
 			expected = "stopping"
 		}
-		if !validID.MatchString(app.ID) || seen[app.ID] || !validCatalogMetadata(app.Name, 80, false) || !validCatalogMetadata(app.Description, 240, true) || !validCatalogMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || !app.ComputerConnected || app.Code != expected {
+		if !validID.MatchString(app.ID) || seen[app.ID] || !validCatalogMetadata(app.Name, 80, false) || !validCatalogMetadata(app.Description, 240, true) || !validCatalogMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || (app.LaunchFragment != "" && (!strings.HasPrefix(app.LaunchFragment, "#") || !validCatalogMetadata(app.LaunchFragment, 2048, false))) || !app.ComputerConnected || app.Code != expected {
 			return false
 		}
 		seen[app.ID] = true

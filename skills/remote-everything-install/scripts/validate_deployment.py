@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -65,9 +66,28 @@ def validate_caddy_contract(text):
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         raise ValueError("Caddy routes must be ordered pairing, tunnel, device")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "path('/~!frp')", "{tls_client_fingerprint}", "header_up -X-Remote-Everything-Client-Fingerprint", "mode verify_if_given"):
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
+    if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
+        raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
+    site_address = ""
+    for line in active.splitlines():
+        match = re.fullmatch(r"([^\s{}]+)\s+\{", line)
+        if match:
+            site_address = match.group(1)
+            break
+    try:
+        ipaddress.ip_address(site_address)
+    except ValueError:
+        pass
+    else:
+        if "profile shortlived" not in active:
+            raise ValueError("Caddy IP address certificate must use the shortlived ACME profile")
+        if f"default_sni {site_address}" not in active:
+            raise ValueError("Caddy IP address site must provide its address as the default SNI")
+        if "strict_sni_host insecure_off" not in active:
+            raise ValueError("Caddy IP address site must allow clients that cannot send an IP SNI")
 
 
 def main():

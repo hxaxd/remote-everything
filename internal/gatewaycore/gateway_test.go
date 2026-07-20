@@ -110,7 +110,10 @@ func TestProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
 		if request.Header.Get("Cookie") != "session=value" || request.Header.Get("Upgrade") != "websocket" {
 			t.Errorf("cookie or upgrade header lost")
 		}
-		for _, name := range []string{"Authorization", "X-Remote-Everything-Client-Fingerprint", "X-Remote-Everything-Control-Token"} {
+		if request.Header.Get("Authorization") != "secret" {
+			t.Errorf("application authorization header lost")
+		}
+		for _, name := range []string{"X-Remote-Everything-Client-Fingerprint", "X-Remote-Everything-Control-Token"} {
 			if request.Header.Get(name) != "" {
 				t.Errorf("internal header %s leaked", name)
 			}

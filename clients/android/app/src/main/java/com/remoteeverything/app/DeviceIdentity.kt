@@ -57,11 +57,12 @@ class DeviceIdentity(private val context: Context) : SetupIdentityStore {
         return password
     }
 
-    override fun stageCredential(installationId: String, encoded: String, password: String) {
+    override fun stageCredential(installationId: String, encoded: String, password: String, expectedFingerprint: String) {
         requireInstallationId(installationId)
         val bytes = Base64.decode(encoded, Base64.DEFAULT)
         val loaded = loadCredential(bytes, password)
         verifyCredential(loaded)
+        require(GatewaySecurityPolicy.fingerprint(loaded.chain.first().encoded) == expectedFingerprint) { "设备证书指纹与配对响应不一致" }
         preferences.commitChanges {
             putString("staged_pkcs12_$installationId", seal(bytes))
             putString("staged_credential_password_$installationId", seal(password.toByteArray(Charsets.US_ASCII)))
@@ -77,8 +78,6 @@ class DeviceIdentity(private val context: Context) : SetupIdentityStore {
         preferences.commitChanges {
             putString("credential_pkcs12_$installationId", credential)
             putString("credential_password_$installationId", password)
-            remove("staged_pkcs12_$installationId")
-            remove("staged_credential_password_$installationId")
         }
         requireNotNull(credential(installationId)) { "设备身份保存失败" }
     }

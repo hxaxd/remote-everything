@@ -17,6 +17,7 @@ __pycache__/
 *.py[cod]
 
 # 构建产物
+/dist/
 **/build/
 .gradle/
 .kotlin/
