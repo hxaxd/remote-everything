@@ -29,7 +29,7 @@ class DeploymentContractTests(unittest.TestCase):
 
     def test_caddy_contract_requires_route_order(self):
         caddy = (ASSETS / "Caddyfile.tmpl").read_text(encoding="utf-8")
-        caddy = caddy.replace("{{PUBLIC_HOST}}", "remote.example.com")
+        caddy = caddy.replace("{{PUBLIC_HOST}}", "remote.example.com").replace("{{ACME_PROFILE}}", "").replace("{{DEFAULT_SNI}}", "").replace("{{STRICT_SNI_HOST}}", "")
         validator.validate_caddy_contract(caddy)
         pair = caddy.index("@pair path")
         tunnel = caddy.index("@tunnel expression")
@@ -41,6 +41,16 @@ class DeploymentContractTests(unittest.TestCase):
             validator.validate_caddy_contract(caddy.replace("\tauto_https disable_redirects\n", ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\tdisable_http_challenge\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\t\theader_up X-Remote-Everything-Client-Fingerprint", "\t\t\theader_up -X-Remote-Everything-Client-Fingerprint\n\t\t\theader_up X-Remote-Everything-Client-Fingerprint"))
+        ip_caddy = caddy.replace("remote.example.com", "192.0.2.1")
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(ip_caddy)
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(ip_caddy.replace("disable_http_challenge", "disable_http_challenge\n\t\t\tprofile shortlived"))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(ip_caddy.replace("auto_https disable_redirects", "auto_https disable_redirects\n\tdefault_sni 192.0.2.1").replace("disable_http_challenge", "disable_http_challenge\n\t\t\tprofile shortlived"))
+        validator.validate_caddy_contract(ip_caddy.replace("auto_https disable_redirects", "auto_https disable_redirects\n\tdefault_sni 192.0.2.1\n\tservers {\n\t\tstrict_sni_host insecure_off\n\t}").replace("disable_http_challenge", "disable_http_challenge\n\t\t\tprofile shortlived"))
 
 
 if __name__ == "__main__":

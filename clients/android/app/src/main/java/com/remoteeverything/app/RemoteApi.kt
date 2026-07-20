@@ -20,12 +20,20 @@ data class CatalogSnapshot(
     val apps: List<RemoteApp>,
 )
 
+data class PairingCredential(
+    val encoded: String,
+    val fingerprint: String,
+    val pendingExpiresAt: String,
+)
+
+class DeviceAuthorizationException : IllegalStateException("设备授权已失效")
+
 object RemoteApi {
     private val appId = Regex("^[a-z0-9][a-z0-9._-]{0,63}$")
     private val fingerprint = Regex("^[a-f0-9]{64}$")
     private val accent = Regex("^#[0-9A-Fa-f]{6}$")
     private val catalogKeys = setOf("ok", "computer_connected", "code", "apps")
-    private val appKeys = setOf("id", "name", "description", "icon", "accent", "computer_connected", "enabled", "running", "code")
+    private val appKeys = setOf("id", "name", "description", "icon", "accent", "launch_fragment", "computer_connected", "enabled", "running", "code")
     private val pairingKeys = setOf("ok", "device_name", "certificate_fingerprint", "credential_format", "credential_pkcs12", "pending_expires_at")
     private val actionKeys = setOf("ok", "action", "computer_connected", "enabled", "running", "code")
 
@@ -48,6 +56,7 @@ object RemoteApi {
 
     fun catalog(config: ConnectionConfig, identity: ClientIdentity?): CatalogSnapshot {
         val response = SecureHttp.request(config, config.appsUrl, "GET", identity)
+        if (response.status == 401 || response.status == 403) throw DeviceAuthorizationException()
         require(response.status == 200) { "服务返回 ${response.status}" }
         return decodeCatalog(config, response.json())
     }
@@ -79,22 +88,27 @@ object RemoteApi {
         val description = value.requiredString("description")
         val icon = value.requiredString("icon")
         val color = value.requiredString("accent")
+        val launchFragment = value.requiredString("launch_fragment")
         val connected = value.requiredBoolean("computer_connected")
         val enabled = value.requiredBoolean("enabled")
         val running = value.requiredBoolean("running")
         val code = value.requiredString("code")
         val expectedCode = if (enabled) if (running) "ready" else "starting" else if (running) "stopping" else "stopped"
-        require(appId.matches(id) && validMetadata(name, 80, false) && validMetadata(description, 240, true) && validMetadata(icon, 4, true) && accent.matches(color) && connected && code == expectedCode) { "应用目录内容无效" }
-        return RemoteApp(id, name, description, icon, color, config.appOpenUrl(id), code)
+        require(appId.matches(id) && validMetadata(name, 80, false) && validMetadata(description, 240, true) && validMetadata(icon, 4, true) && accent.matches(color) && (launchFragment.isEmpty() || launchFragment.startsWith("#") && validMetadata(launchFragment, 2048, false)) && connected && code == expectedCode) { "应用目录内容无效" }
+        return RemoteApp(id, name, description, icon, color, config.appOpenUrl(id) + launchFragment, code)
     }
 
-    fun decodePairingCredential(payload: JSONObject): String {
+    fun decodePairingCredential(payload: JSONObject): PairingCredential {
         require(payload.keysSet() == pairingKeys && payload.requiredBoolean("ok")) { "配对响应字段无效" }
         require(payload.requiredString("device_name").isNotBlank()) { "配对设备名无效" }
-        require(fingerprint.matches(payload.requiredString("certificate_fingerprint"))) { "配对证书指纹无效" }
+        val certificateFingerprint = payload.requiredString("certificate_fingerprint")
+        require(fingerprint.matches(certificateFingerprint)) { "配对证书指纹无效" }
         require(payload.requiredString("credential_format") == "pkcs12") { "配对凭据格式无效" }
-        require(runCatching { Instant.parse(payload.requiredString("pending_expires_at")) }.isSuccess) { "配对期限无效" }
-        return payload.requiredString("credential_pkcs12").also { require(it.isNotBlank()) { "配对凭据为空" } }
+        val pendingExpiresAt = payload.requiredString("pending_expires_at")
+        require(runCatching { Instant.parse(pendingExpiresAt) }.isSuccess) { "配对期限无效" }
+        val encoded = payload.requiredString("credential_pkcs12")
+        require(encoded.isNotBlank()) { "配对凭据为空" }
+        return PairingCredential(encoded, certificateFingerprint, pendingExpiresAt)
     }
 
     fun control(config: ConnectionConfig, identity: ClientIdentity?, appId: String, action: String): Boolean {

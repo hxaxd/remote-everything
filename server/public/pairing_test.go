@@ -67,6 +67,32 @@ func pairFixture(t *testing.T, service *publicService) pairResponse {
 	return paired
 }
 
+func approvePending(t *testing.T, service *publicService, fingerprint string) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
+	request.Header.Set(clientFingerprintHeader, fingerprint)
+	if _, code, err := service.activateDevice(request); err == nil || code != "approval_pending" {
+		t.Fatalf("approval request failed: %s %v", code, err)
+	}
+	if err := service.deviceApprove(fingerprint, io.Discard); err != nil {
+		t.Fatalf("approval failed: %v", err)
+	}
+}
+
+func activateApproved(t *testing.T, service *publicService, fingerprint string) {
+	t.Helper()
+	approvePending(t, service, fingerprint)
+	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
+	request.Header.Set(clientFingerprintHeader, fingerprint)
+	if _, code, err := service.activateDevice(request); err != nil || code != "" {
+		t.Fatalf("activation failed: %s %v", code, err)
+	}
+	var repeated bytes.Buffer
+	if err := service.deviceApprove(fingerprint, &repeated); err != nil || !strings.Contains(repeated.String(), `"changed":false`) {
+		t.Fatalf("repeat approval is not idempotent: %s %v", repeated.String(), err)
+	}
+}
+
 func TestInvitationPairingIsSingleUseAndPending(t *testing.T) {
 	service := setupPublicTest(t)
 	if recorder := pairRequest(t, service, "bad", `{}`); recorder.Code != http.StatusUnauthorized {
@@ -123,6 +149,12 @@ func TestActivationCommitsOnlyAfterNodeValidationAndIsIdempotent(t *testing.T) {
 	service.gateway, _ = gatewaycore.New(node.URL, token)
 	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
 	request.Header.Set(clientFingerprintHeader, paired.CertificateFingerprint)
+	if _, code, err := service.activateDevice(request); err == nil || code != "approval_pending" {
+		t.Fatalf("unapproved activation unexpectedly succeeded: %s %v", code, err)
+	}
+	if err := service.deviceApprove(paired.CertificateFingerprint, io.Discard); err != nil {
+		t.Fatal(err)
+	}
 	if _, code, err := service.activateDevice(request); err == nil || code != "computer_offline" {
 		t.Fatalf("offline activation unexpectedly succeeded: %s %v", code, err)
 	}
@@ -162,12 +194,16 @@ func TestDeviceRecordStateCombinationsAreStrict(t *testing.T) {
 		func() deviceRecord {
 			value := base
 			value.Status = "approved"
+			value.ApprovalRequestedAt = isoUTC(now)
+			value.ApprovedAt = isoUTC(now)
 			value.ActivatedAt = isoUTC(now)
 			return value
 		}(),
 		func() deviceRecord {
 			value := base
 			value.Status = "revoked"
+			value.ApprovalRequestedAt = isoUTC(now)
+			value.ApprovedAt = isoUTC(now)
 			value.ActivatedAt = isoUTC(now)
 			value.RevokedAt = isoUTC(now)
 			return value
@@ -293,11 +329,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	service.gateway, _ = gatewaycore.New(node.URL, token)
 
 	oldCredential := pairFixture(t, service)
-	oldRequest := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	oldRequest.Header.Set(clientFingerprintHeader, oldCredential.CertificateFingerprint)
-	if _, _, err := service.activateDevice(oldRequest); err != nil {
-		t.Fatal(err)
-	}
+	activateApproved(t, service, oldCredential.CertificateFingerprint)
 	var renewal bytes.Buffer
 	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", oldCredential.CertificateFingerprint, &renewal); err != nil {
 		t.Fatal(err)
@@ -314,11 +346,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if err := json.Unmarshal(paired.Body.Bytes(), &replacement); err != nil {
 		t.Fatal(err)
 	}
-	newRequest := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	newRequest.Header.Set(clientFingerprintHeader, replacement.CertificateFingerprint)
-	if _, _, err := service.activateDevice(newRequest); err != nil {
-		t.Fatal(err)
-	}
+	activateApproved(t, service, replacement.CertificateFingerprint)
 	oldRecord, oldErr := service.loadDeviceRecord(oldCredential.CertificateFingerprint)
 	newRecord, newErr := service.loadDeviceRecord(replacement.CertificateFingerprint)
 	if oldErr != nil || newErr != nil || oldRecord.Status != "revoked" || newRecord.Status != "approved" {
@@ -346,11 +374,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if err := service.writeDeviceRecord(newRecord); err != nil {
 		t.Fatal(err)
 	}
-	recoveryRequest := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	recoveryRequest.Header.Set(clientFingerprintHeader, recovered.CertificateFingerprint)
-	if _, _, err := service.activateDevice(recoveryRequest); err != nil {
-		t.Fatalf("activation did not recover after replacement revocation was already committed: %v", err)
-	}
+	activateApproved(t, service, recovered.CertificateFingerprint)
 	recoveredRecord, err := service.loadDeviceRecord(recovered.CertificateFingerprint)
 	if err != nil || recoveredRecord.Status != "approved" {
 		t.Fatalf("recovered replacement was not approved: %+v %v", recoveredRecord, err)
@@ -409,6 +433,7 @@ func TestExpiredPartialRenewalRestoresOldCredential(t *testing.T) {
 	old := deviceRecord{
 		Schema: recordSchema, DeviceName: "Old Phone", CertificateFingerprint: oldFingerprint,
 		Status: "revoked", CreatedAt: isoUTC(now.Add(-2 * time.Hour)), CertificateExpiresAt: isoUTC(now.Add(824 * 24 * time.Hour)), ActivatedAt: isoUTC(now.Add(-time.Hour)),
+		ApprovalRequestedAt: isoUTC(now.Add(-time.Hour)), ApprovedAt: isoUTC(now.Add(-time.Hour)),
 		RevokedAt: isoUTC(now.Add(-90 * time.Second)), ReplacedByFingerprint: newFingerprint,
 	}
 	pending := deviceRecord{
@@ -452,6 +477,7 @@ func TestExplicitRevokeOverridesPartialRenewalRollback(t *testing.T) {
 	record := deviceRecord{
 		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: fingerprint,
 		Status: "revoked", CreatedAt: isoUTC(now.Add(-2 * time.Hour)), CertificateExpiresAt: isoUTC(now.Add(824 * 24 * time.Hour)), ActivatedAt: isoUTC(now.Add(-time.Hour)),
+		ApprovalRequestedAt: isoUTC(now.Add(-time.Hour)), ApprovedAt: isoUTC(now.Add(-time.Hour)),
 		RevokedAt: isoUTC(now), ReplacedByFingerprint: strings.Repeat("9a", 32),
 	}
 	if err := service.writeDeviceRecord(record); err != nil {

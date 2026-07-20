@@ -25,17 +25,18 @@ var (
 )
 
 type AppDefinition struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Icon        string   `json:"icon"`
-	Accent      string   `json:"accent"`
-	ProxyURL    string   `json:"proxy_url"`
-	Command     string   `json:"command"`
-	Arguments   []string `json:"arguments"`
-	StopCommand string   `json:"stop_command"`
-	StopArgs    []string `json:"stop_arguments"`
-	WorkDir     string   `json:"workdir"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Icon           string   `json:"icon"`
+	Accent         string   `json:"accent"`
+	LaunchFragment string   `json:"launch_fragment"`
+	ProxyURL       string   `json:"proxy_url"`
+	Command        string   `json:"command"`
+	Arguments      []string `json:"arguments"`
+	StopCommand    string   `json:"stop_command"`
+	StopArgs       []string `json:"stop_arguments"`
+	WorkDir        string   `json:"workdir"`
 }
 
 type Registry struct {
@@ -85,6 +86,10 @@ func validMetadata(value string, maximum int, allowEmpty bool) bool {
 	return true
 }
 
+func validLaunchFragment(value string) bool {
+	return value == "" || (strings.HasPrefix(value, "#") && validMetadata(value, 2048, false))
+}
+
 func (node *Node) validateRegistry(value Registry) error {
 	if value.Schema != registrySchema || value.Apps == nil {
 		return errors.New("invalid application registry")
@@ -92,7 +97,7 @@ func (node *Node) validateRegistry(value Registry) error {
 	seen := map[string]bool{}
 	for _, app := range value.Apps {
 		address, err := proxyAddress(app.ProxyURL)
-		if err != nil || !validID.MatchString(app.ID) || !validMetadata(app.Name, 80, false) || !validMetadata(app.Description, 240, true) || !validMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || !filepath.IsAbs(app.Command) || seen[app.ID] || address == node.state.ListenAddress || !validDirectory(app.WorkDir) || (app.StopCommand != "" && !filepath.IsAbs(app.StopCommand)) || app.Arguments == nil || app.StopArgs == nil {
+		if err != nil || !validID.MatchString(app.ID) || !validMetadata(app.Name, 80, false) || !validMetadata(app.Description, 240, true) || !validMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || !validLaunchFragment(app.LaunchFragment) || !filepath.IsAbs(app.Command) || seen[app.ID] || address == node.state.ListenAddress || !validDirectory(app.WorkDir) || (app.StopCommand != "" && !filepath.IsAbs(app.StopCommand)) || app.Arguments == nil || app.StopArgs == nil {
 			return errors.New("invalid application registry")
 		}
 		seen[app.ID] = true

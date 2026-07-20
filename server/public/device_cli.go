@@ -24,6 +24,11 @@ func (service *publicService) runDeviceCLI(args []string, output io.Writer) erro
 			return errors.New("invalid device revoke arguments")
 		}
 		return service.deviceRevoke(args[1], output)
+	case "approve":
+		if len(args) != 2 {
+			return errors.New("invalid device approve arguments")
+		}
+		return service.deviceApprove(args[1], output)
 	case "invite":
 		flags := flag.NewFlagSet("device invite", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)

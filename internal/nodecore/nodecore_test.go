@@ -122,6 +122,25 @@ func TestRegistryRejectsInvalidMetadataAndURLFragment(t *testing.T) {
 	}
 }
 
+func TestRegistryAcceptsOnlyHashLaunchFragments(t *testing.T) {
+	node, _ := initializeTestNode(t)
+	executable, _ := os.Executable()
+	valid := AppDefinition{
+		ID: "fixture", Name: "Fixture", Icon: "F", Accent: "#2563eb", LaunchFragment: "#token=value",
+		ProxyURL: "http://127.0.0.1:60000", Command: executable, Arguments: []string{}, StopArgs: []string{},
+	}
+	if err := node.validateRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{valid}}); err != nil {
+		t.Fatalf("valid launch fragment rejected: %v", err)
+	}
+	for _, fragment := range []string{"token=value", "#line\nbreak"} {
+		invalid := valid
+		invalid.LaunchFragment = fragment
+		if err := node.validateRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{invalid}}); err == nil {
+			t.Fatalf("invalid launch fragment accepted: %q", fragment)
+		}
+	}
+}
+
 func TestGatewayMessageEscapesApplicationMetadata(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	gatewayMessage(recorder, http.StatusBadGateway, `<script>alert(1)</script>`, `<img src=x onerror=alert(1)>`)

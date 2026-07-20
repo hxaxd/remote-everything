@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ipaddress
 import json
 import os
 import re
@@ -257,8 +258,21 @@ def caddy_token(value, name):
 def render_caddy(input_path, output):
     keys = {"public_host", "device_ca_file", "tunnel_ca_file", "pairing_upstream", "frps_upstream", "status_upstream", "tunnel_issuer_dn", "device_issuer_dn"}
     value = load_values(input_path, keys)
+    public_host = hostname(value["public_host"], "public_host")
+    try:
+        ipaddress.ip_address(public_host)
+        acme_profile = "profile shortlived"
+        default_sni = "default_sni " + public_host
+        strict_sni_host = "servers {\n\t\tstrict_sni_host insecure_off\n\t}"
+    except ValueError:
+        acme_profile = ""
+        default_sni = ""
+        strict_sni_host = ""
     fields = {
-        "PUBLIC_HOST": hostname(value["public_host"], "public_host"),
+        "PUBLIC_HOST": public_host,
+        "ACME_PROFILE": acme_profile,
+        "DEFAULT_SNI": default_sni,
+        "STRICT_SNI_HOST": strict_sni_host,
         "DEVICE_CA_FILE": caddy_token(absolute(value["device_ca_file"], "device_ca_file"), "device_ca_file"),
         "TUNNEL_CA_FILE": caddy_token(absolute(value["tunnel_ca_file"], "tunnel_ca_file"), "tunnel_ca_file"),
         "PAIRING_UPSTREAM": loopback_upstream(value["pairing_upstream"], "pairing_upstream"),

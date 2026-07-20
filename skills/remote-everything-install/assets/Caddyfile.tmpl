@@ -1,11 +1,16 @@
 {
 	auto_https disable_redirects
+	{{DEFAULT_SNI}}
+	{{STRICT_SNI_HOST}}
 }
 
 {{PUBLIC_HOST}} {
+	log
+
 	tls {
 		issuer acme {
 			disable_http_challenge
+			{{ACME_PROFILE}}
 		}
 		client_auth {
 			mode verify_if_given
@@ -26,7 +31,6 @@
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
-			header_up -X-Remote-Everything-Client-Fingerprint
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
 		}
 	}
