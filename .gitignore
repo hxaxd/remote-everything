@@ -1,10 +1,16 @@
 # 秘密与本地配置
-server/bundle/
 *.p12
+*.pfx
+*.key
+*.key.pem
+*.jks
+*.keystore
 remote-everything.properties
 AGENTS.local.md
 PLAN.md
 local.properties
+/.runtime/
+/.local-quarantine/
 
 # Python
 __pycache__/
@@ -24,8 +30,19 @@ __pycache__/
 Thumbs.db
 
 # Windows 控制程序本地构建输出
-nodes/windows/control/remote-everything-control.exe
+nodes/windows/remote-everything-control.exe
+nodes/windows/dist/
 
-# 网关本地构建输出与临时产物
-server/gateway/remote-everything-gateway*
+# Linux 节点本地构建输出
+nodes/linux/remote-everything-control
+nodes/linux/dist/
+
+# macOS 节点本地构建输出
+nodes/macos/remote-everything-control
+nodes/macos/macos-tests
+nodes/macos/dist/
+
+# 服务端本地构建输出与临时产物
+server/lan/remote-everything-lan-server*
+server/public/remote-everything-gateway*
 .venv*/

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote Everything 巡检"
+  short_description: "只读巡检部署组件状态并定位完整访问链路的最早故障层"
+  default_prompt: "使用 $remote-everything-inspect 巡检当前 Remote Everything 部署。"

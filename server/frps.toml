@@ -1,6 +1,0 @@
-bindAddr = "127.0.0.1"
-bindPort = 7000
-proxyBindAddr = "127.0.0.1"
-
-auth.method = "token"
-auth.token = "__FRP_TOKEN__"
