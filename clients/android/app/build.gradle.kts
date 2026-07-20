@@ -1,5 +1,6 @@
 plugins {
   alias(libs.plugins.android.application)
+  alias(libs.plugins.compose.compiler)
 }
 
 android {
@@ -9,8 +10,8 @@ android {
         applicationId = "com.remoteeverything.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "2.2.0"
+        versionCode = 15
+        versionName = "3.0.0"
     }
 
     val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
@@ -40,7 +41,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
-      compose = false
+      compose = true
       aidl = false
       buildConfig = true
       shaders = false
@@ -58,9 +59,19 @@ kotlin {
 }
 
 dependencies {
+  implementation(platform(libs.compose.bom))
   implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.activity.ktx)
+  implementation(libs.androidx.activity.compose)
+  implementation(libs.compose.ui)
+  implementation(libs.compose.ui.tooling.preview)
+  implementation(libs.compose.material3)
+  implementation(libs.compose.material.icons)
+  implementation(libs.navigation.compose)
+  implementation(libs.lifecycle.viewmodel.compose)
+  implementation(libs.lifecycle.runtime.compose)
+  implementation(libs.kotlinx.coroutines.android)
   implementation(libs.zxing.embedded)
+  debugImplementation(libs.compose.ui.tooling)
   testImplementation(libs.junit)
   testImplementation(libs.json)
 }

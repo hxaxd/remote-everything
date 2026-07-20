@@ -3,6 +3,8 @@ package com.remoteeverything.app
 import android.content.Context
 import android.content.pm.ActivityInfo
 import androidx.core.content.edit
+import com.remoteeverything.app.data.FloatingLayout
+import com.remoteeverything.app.data.FloatingPanel
 
 class SettingsStore(context: Context) : SetupProfileStore {
     private val prefs = context.getSharedPreferences("remote_everything_settings", Context.MODE_PRIVATE)
@@ -54,7 +56,7 @@ class SettingsStore(context: Context) : SetupProfileStore {
             if (prefs.getString("active_profile", null) == installationId) remove("active_profile")
             if (stagedProfile()?.installationId == installationId) remove("staged_profile")
             val marker = "_${installationId}_"
-            prefs.all.keys.filter { key -> key.startsWith("orientation_") || key.startsWith("fk_") }.filter { marker in it }.forEach { key -> remove(key) }
+            prefs.all.keys.filter { key -> key.startsWith("orientation_") || key.startsWith("fk_") || key.startsWith("handle_") }.filter { marker in it }.forEach { key -> remove(key) }
         }
     }
 
@@ -83,23 +85,55 @@ class SettingsStore(context: Context) : SetupProfileStore {
         }
     }
 
-    // 悬浮快捷键（按应用记忆位置/缩放/可见性，坐标为父容器归一化比例）
-    fun fkVisible(installationId: String, appId: String): Boolean = prefs.getBoolean(appKey("fk_visible", installationId, appId), false)
+    // 悬浮快捷键（旧版单面板的只读取值,仅供一次性迁移使用;新界面使用下方 fkPanels 系列）
+    private fun fkVisible(installationId: String, appId: String): Boolean = prefs.getBoolean(appKey("fk_visible", installationId, appId), false)
 
-    fun setFkVisible(installationId: String, appId: String, visible: Boolean) {
-        prefs.edit { putBoolean(appKey("fk_visible", installationId, appId), visible) }
+    private fun fkX(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_x", installationId, appId), -1f)
+    private fun fkY(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_y", installationId, appId), -1f)
+
+    private fun fkScale(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_scale", installationId, appId), 1f)
+
+    // 悬浮面板（多面板编辑模型,按应用持久化;旧版单面板配置在首次读取时迁移）
+    fun fkPanels(installationId: String, appId: String): List<FloatingPanel> {
+        val encoded = prefs.getString(appKey("fk_panels", installationId, appId), null)
+        if (encoded != null) return FloatingLayout.decode(encoded)
+        return migrateLegacyFkPanels(installationId, appId) ?: emptyList()
     }
 
-    fun fkX(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_x", installationId, appId), -1f)
-    fun fkY(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_y", installationId, appId), -1f)
-
-    fun setFkPosition(installationId: String, appId: String, x: Float, y: Float) {
-        prefs.edit { putFloat(appKey("fk_x", installationId, appId), x); putFloat(appKey("fk_y", installationId, appId), y) }
+    private fun migrateLegacyFkPanels(installationId: String, appId: String): List<FloatingPanel>? {
+        val visible = fkVisible(installationId, appId)
+        val panels = FloatingLayout.migrateLegacy(
+            visible,
+            fkX(installationId, appId),
+            fkY(installationId, appId),
+            fkScale(installationId, appId),
+        ) ?: return null
+        prefs.commitChanges {
+            putString(appKey("fk_panels", installationId, appId), FloatingLayout.encode(panels))
+            putBoolean(appKey("fk_panels_visible", installationId, appId), visible)
+            remove(appKey("fk_visible", installationId, appId))
+            remove(appKey("fk_x", installationId, appId))
+            remove(appKey("fk_y", installationId, appId))
+            remove(appKey("fk_scale", installationId, appId))
+        }
+        return panels
     }
 
-    fun fkScale(installationId: String, appId: String): Float = prefs.getFloat(appKey("fk_scale", installationId, appId), 1f)
+    fun setFkPanels(installationId: String, appId: String, panels: List<FloatingPanel>) {
+        prefs.edit { putString(appKey("fk_panels", installationId, appId), FloatingLayout.encode(panels)) }
+    }
 
-    fun setFkScale(installationId: String, appId: String, scale: Float) {
-        prefs.edit { putFloat(appKey("fk_scale", installationId, appId), scale) }
+    fun fkPanelsVisible(installationId: String, appId: String): Boolean =
+        prefs.getBoolean(appKey("fk_panels_visible", installationId, appId), true)
+
+    fun setFkPanelsVisible(installationId: String, appId: String, visible: Boolean) {
+        prefs.edit { putBoolean(appKey("fk_panels_visible", installationId, appId), visible) }
+    }
+
+    // 边缘把手（按应用记忆纵坐标,归一化比例,-1 表示默认居中）
+    fun handleY(installationId: String, appId: String): Float = prefs.getFloat(appKey("handle_y", installationId, appId), -1f)
+
+    fun setHandleY(installationId: String, appId: String, y: Float) {
+        prefs.edit { putFloat(appKey("handle_y", installationId, appId), y) }
     }
 }
