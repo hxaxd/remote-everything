@@ -1,0 +1,52 @@
+name: Nodes
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    name: Windows node
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+      - name: Build and test
+        working-directory: nodes/windows
+        run: |
+          $unformatted = gofmt -l .
+          if ($unformatted) { throw "Unformatted Go files: $unformatted" }
+          go vet ./...
+          go build ./...
+          ./tests/run.ps1
+          python ../../skills/remote-everything-install/scripts/test_render.py
+
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            node: linux
+          - runner: macos-latest
+            node: macos
+    name: ${{ matrix.node }} node
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.5"
+      - name: Build and test
+        working-directory: nodes/${{ matrix.node }}
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          test -z "$unformatted" || { echo "Unformatted Go files: $unformatted" >&2; exit 1; }
+          go vet ./...
+          go build ./...
+          bash tests/run.sh

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote Everything 设备"
+  short_description: "创建邀请、查看状态、吊销并验证公网手机设备身份变化"
+  default_prompt: "使用 $remote-everything-device 管理当前公网部署的手机设备。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Remote Everything 升级"
+  short_description: "按运行记录原子升级组件与通用 APK，并保持现有身份和动态端口"
+  default_prompt: "使用 $remote-everything-update 升级当前 Remote Everything 部署并完成验证。"

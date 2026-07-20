@@ -16,8 +16,8 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
     var onResized: ((scale: Float) -> Unit)? = null
 
     private val pill: LinearLayout
-    private val grip: TextView
-    private val resizeGrip: TextView
+    private val grip: TouchTextView
+    private val resizeGrip: TouchTextView
     private var scaleFactor = 1f
 
     init {
@@ -25,11 +25,11 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            background = Ui.rounded(0xF20F172A.toInt(), 20f, Ui.cardBorder)
+            background = Ui.rounded(this, 0xF20F172A.toInt(), 20f, Ui.cardBorder)
         }
         addView(pill, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        grip = TextView(context).apply {
+        grip = TouchTextView(context).apply {
             text = "⠿"
             textSize = 15f
             setTextColor(Ui.textMuted)
@@ -41,7 +41,7 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
             pill.addView(keyButton(label) { onKey?.invoke(action) })
         }
 
-        resizeGrip = TextView(context).apply {
+        resizeGrip = TouchTextView(context).apply {
             text = "◢"
             textSize = 11f
             setTextColor(Ui.textMuted)
@@ -58,7 +58,7 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
         textSize = 13f
         setTextColor(Ui.textSecondary)
         gravity = Gravity.CENTER
-        background = Ui.rounded(Ui.accentSoft, 10f)
+        background = Ui.rounded(this, Ui.accentSoft, 10f)
         setOnClickListener { onClick() }
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(36)).apply {
             marginStart = dp(4)
@@ -117,6 +117,7 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
                     val maxX = (parentView.width - width).coerceAtLeast(1).toFloat()
                     val maxY = (parentView.height - height).coerceAtLeast(1).toFloat()
                     onMoved?.invoke(translationX / maxX, translationY / maxY)
+                    view.performClick()
                     return true
                 }
             }
@@ -142,6 +143,7 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
                 }
                 MotionEvent.ACTION_UP -> {
                     onResized?.invoke(scaleFactor)
+                    view.performClick()
                     return true
                 }
             }
@@ -150,4 +152,8 @@ class FloatingKeysView(context: Context) : FrameLayout(context) {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private class TouchTextView(context: Context) : TextView(context) {
+        override fun performClick(): Boolean = super.performClick()
+    }
 }

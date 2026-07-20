@@ -1,0 +1,35 @@
+{
+	auto_https disable_redirects
+}
+
+{{PUBLIC_HOST}} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+		client_auth {
+			mode verify_if_given
+			trust_pool file "{{DEVICE_CA_FILE}}" "{{TUNNEL_CA_FILE}}"
+		}
+	}
+
+	@pair path /__remote_everything_pair
+	handle @pair {
+		reverse_proxy "{{PAIRING_UPSTREAM}}"
+	}
+
+	@tunnel expression `path('/~!frp') && {tls_client_issuer} == "{{TUNNEL_ISSUER_DN}}"`
+	handle @tunnel {
+		reverse_proxy "{{FRPS_UPSTREAM}}"
+	}
+
+	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
+	handle @device {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up -X-Remote-Everything-Client-Fingerprint
+			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
+		}
+	}
+
+	respond 401
+}
