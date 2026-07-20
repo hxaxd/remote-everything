@@ -193,8 +193,7 @@ jobs:
           test -n "$apksigner" || { echo "::error::apksigner was not found"; exit 1; }
           "$apksigner" verify "$apk"
           actual=$("$apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | tr -d ':' | tr 'A-F' 'a-f')
-          expected=$(printf '%s' "${{ secrets.REMOTE_EVERYTHING_ANDROID_SIGNING_SHA256 }}" | tr -d ':' | tr 'A-F' 'a-f')
-          test -n "$expected" || { echo "::error::expected Android signing fingerprint is not configured"; exit 1; }
+          expected=9f0519461758a1d9790a989a09553bf11135e80057f84aa2a04c3975c4794f7a
           test "$actual" = "$expected" || { echo "::error::Android signing identity mismatch"; exit 1; }
           if unzip -l "$apk" | grep -Ei '\.p12$|remote-everything\.properties$'; then
             echo "::error::deployment credential packaged in universal client"
