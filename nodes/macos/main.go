@@ -57,12 +57,14 @@ func (macPlatform) Launch(app nodecore.AppDefinition, output io.Writer) (nodecor
 	command.Stdin = nil
 	command.Stdout = output
 	command.Stderr = output
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
 	process := &macProcess{command: command, done: make(chan struct{}), started: time.Now()}
 	go func() {
 		_ = command.Wait()
+		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 		close(process.done)
 	}()
 	return process, nil
@@ -72,7 +74,7 @@ func (process *macProcess) Done() <-chan struct{} { return process.done }
 func (process *macProcess) Started() time.Time    { return process.started }
 func (process *macProcess) PID() int              { return process.command.Process.Pid }
 func (process *macProcess) Terminate() {
-	_ = process.command.Process.Signal(syscall.SIGTERM)
+	_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGTERM)
 }
 
 func runGuard(parts []string) error {
@@ -105,7 +107,6 @@ func runGuard(parts []string) error {
 	command.Stdin = nil
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if trace {
 		_, _ = fmt.Fprintln(os.Stderr, "guard: starting application")
 	}
@@ -115,7 +116,7 @@ func runGuard(parts []string) error {
 	if trace {
 		_, _ = fmt.Fprintf(os.Stderr, "guard: application started pid=%d\n", command.Process.Pid)
 	}
-	terminate := func() { _ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL) }
+	terminate := func() { _ = syscall.Kill(-os.Getpid(), syscall.SIGKILL) }
 	defer terminate()
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
