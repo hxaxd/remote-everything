@@ -1,6 +1,7 @@
 import http.server
 import json
 import os
+import socketserver
 import subprocess
 import sys
 
@@ -18,10 +19,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class Server(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
+
+
 if sys.argv[1] == "--launch-child":
     child = subprocess.Popen([sys.executable, __file__, sys.argv[2]])
     with open(sys.argv[3], "w", encoding="ascii") as output:
         output.write(str(child.pid))
     os._exit(0)
 
-http.server.ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+Server(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
