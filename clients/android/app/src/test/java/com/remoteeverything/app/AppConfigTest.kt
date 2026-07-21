@@ -13,12 +13,13 @@ class AppConfigTest {
     fun parsesStrictLanSetup() {
         val setup = AppConfig.parseSetup(
             setupUri(
-                "v" to "1",
+                "v" to "2",
                 "id" to id,
                 "name" to "Home PC",
                 "mode" to "lan",
                 "origin" to "https://192.168.1.5:60001",
                 "fingerprint" to "cd".repeat(32),
+                "public_key_pin" to "A".repeat(43) + "=",
             ),
         )
         assertEquals(id, setup.profile.installationId)
@@ -31,7 +32,7 @@ class AppConfigTest {
         val invitation = "A".repeat(43)
         val setup = AppConfig.parseSetup(
             setupUri(
-                "v" to "1",
+                "v" to "2",
                 "id" to id,
                 "name" to "Public PC",
                 "mode" to "public",
@@ -46,12 +47,13 @@ class AppConfigTest {
     @Test
     fun rejectsDuplicatesUnknownFieldsAndInsecureOrigins() {
         val base = setupUri(
-            "v" to "1",
+            "v" to "2",
             "id" to id,
             "name" to "PC",
             "mode" to "lan",
             "origin" to "http://127.0.0.1:58626",
             "fingerprint" to "cd".repeat(32),
+            "public_key_pin" to "A".repeat(43) + "=",
         )
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base) }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base.replace("http%3A", "https%3A") + "&mode=lan") }

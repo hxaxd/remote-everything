@@ -1,10 +1,14 @@
 package com.remoteeverything.app.ui
 
 import android.app.Application
+import android.content.Context
 import android.os.Build
+import android.os.SystemClock
+import com.remoteeverything.app.AppUpdater
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.remoteeverything.app.AppConfig
+import com.remoteeverything.app.BuildConfig
 import com.remoteeverything.app.CatalogSnapshot
 import com.remoteeverything.app.ClientIdentity
 import com.remoteeverything.app.ConnectionConfig
@@ -16,6 +20,9 @@ import com.remoteeverything.app.SettingsStore
 import com.remoteeverything.app.SetupPayload
 import com.remoteeverything.app.SetupState
 import com.remoteeverything.app.SetupTransaction
+import com.remoteeverything.app.InstallLaunchResult
+import com.remoteeverything.app.UpdateProtocol
+import com.remoteeverything.app.UpdateUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 启动决策:决定首次进入哪个界面。 */
 sealed interface StartState {
@@ -50,6 +58,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     val settings = SettingsStore(application)
     val identity = DeviceIdentity(application)
     private val setupTransaction = SetupTransaction(settings, identity, "${Build.MANUFACTURER} ${Build.MODEL} · Android")
+    private val appUpdater = AppUpdater(application)
 
     private val _startState = MutableStateFlow<StartState>(StartState.Loading)
     val startState = _startState.asStateFlow()
@@ -63,6 +72,9 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val _catalog = MutableStateFlow<CatalogUiState>(CatalogUiState.Loading)
     val catalog = _catalog.asStateFlow()
 
+    private val _catalogRefreshing = MutableStateFlow(false)
+    val catalogRefreshing = _catalogRefreshing.asStateFlow()
+
     /** 向导当前状态;null 表示不在向导中。 */
     private val _setupState = MutableStateFlow<SetupState?>(null)
     val setupState = _setupState.asStateFlow()
@@ -71,11 +83,19 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages = _messages.asSharedFlow()
 
+    private val _themeMode = MutableStateFlow(settings.themeMode())
+    val themeMode = _themeMode.asStateFlow()
+
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState = _updateState.asStateFlow()
+
     private var catalogJob: Job? = null
     private var setupJob: Job? = null
+    private var updateJob: Job? = null
     private var setupPayload: SetupPayload? = null
     private var bootstrapped = false
     private var lastErrorNotifyAt = 0L
+    private var catalogOfflineSince = 0L
 
     fun bootstrap() {
         if (bootstrapped) return
@@ -101,6 +121,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     private fun startCatalogPolling() {
         catalogJob?.cancel()
+        _catalogRefreshing.value = false
+        catalogOfflineSince = 0L
         val config = _activeProfile.value ?: return
         _catalog.value = CatalogUiState.Loading
         catalogJob = viewModelScope.launch {
@@ -109,7 +131,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     runCatching { RemoteApi.catalog(config, clientIdentityOf(config)) }
                 }
                 result.onSuccess { snapshot ->
-                    _catalog.value = CatalogUiState.Ready(snapshot)
+                    publishCatalog(snapshot)
                 }.onFailure { error ->
                     val cause = generateSequence(error) { it.cause }.last()
                     if (cause is DeviceAuthorizationException) {
@@ -131,16 +153,31 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshCatalog() {
         val config = _activeProfile.value ?: return
+        if (_catalogRefreshing.value) return
+        _catalogRefreshing.value = true
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { RemoteApi.catalog(config, clientIdentityOf(config)) }
-            }
-            result.onSuccess { _catalog.value = CatalogUiState.Ready(it) }
-                .onFailure { error ->
+            try {
+                val result = withTimeoutOrNull(15_000) {
+                    withContext(Dispatchers.IO) {
+                        runCatching { RemoteApi.catalog(config, clientIdentityOf(config)) }
+                    }
+                }
+                if (result == null) {
+                    notifyTransientError()
+                    return@launch
+                }
+                result.onSuccess {
+                    if (_activeProfile.value?.installationId == config.installationId) {
+                        publishCatalog(it)
+                    }
+                }.onFailure { error ->
                     val cause = generateSequence(error) { it.cause }.last()
                     if (cause is DeviceAuthorizationException) handleAuthorizationRevoked(config)
                     else if (_catalog.value is CatalogUiState.Ready) notifyTransientError()
                 }
+            } finally {
+                _catalogRefreshing.value = false
+            }
         }
     }
 
@@ -149,6 +186,25 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         if (now - lastErrorNotifyAt < 30_000) return
         lastErrorNotifyAt = now
         _messages.tryEmit("连接失败,稍后自动重试")
+    }
+
+    /** 已经拿到目录后，短暂的隧道拥塞不清空界面；持续离线 30 秒后才切换为离线状态。 */
+    private fun publishCatalog(snapshot: CatalogSnapshot) {
+        if (snapshot.computerConnected) {
+            catalogOfflineSince = 0L
+            _catalog.value = CatalogUiState.Ready(snapshot)
+            return
+        }
+        val current = (_catalog.value as? CatalogUiState.Ready)?.snapshot
+        if (current?.computerConnected == true) {
+            val now = SystemClock.elapsedRealtime()
+            if (catalogOfflineSince == 0L) catalogOfflineSince = now
+            if (now - catalogOfflineSince < CATALOG_OFFLINE_GRACE_MS) {
+                notifyTransientError()
+                return
+            }
+        }
+        _catalog.value = CatalogUiState.Ready(snapshot)
     }
 
     fun controlApp(app: RemoteApp, action: String) {
@@ -168,6 +224,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         _profiles.value = settings.profiles()
         if (_activeProfile.value?.installationId == config.installationId) {
             catalogJob?.cancel()
+            _catalogRefreshing.value = false
+            catalogOfflineSince = 0L
             _activeProfile.value = null
         }
         _messages.tryEmit("设备授权已失效,请重新初始化")
@@ -187,6 +245,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         _profiles.value = settings.profiles()
         if (_activeProfile.value?.installationId == config.installationId) {
             catalogJob?.cancel()
+            _catalogRefreshing.value = false
+            catalogOfflineSince = 0L
             _activeProfile.value = null
         }
     }
@@ -220,6 +280,65 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 runSetup(state.config, SetupState.Activating(state.config)) { callback -> setupTransaction.retryActivation(state.config, callback) }
             com.remoteeverything.app.SetupAction.RESTART_SETUP -> cancelSetup()
         }
+    }
+
+    fun setThemeMode(value: String) {
+        settings.setThemeMode(value)
+        _themeMode.value = value
+    }
+
+    // ---- 应用更新 ----
+
+    fun checkForUpdate() {
+        if (updateJob?.isActive == true) return
+        _updateState.value = UpdateUiState.Checking
+        updateJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { runCatching { appUpdater.checkLatest() } }
+            result.onSuccess { release ->
+                val comparison = UpdateProtocol.compareVersions(release.versionName, BuildConfig.VERSION_NAME)
+                _updateState.value = if (comparison > 0) {
+                    UpdateUiState.Available(release, appUpdater.isOfficialInstall())
+                } else {
+                    UpdateUiState.Current(release.versionName, currentIsNewer = comparison < 0)
+                }
+            }.onFailure { error ->
+                _updateState.value = UpdateUiState.Error(error.message?.takeIf(String::isNotBlank) ?: "检查更新失败")
+            }
+        }
+    }
+
+    fun downloadUpdate() {
+        val available = _updateState.value as? UpdateUiState.Available ?: return
+        if (!available.installable || updateJob?.isActive == true) return
+        val release = available.release
+        _updateState.value = UpdateUiState.Downloading(release, 0f)
+        updateJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    appUpdater.downloadAndVerify(release) { progress ->
+                        _updateState.value = UpdateUiState.Downloading(release, progress)
+                    }
+                }
+            }
+            result.onSuccess { path ->
+                _updateState.value = UpdateUiState.Ready(release, path)
+            }.onFailure { error ->
+                _updateState.value = UpdateUiState.Error(error.message?.takeIf(String::isNotBlank) ?: "更新下载失败")
+            }
+        }
+    }
+
+    fun installUpdate(context: Context) {
+        val ready = _updateState.value as? UpdateUiState.Ready ?: return
+        runCatching { appUpdater.launchInstaller(context, ready.release, ready.filePath) }
+            .onSuccess { result ->
+                if (result == InstallLaunchResult.PERMISSION_SETTINGS_OPENED) {
+                    _messages.tryEmit("请允许此应用安装更新，返回后再次点击安装")
+                }
+            }
+            .onFailure { error ->
+                _updateState.value = UpdateUiState.Error(error.message?.takeIf(String::isNotBlank) ?: "无法打开安装界面")
+            }
     }
 
     fun cancelSetup() {
@@ -273,5 +392,9 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 else -> _setupState.value = result
             }
         }
+    }
+
+    private companion object {
+        const val CATALOG_OFFLINE_GRACE_MS = 30_000L
     }
 }

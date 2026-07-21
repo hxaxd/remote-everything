@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	hex64      = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	invitation = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	hex64        = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	invitation   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	publicKeyPin = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
 )
 
 func normalizeOrigin(value string) (string, error) {
@@ -31,7 +32,7 @@ func normalizeOrigin(value string) (string, error) {
 	return "https://" + parsed.Host, nil
 }
 
-func Build(mode, installationID, name, origin, secret string) (string, error) {
+func Build(mode, installationID, name, origin, secret, keyPin string) (string, error) {
 	if !hex64.MatchString(installationID) {
 		return "", errors.New("invalid installation id")
 	}
@@ -44,7 +45,7 @@ func Build(mode, installationID, name, origin, secret string) (string, error) {
 		return "", err
 	}
 	values := url.Values{
-		"v":      {"1"},
+		"v":      {"2"},
 		"id":     {installationID},
 		"name":   {name},
 		"mode":   {mode},
@@ -52,12 +53,13 @@ func Build(mode, installationID, name, origin, secret string) (string, error) {
 	}
 	switch mode {
 	case "lan":
-		if !hex64.MatchString(secret) {
+		if !hex64.MatchString(secret) || !publicKeyPin.MatchString(keyPin) {
 			return "", errors.New("invalid LAN certificate fingerprint")
 		}
 		values.Set("fingerprint", secret)
+		values.Set("public_key_pin", keyPin)
 	case "public":
-		if !invitation.MatchString(secret) {
+		if !invitation.MatchString(secret) || keyPin != "" {
 			return "", errors.New("invalid public invitation")
 		}
 		values.Set("invitation", secret)

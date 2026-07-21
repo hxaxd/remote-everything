@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -55,8 +56,14 @@ type lanInitResult struct {
 	ListenAddress          string `json:"listen_address"`
 	GatewayOrigin          string `json:"gateway_origin"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
+	PublicKeyPin           string `json:"public_key_pin"`
 	SetupURI               string `json:"setup_uri,omitempty"`
 	QRFile                 string `json:"qr_file,omitempty"`
+}
+
+func lanPublicKeyPin(certificate *x509.Certificate) string {
+	digest := sha256.Sum256(certificate.RawSubjectPublicKeyInfo)
+	return base64.StdEncoding.EncodeToString(digest[:])
 }
 
 func writeNewFile(path string, contents []byte, mode os.FileMode) error {
@@ -161,6 +168,10 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
+	certificate, err := loadLANCertificate(root, state.Host, state)
+	if err != nil {
+		return lanInitResult{}, err
+	}
 	state.ListenAddress, err = allocateLANAddress()
 	if err != nil {
 		return lanInitResult{}, err
@@ -177,6 +188,7 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress,
 		GatewayOrigin: state.GatewayOrigin, CertificateFingerprint: state.CertificateFingerprint,
+		PublicKeyPin: lanPublicKeyPin(certificate),
 	}, nil
 }
 
@@ -330,6 +342,7 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress,
 		GatewayOrigin: state.GatewayOrigin, CertificateFingerprint: state.CertificateFingerprint,
+		PublicKeyPin: lanPublicKeyPin(certificate),
 	}, nil
 }
 
@@ -352,7 +365,8 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	}
 	fingerprintBytes := sha256.Sum256(certificate.Raw)
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
-	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.GatewayOrigin, fingerprint)
+	keyPin := lanPublicKeyPin(certificate)
+	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.GatewayOrigin, fingerprint, keyPin)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -383,6 +397,7 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress, GatewayOrigin: state.GatewayOrigin,
 		CertificateFingerprint: fingerprint, SetupURI: setupURI, QRFile: qrFile,
+		PublicKeyPin: keyPin,
 	}, nil
 }
 
@@ -401,7 +416,7 @@ func runLANInit(parts []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	setupURI, err := setupcodec.Build("lan", result.InstallationID, *name, result.GatewayOrigin, result.CertificateFingerprint)
+	setupURI, err := setupcodec.Build("lan", result.InstallationID, *name, result.GatewayOrigin, result.CertificateFingerprint, result.PublicKeyPin)
 	if err != nil {
 		return err
 	}

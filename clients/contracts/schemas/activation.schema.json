@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/activation.schema.json",
+  "title": "Activation Response",
+  "description": "Schema for POST /__remote_everything_activate response. Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Whether activation succeeded and the node is reachable."
+    },
+    "computer_connected": {
+      "type": "boolean",
+      "description": "Whether the gateway can reach the node."
+    },
+    "code": {
+      "type": "string",
+      "enum": ["ready", "approval_pending", "computer_offline"],
+      "description": "Status code. 'ready' means activated and node reachable. 'approval_pending' means waiting for manual approval. 'computer_offline' means node unreachable."
+    },
+    "apps": {
+      "type": "array",
+      "description": "App list returned only on successful activation (code=ready).",
+      "items": { "type": "object" }
+    }
+  },
+  "required": ["ok", "computer_connected", "code"],
+  "additionalProperties": false,
+  "if": {
+    "properties": { "code": { "const": "ready" } }
+  },
+  "then": {
+    "required": ["apps"],
+    "properties": {
+      "ok": { "const": true },
+      "computer_connected": { "const": true }
+    }
+  },
+  "else": {
+    "properties": {
+      "ok": { "const": false },
+      "apps": { "not": {} }
+    }
+  }
+}

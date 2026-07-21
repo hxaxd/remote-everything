@@ -7,7 +7,6 @@
 *.keystore
 remote-everything.properties
 AGENTS.local.md
-PLAN.md
 local.properties
 /.runtime/
 /.local-quarantine/
@@ -18,6 +17,7 @@ __pycache__/
 
 # 构建产物
 /dist/
+/*.apk
 **/build/
 .gradle/
 .kotlin/
@@ -25,6 +25,9 @@ __pycache__/
 .externalNativeBuild/
 *.iml
 .idea/
+.hvigor/
+.test/
+oh_modules/
 
 # 系统
 .DS_Store

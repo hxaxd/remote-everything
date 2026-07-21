@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/release.schema.json",
+  "title": "Release Manifest",
+  "description": "Schema for clients/release.json — the single version source of truth for all three client platforms.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1,
+      "description": "Schema version of this release manifest."
+    },
+    "versionName": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version string shared across all three platforms."
+    },
+    "buildNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonically increasing build number. Android versionCode, iOS CFBundleVersion, HarmonyOS versionCode must all equal this."
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "const": 2,
+      "description": "Wire protocol version. Bumped only when backward-incompatible changes require re-pairing."
+    },
+    "minimumPlatforms": {
+      "type": "object",
+      "properties": {
+        "androidSdk": {
+          "type": "integer",
+          "minimum": 30,
+          "description": "Minimum Android SDK level."
+        },
+        "ios": {
+          "type": "string",
+          "description": "Minimum iOS version (e.g. '17.0'). Determined after compile-time API availability verification."
+        },
+        "harmonyApi": {
+          "type": "string",
+          "description": "Minimum HarmonyOS API level. Determined after compile-time API probe verification."
+        }
+      },
+      "required": ["androidSdk", "ios", "harmonyApi"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["schema", "versionName", "buildNumber", "protocolVersion", "minimumPlatforms"],
+  "additionalProperties": false
+}
