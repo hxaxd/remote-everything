@@ -128,6 +128,7 @@ skills/    executable operational workflows
 ```
 
 - [Contributing Guide](CONTRIBUTING.md)
+- [Local release guide](docs/RELEASING.md)
 - [Cross-platform client implementation plan](plan.md)
 - [Support](SUPPORT.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)

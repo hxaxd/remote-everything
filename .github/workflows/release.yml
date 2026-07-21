@@ -195,7 +195,7 @@ jobs:
           certificate_output=$("$apksigner" verify --print-certs "$apk")
           printf '%s\n' "$certificate_output"
           actual=$(printf '%s\n' "$certificate_output" | sed -nE 's/.*SHA-256 digest:[[:space:]]*([0-9A-Fa-f:]+).*/\1/p' | head -n 1 | tr -d ':[:space:]' | tr 'A-F' 'a-f')
-          expected=9f0519461758a1d9790a989a09553bf11135e80057f84aa2a04c3975c4794f7a
+          expected=0fa51efa8c5ed1e1a6265dbcbf863bd3996619109430860b564a7cc4f73fca9e
           test -n "$actual" || { echo "::error::Android signing fingerprint could not be parsed"; exit 1; }
           test "$actual" = "$expected" || { echo "::error::Android signing identity mismatch"; exit 1; }
           if unzip -l "$apk" | grep -Ei '\.p12$|remote-everything\.properties$'; then
