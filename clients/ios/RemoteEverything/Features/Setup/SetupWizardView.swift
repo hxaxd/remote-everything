@@ -246,7 +246,7 @@ struct SetupWizardView: View {
         switch state {
         case .pairing(let c):
             return .pairing(c.name)
-        case .activating(let c, let expires):
+        case .activating(let c, _):
             return .activating(c.name)
         case .awaitingApproval(let c, let expires):
             return .awaitingApproval(c.name, expires)

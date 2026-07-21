@@ -57,9 +57,19 @@ enum KeychainStore {
             throw KeychainError.invalidPKCS12
         }
 
-        guard let identity = first[kSecImportItemIdentity as String] as? SecIdentity,
-              let trust = first[kSecImportItemTrust as String] as? SecTrust,
-              let certificate = SecTrustGetCertificateAtIndex(trust, 0) else {
+        guard let identityValue = first[kSecImportItemIdentity as String] else {
+            throw KeychainError.invalidPKCS12
+        }
+
+        let identityObject = identityValue as CFTypeRef
+        guard CFGetTypeID(identityObject) == SecIdentityGetTypeID() else {
+            throw KeychainError.invalidPKCS12
+        }
+        let identity = unsafeBitCast(identityObject, to: SecIdentity.self)
+
+        var certificate: SecCertificate?
+        guard SecIdentityCopyCertificate(identity, &certificate) == errSecSuccess,
+              let certificate else {
             throw KeychainError.invalidPKCS12
         }
 
