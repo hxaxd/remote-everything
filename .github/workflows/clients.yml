@@ -61,21 +61,26 @@ jobs:
       - name: Generate the Xcode project
         working-directory: clients/ios
         run: xcodegen generate
-      - name: Create an available simulator
+      - name: Select an available simulator
         id: simulator
         shell: bash
         run: |
-          runtime=$(xcrun simctl list runtimes --json | python3 -c '
-          import json, sys
-          values = [item for item in json.load(sys.stdin)["runtimes"] if item.get("isAvailable") and ".iOS-" in item["identifier"]]
-          print(sorted(values, key=lambda item: tuple(map(int, item["version"].split("."))))[-1]["identifier"])
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          groups = json.load(sys.stdin)["devices"]
+          candidates = []
+          for runtime, devices in groups.items():
+              match = re.search(r"\.iOS-(\d+)-(\d+)", runtime)
+              if not match:
+                  continue
+              version = tuple(map(int, match.groups()))
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone") and "SE" not in device["name"]:
+                      candidates.append((version, device["name"], device["udid"]))
+          if not candidates:
+              raise SystemExit("no available iPhone simulator")
+          print(sorted(candidates)[-1][2])
           ')
-          device=$(xcrun simctl list devicetypes --json | python3 -c '
-          import json, sys
-          values = [item for item in json.load(sys.stdin)["devicetypes"] if item["name"].startswith("iPhone") and "SE" not in item["name"]]
-          print(values[-1]["identifier"])
-          ')
-          udid=$(xcrun simctl create RemoteEverythingCI "$device" "$runtime")
           echo "udid=$udid" >> "$GITHUB_OUTPUT"
       - name: Build and run unit tests
         working-directory: clients/ios
@@ -94,10 +99,6 @@ jobs:
             -scheme RemoteEverything \
             -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO
-      - name: Remove simulator
-        if: always()
-        run: xcrun simctl delete "${{ steps.simulator.outputs.udid }}" || true
-
   harmony:
     name: HarmonyOS source and project gate
     needs: contracts
