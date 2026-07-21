@@ -79,7 +79,7 @@ cd remote-everything
 
 ### 2. 安装移动客户端
 
-从当前 [Release](https://github.com/hxaxd/remote-everything/releases) 或该版本标注的官方分发渠道，安装与你设备系统对应的 Android、iOS 或 HarmonyOS 客户端。
+Android 可安装当前 [Release](https://github.com/hxaxd/remote-everything/releases) 中的已签名 APK。项目没有对应官方分发入口时，iOS 需要在 macOS 上用 Xcode/XcodeGen 以自己的开发身份签名安装，HarmonyOS 需要用 DevEco Studio 和自己的调试签名构建安装；详见[客户端取得说明](skills/remote-everything-install/references/mobile-clients.md)。
 
 ### 3. 让 Agent 完成部署
 

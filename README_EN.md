@@ -79,7 +79,7 @@ cd remote-everything
 
 ### 2. Install a mobile client
 
-Use the current [Release](https://github.com/hxaxd/remote-everything/releases), or the official distribution channel referenced by that release, to install the Android, iOS, or HarmonyOS client for your device.
+Android can use the signed APK from the current [Release](https://github.com/hxaxd/remote-everything/releases). When no official distribution channel is listed, iOS must be built and signed with the user's own development identity through Xcode/XcodeGen on macOS, and HarmonyOS must be built with DevEco Studio and the user's own debug signing configuration. See the [client acquisition guide](skills/remote-everything-install/references/mobile-clients.md).
 
 ### 3. Let an agent deploy it
 
