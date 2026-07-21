@@ -1,7 +1,7 @@
 {
   "modelVersion": "6.1.1",
   "name": "remoteeverything",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "Remote Everything — 三端移动客户端 (HarmonyOS)",
   "main": "",
   "author": "Remote Everything Contributors",
