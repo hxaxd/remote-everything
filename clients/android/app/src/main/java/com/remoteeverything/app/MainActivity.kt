@@ -35,6 +35,9 @@ class MainActivity : ComponentActivity() {
             onCertificateFailure = {
                 Toast.makeText(this, "服务器证书验证失败,已阻止连接", Toast.LENGTH_LONG).show()
             },
+            displayModeResolver = { appId ->
+                session.settings.resolveDisplayMode(session.activeProfile.value?.installationId, appId)
+            },
         )
         // 活动连接变化 → 重建 WebView 池会话
         lifecycleScope.launch {
