@@ -64,7 +64,7 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                SectionLabel("屏幕方向(全局)")
+                SectionLabel("屏幕方向")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf("system" to "跟随系统", "portrait" to "竖屏锁定", "landscape" to "横屏锁定")
                         .forEachIndexed { index, (value, label) ->
@@ -78,15 +78,9 @@ fun SettingsScreen(
                             ) { Text(label) }
                         }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "单个应用的方向与悬浮面板可在远程界面的边缘把手菜单中设置,应用级设置优先于全局。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             item {
-                SectionLabel("显示模式(全局)")
+                SectionLabel("显示模式")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf("phone" to "手机", "desktop" to "电脑")
                         .forEachIndexed { index, (value, label) ->
@@ -100,12 +94,6 @@ fun SettingsScreen(
                             ) { Text(label) }
                         }
                 }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "电脑模式以桌面浏览器标识加载页面,适合为宽屏设计的应用;单个应用可在远程界面单独设置。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             }
             item {
                 SectionLabel("连接")
