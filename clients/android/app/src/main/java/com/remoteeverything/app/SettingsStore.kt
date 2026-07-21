@@ -3,8 +3,6 @@ package com.remoteeverything.app
 import android.content.Context
 import android.content.pm.ActivityInfo
 import androidx.core.content.edit
-import com.remoteeverything.app.data.FloatingButton
-import com.remoteeverything.app.data.FloatingLayout
 
 class SettingsStore(context: Context) : SetupProfileStore {
     private val prefs = context.getSharedPreferences("remote_everything_settings", Context.MODE_PRIVATE)
@@ -102,23 +100,6 @@ class SettingsStore(context: Context) : SetupProfileStore {
         val appValue = if (installationId != null && appId != null) appDisplayMode(installationId, appId) else "global"
         val effective = if (appValue == "global") globalDisplayMode() else appValue
         return if (effective == "desktop") "desktop" else "phone"
-    }
-
-    // 悬浮按钮（独立按钮模型,按应用持久化）
-    fun fkButtons(installationId: String, appId: String): List<FloatingButton> {
-        val encoded = prefs.getString(appKey("fk_buttons", installationId, appId), null) ?: return emptyList()
-        return FloatingLayout.decode(encoded)
-    }
-
-    fun setFkButtons(installationId: String, appId: String, buttons: List<FloatingButton>) {
-        prefs.edit { putString(appKey("fk_buttons", installationId, appId), FloatingLayout.encode(buttons)) }
-    }
-
-    fun fkButtonsVisible(installationId: String, appId: String): Boolean =
-        prefs.getBoolean(appKey("fk_buttons_visible", installationId, appId), true)
-
-    fun setFkButtonsVisible(installationId: String, appId: String, visible: Boolean) {
-        prefs.edit { putBoolean(appKey("fk_buttons_visible", installationId, appId), visible) }
     }
 
     // 边缘把手（按应用记忆纵坐标,归一化比例,-1 表示默认居中）
