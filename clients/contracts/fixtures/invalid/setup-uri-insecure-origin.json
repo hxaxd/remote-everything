@@ -1,0 +1,5 @@
+{
+  "description": "Setup URI with http:// origin must be rejected",
+  "uri": "remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab&name=PC&mode=lan&origin=http%3A%2F%2F127.0.0.1%3A58626&fingerprint=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D",
+  "error": "origin_must_be_https"
+}

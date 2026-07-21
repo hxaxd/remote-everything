@@ -6,9 +6,28 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  contracts:
+    name: Contracts and versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install contract validator
+        run: python -m pip install "jsonschema==4.25.1"
+      - name: Validate schemas and fixtures
+        run: python clients/contracts/validate_contracts.py
+      - name: Verify three-client version alignment
+        run: python clients/validate_versions.py
+
   android:
-    name: Android
+    name: Android test, lint, and debug build
+    needs: contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,13 +35,84 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Accept SDK licenses
+      - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
-      - name: Test, lint, and assemble debug APK
+      - name: Test, lint, and assemble
+        working-directory: clients/android
+        run: bash ./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+      - name: Reject packaged deployment credentials
         working-directory: clients/android
         run: |
-          bash ./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-          if unzip -l app/build/outputs/apk/debug/app-debug.apk | grep -Ei '\.p12$|remote-everything\.properties$'; then
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          if unzip -l "$apk" | grep -Ei '\.p12$|remote-everything\.properties$'; then
             echo "::error::deployment credential packaged in universal client"
             exit 1
           fi
+
+  ios:
+    name: iOS build, test, and analyze
+    needs: contracts
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        working-directory: clients/ios
+        run: xcodegen generate
+      - name: Select an available simulator
+        id: simulator
+        shell: bash
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          groups = json.load(sys.stdin)["devices"]
+          candidates = []
+          for runtime, devices in groups.items():
+              match = re.search(r"\.iOS-(\d+)-(\d+)", runtime)
+              if not match:
+                  continue
+              version = tuple(map(int, match.groups()))
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone") and "SE" not in device["name"]:
+                      candidates.append((version, device["name"], device["udid"]))
+          if not candidates:
+              raise SystemExit("no available iPhone simulator")
+          print(sorted(candidates)[-1][2])
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      - name: Build and run unit tests
+        working-directory: clients/ios
+        run: |
+          xcodebuild test \
+            -project RemoteEverything.xcodeproj \
+            -scheme RemoteEverything \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -enableCodeCoverage YES \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run Xcode static analyzer
+        working-directory: clients/ios
+        run: |
+          xcodebuild analyze \
+            -project RemoteEverything.xcodeproj \
+            -scheme RemoteEverything \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
+  harmony:
+    name: HarmonyOS source and project gate
+    needs: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Audit functional source requirements
+        run: python clients/harmony/audit_source.py
+      - name: Validate project manifests
+        run: |
+          python -m json.tool clients/harmony/AppScope/app.json5 > /dev/null
+          python -m json.tool clients/harmony/build-profile.json5 > /dev/null
+          python -m json.tool clients/harmony/hvigor/hvigor-config.json5 > /dev/null
+          python -m json.tool clients/harmony/oh-package.json5 > /dev/null
+          python -m json.tool clients/harmony/entry/oh-package.json5 > /dev/null
+          python -m json.tool clients/harmony/entry/src/main/module.json5 > /dev/null
+          python -m json.tool clients/harmony/entry/src/main/resources/base/profile/main_pages.json > /dev/null

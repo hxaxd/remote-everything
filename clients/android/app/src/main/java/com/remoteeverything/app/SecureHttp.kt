@@ -6,6 +6,8 @@ import android.net.http.SslError
 import androidx.core.net.toUri
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
+import java.io.OutputStream
+import java.net.URI
 import java.net.URL
 import java.security.KeyStore
 import java.security.PrivateKey
@@ -21,6 +23,8 @@ import javax.net.ssl.X509TrustManager
 data class HttpResult(val status: Int, val body: String) {
     fun json(): JSONObject = JSONObject(body)
 }
+
+data class DownloadResult(val status: Int, val bytesWritten: Long)
 
 data class ClientIdentity(
     val privateKey: PrivateKey,
@@ -58,6 +62,56 @@ object SecureHttp {
         val response = source?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
         connection.disconnect()
         return HttpResult(status, response)
+    }
+
+    fun download(
+        config: ConnectionConfig,
+        url: String,
+        identity: ClientIdentity? = null,
+        headers: Map<String, String> = emptyMap(),
+        output: OutputStream,
+    ): DownloadResult {
+        var currentUrl = url
+        repeat(6) { redirectCount ->
+            require(config.isGatewayUri(currentUrl.toUri())) { "下载地址不属于配置的服务" }
+            val connection = URL(currentUrl).openConnection() as HttpsURLConnection
+            try {
+                connection.sslSocketFactory = sslContext(config, identity).socketFactory
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 8_000
+                connection.readTimeout = 60_000
+                connection.instanceFollowRedirects = false
+                connection.useCaches = false
+                connection.setRequestProperty("Accept", "*/*")
+                headers.forEach(connection::setRequestProperty)
+                val status = connection.responseCode
+                if (status in 300..399) {
+                    check(redirectCount < 5) { "下载重定向次数过多" }
+                    val location = connection.getHeaderField("Location")?.trim().orEmpty()
+                    check(location.isNotEmpty()) { "下载重定向缺少目标地址" }
+                    val redirected = URI(currentUrl).resolve(location).toString()
+                    check(config.isGatewayUrl(redirected)) { "下载重定向离开了配置的服务" }
+                    currentUrl = redirected
+                    return@repeat
+                }
+                check(status in 200..299) { "下载请求失败：HTTP $status" }
+                var written = 0L
+                connection.inputStream.use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        written += count
+                    }
+                }
+                output.flush()
+                return DownloadResult(status, written)
+            } finally {
+                connection.disconnect()
+            }
+        }
+        error("下载重定向次数过多")
     }
 
     fun acceptsPinnedWebViewError(config: ConnectionConfig, error: SslError?): Boolean {

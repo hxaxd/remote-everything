@@ -1,0 +1,28 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "Remote Everything HarmonyOS客户端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Remote Everything主界面"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "远程万物"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "用于连接远程计算机"
+    },
+    {
+      "name": "camera_permission_reason",
+      "value": "用于扫描setup二维码"
+    },
+    {
+      "name": "microphone_permission_reason",
+      "value": "用于远程网页明确请求的语音输入和通话"
+    }
+  ]
+}

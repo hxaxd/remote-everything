@@ -1,17 +1,25 @@
+import groovy.json.JsonSlurper
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
 }
+
+// Read version from clients/release.json — the single source of truth for all three platforms.
+val releaseJson = JsonSlurper().parse(file("../../release.json")) as Map<String, Any>
+val releaseVersionName = releaseJson["versionName"] as String
+val releaseBuildNumber = (releaseJson["buildNumber"] as Number).toInt()
+val releaseMinSdk = ((releaseJson["minimumPlatforms"] as Map<String, Any>)["androidSdk"] as Number).toInt()
 
 android {
     namespace = "com.remoteeverything.app"
     compileSdk = 36
     defaultConfig {
         applicationId = "com.remoteeverything.app"
-        minSdk = 26
+        minSdk = releaseMinSdk
         targetSdk = 36
-        versionCode = 21
-        versionName = "3.3.1"
+        versionCode = releaseBuildNumber
+        versionName = releaseVersionName
     }
 
     val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
@@ -69,6 +77,7 @@ dependencies {
   implementation(libs.navigation.compose)
   implementation(libs.lifecycle.viewmodel.compose)
   implementation(libs.lifecycle.runtime.compose)
+  implementation(libs.androidx.webkit)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.zxing.embedded)
   debugImplementation(libs.compose.ui.tooling)

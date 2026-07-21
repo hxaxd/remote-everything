@@ -18,13 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Match tag to Android versionName
+      - name: Match tag to release.json version
         shell: bash
         run: |
-          version=$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)"[[:space:]]*$/\1/p' clients/android/app/build.gradle.kts)
-          test -n "$version" || { echo "::error::Android versionName was not found"; exit 1; }
+          version=$(python3 -c "import json; print(json.load(open('clients/release.json'))['versionName'])")
+          test -n "$version" || { echo "::error::release.json versionName was not found"; exit 1; }
           test "v$version" = "$GITHUB_REF_NAME" || {
-            echo "::error::tag $GITHUB_REF_NAME does not match Android versionName $version"
+            echo "::error::tag $GITHUB_REF_NAME does not match release.json versionName $version"
             exit 1
           }
 

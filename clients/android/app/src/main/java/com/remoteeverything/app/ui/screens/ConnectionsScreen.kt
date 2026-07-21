@@ -45,6 +45,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.remoteeverything.app.ConnectionConfig
+import com.remoteeverything.app.ScannerActivity
 import com.remoteeverything.app.connectionActionLabel
 import com.remoteeverything.app.ui.SessionViewModel
 import kotlinx.coroutines.launch
@@ -131,7 +132,8 @@ fun ConnectionsScreen(
                             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
                             .setPrompt("扫描 Remote Everything 初始化二维码")
                             .setBeepEnabled(false)
-                            .setOrientationLocked(false),
+                            .setOrientationLocked(false)
+                            .setCaptureActivity(ScannerActivity::class.java),
                     )
                 }, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                     Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))

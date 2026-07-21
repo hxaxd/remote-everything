@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "3.4.0",
+  "description": "Remote Everything entry module",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {}
+}

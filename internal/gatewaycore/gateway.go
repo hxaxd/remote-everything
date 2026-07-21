@@ -253,7 +253,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		_ = json.Unmarshal(gateway.List(), &shape)
 		for _, app := range shape.Apps {
 			if app.ID == match[1] {
-				http.SetCookie(writer, &http.Cookie{Name: proxysecurity.RoutingCookieName, Value: match[1], Path: "/", MaxAge: 86400, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+				http.SetCookie(writer, &http.Cookie{Name: proxysecurity.RoutingCookieName, Value: match[1], Path: "/", MaxAge: 86400, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 				writer.Header().Set("Location", "/")
 				writer.Header().Set("Cache-Control", "no-store")
 				writer.WriteHeader(http.StatusFound)

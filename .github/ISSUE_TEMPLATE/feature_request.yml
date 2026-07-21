@@ -1,0 +1,64 @@
+name: Feature request / 功能建议
+description: Propose a focused improvement and explain the user problem first.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not only the desired implementation. Large protocol, dependency, or security-boundary changes should be discussed before code is written.
+        请先描述问题，再描述方案。协议、依赖或安全边界的大改动应先讨论。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 问题
+      description: Who is blocked, in what situation, and why is the current behavior insufficient?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome / 期望结果
+      description: Describe observable behavior rather than prescribing every implementation detail.
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope / 范围
+      options:
+        - label: Android client
+        - label: iOS client
+        - label: HarmonyOS client
+        - label: Windows / Linux / macOS node
+        - label: LAN / public gateway
+        - label: App adaptation
+        - label: Skills / documentation / contributor experience
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered / 考虑过的替代方案
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and compatibility impact / 安全与兼容影响
+      description: Consider credentials, TLS, routing, Web isolation, update trust, state/schema changes, and whether a rebuild is acceptable.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria / 验收标准
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations / 确认
+      options:
+        - label: I searched existing Issues and plans. / 我已搜索已有议题与计划。
+          required: true
+        - label: I agree to follow the Code of Conduct. / 我同意遵守行为准则。
+          required: true
