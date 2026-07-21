@@ -221,7 +221,7 @@ struct SetupWizardView: View {
         let transaction = SetupTransaction(
             settings: model.profileStore,
             identity: model.identityStore,
-            deviceName: await UIDevice.current.name
+            deviceName: UIDevice.current.name
         )
         model.setupTransaction = transaction
 
@@ -249,7 +249,7 @@ struct SetupWizardView: View {
         case .activating(let c, let expires):
             return .activating(c.name)
         case .awaitingApproval(let c, let expires):
-            return .awaitingApproval(c.name, expires: expires)
+            return .awaitingApproval(c.name, expires)
         case .ready(let c):
             model.activeProfile = c
             catalogVM.activateAfterSetup(c)

@@ -231,7 +231,7 @@ final class SetupTransaction {
         let body: String
         do {
             let payload: [String: String] = [
-                "device_name": codePointPrefix(deviceName, 80),
+                "device_name": codePointPrefix(deviceName, maximum: 80),
                 "credential_password": password,
             ]
             let jsonData = try JSONSerialization.data(withJSONObject: payload)
