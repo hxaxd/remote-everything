@@ -6,6 +6,6 @@
   "minimumPlatforms": {
     "androidSdk": 30,
     "ios": "17.0",
-    "harmonyApi": "21"
+    "harmonyApi": "24"
   }
 }

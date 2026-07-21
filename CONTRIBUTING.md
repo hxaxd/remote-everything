@@ -58,7 +58,7 @@ python -m unittest \
   skills/remote-everything-install/scripts/test_inspect_443.py
 ```
 
-节点测试还需要在目标操作系统运行 `nodes/<platform>/tests/`。iOS 使用 XcodeGen 生成工程后按 `clients.yml` 执行 `xcodebuild test` 与静态分析；HarmonyOS 使用 DevEco Studio 配置 HarmonyOS 6.0.1(21) SDK，完成 Hvigor type check、测试和 HAP 构建。`plan.md` 中的真机与安全探针仍是发布阻塞条件。
+节点测试还需要在目标操作系统运行 `nodes/<platform>/tests/`。iOS 使用 XcodeGen 生成工程后按 `clients.yml` 执行 `xcodebuild test` 与静态分析；HarmonyOS 使用 DevEco Studio 配置 HarmonyOS 6.1.1(24) SDK，完成 Hvigor type check、测试和 HAP 构建。`plan.md` 中的真机与安全探针仍是发布阻塞条件。
 
 ### 设计与安全要求
 

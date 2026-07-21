@@ -6,7 +6,7 @@
 |------|----------------|------------|
 | Android | Release 中已签名的 `app-release.apk` | 校验 `SHA256SUMS` 后直接安装；升级时签名指纹必须与已安装版本一致 |
 | iOS | 从目标标签源码本地构建 | 用户在 macOS 安装 Xcode 和 XcodeGen，生成工程后选择自己的开发团队与唯一 Bundle ID，连接设备完成签名安装 |
-| HarmonyOS | 从目标标签源码本地构建 | 用户安装 DevEco Studio 与 HarmonyOS 6.0.1(21) SDK，配置自己的调试签名后构建并安装 HAP |
+| HarmonyOS | 从目标标签源码本地构建 | 用户安装 DevEco Studio 与 HarmonyOS 6.1.1(24) SDK，配置自己的调试签名后构建并安装 HAP |
 
 iOS 本地构建从 `clients/ios/` 执行 `xcodegen generate`，再打开生成的 `RemoteEverything.xcodeproj`。HarmonyOS 用 DevEco Studio 打开 `clients/harmony/`。具体开发依赖与验证命令以根目录 `CONTRIBUTING.md` 和目标标签中的工程声明为准。
 

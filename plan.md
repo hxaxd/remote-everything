@@ -42,7 +42,7 @@ clients/
 1. `clients/contracts/validate_contracts.py` 和 `clients/validate_versions.py` 通过。
 2. Android 单元测试、lint、debug build 通过，APK 不含部署凭据。
 3. iOS 在 macOS runner 生成 Xcode 工程，完成单元测试、覆盖率采集和静态分析。
-4. HarmonyOS 在 DevEco Studio 配置的 HarmonyOS 6.0.1(21) SDK 上完成 type check、测试与 HAP 构建；GitHub 托管 runner 继续执行工程和源码门禁。
+4. HarmonyOS 在 DevEco Studio 配置的 HarmonyOS 6.1.1(24) SDK 上完成 type check、测试与 HAP 构建；GitHub 托管 runner 继续执行工程和源码门禁。
 5. 三端真机验证 LAN/public 初始化、重启恢复、连接切换、目录刷新、应用启停、Web 会话、上传下载、媒体权限、返回手势和暗色模式。
 6. 发布前运行完整历史秘密扫描、依赖许可证清单和 SBOM，并确认签名材料只存在于受保护的发布环境。
 
