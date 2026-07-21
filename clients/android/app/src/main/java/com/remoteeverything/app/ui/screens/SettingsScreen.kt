@@ -43,6 +43,7 @@ fun SettingsScreen(
 ) {
     val profile by session.activeProfile.collectAsStateWithLifecycle()
     var orientation by remember { mutableStateOf(session.settings.globalOrientation()) }
+    var displayMode by remember { mutableStateOf(session.settings.globalDisplayMode()) }
 
     Scaffold(
         topBar = {
@@ -80,6 +81,28 @@ fun SettingsScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "单个应用的方向与悬浮面板可在远程界面的边缘把手菜单中设置,应用级设置优先于全局。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            item {
+                SectionLabel("显示模式(全局)")
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("phone" to "手机", "desktop" to "电脑")
+                        .forEachIndexed { index, (value, label) ->
+                            SegmentedButton(
+                                selected = displayMode == value,
+                                onClick = {
+                                    displayMode = value
+                                    session.settings.setGlobalDisplayMode(value)
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                            ) { Text(label) }
+                        }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "电脑模式以桌面浏览器标识加载页面,适合为宽屏设计的应用;单个应用可在远程界面单独设置。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
