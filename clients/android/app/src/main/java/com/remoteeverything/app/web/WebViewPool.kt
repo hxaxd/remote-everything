@@ -3,8 +3,6 @@ package com.remoteeverything.app.web
 import android.content.ComponentCallbacks2
 import android.content.Context
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.view.ViewGroup
 import android.webkit.WebView
 import com.remoteeverything.app.ClientIdentity
@@ -14,13 +12,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * 远程应用 WebView 预热缓存池。
+ * 远程应用 WebView 常驻缓存池。
  *
- * 生命周期规则(避免"隐藏页被 Chromium 节流导致 SPA 启动卡死"):
- * - [warm] 在目录成功后创建并加载页面,预热 TLS/HTTP 缓存/渲染进程;
- * - 首次 [acquire] 一律重载一次(走 HTTP 缓存,极快),让 SPA 在可见状态全速完成启动;
- * - 之后短时间内返回直接续上;离开超过 [HIDDEN_RELOAD_MS] 或页面加载失败则重建/重载;
- * - attach/detach 严格配对 onResume/onPause 与定时器暂停恢复。
+ * 不预加载:首次进入才创建并加载页面(此时页面可见,SPA 全速启动);
+ * 退出只卸载不销毁,再次进入原样恢复;渲染进程死亡、应用停止、连接切换、
+ * 内存紧张时回收——进程死亡时缓存自然随之消失。
  *
  * 所有方法必须在主线程调用。
  */
@@ -40,16 +36,12 @@ class WebViewPool(
         internal val failedFlow = MutableStateFlow<String?>(null)
         val failed = failedFlow.asStateFlow()
         internal var lastUsed: Long = 0L
-        internal var detachedAt: Long = 0L
-        internal var viewedAfterLoad = false
         val loaded: Boolean get() = progressFlow.value >= 100 && failedFlow.value == null
     }
 
-    private val main = Handler(Looper.getMainLooper())
     private val entries = LinkedHashMap<String, Entry>()
     private var config: ConnectionConfig? = null
     private var identity: ClientIdentity? = null
-    private var warmToken = 0
 
     /** 渲染进程死亡等导致条目被销毁时的通知(参数为 appId)。 */
     var onEntryGone: ((String) -> Unit)? = null
@@ -63,51 +55,21 @@ class WebViewPool(
         this.identity = identity
     }
 
-    /** 目录成功后预热:显示模式已变化的条目先作废,缺失的条目逐个(间隔约 800ms)创建并加载。 */
-    fun warm(apps: List<RemoteApp>) {
-        val session = config ?: return
-        entries.values
-            .filter { it.displayMode != displayModeResolver(it.appId) }
-            .forEach { invalidate(it.appId) }
-        warmToken += 1
-        val token = warmToken
-        apps.filter { it.code == "ready" && it.id !in entries }.forEachIndexed { index, app ->
-            main.postDelayed({
-                if (token != warmToken || this.config !== session) return@postDelayed
-                createEntry(app)
-                evictIfNeeded()
-            }, 800L * (index + 1))
-        }
-    }
-
-    /** 进入应用:命中缓存直接返回;失败条目重建;首次进入重载预热页。 */
+    /** 进入应用:命中缓存直接续上;失败条目重建;未命中立即创建加载。 */
     fun acquire(app: RemoteApp): Entry {
         val existing = entries[app.id]
         if (existing != null) {
-            if (existing.failedFlow.value != null) {
-                // 预热加载失败(如应用尚未就绪):销毁重建,立即可见加载
+            if (existing.failedFlow.value != null || existing.displayMode != displayModeResolver(app.id)) {
                 invalidate(app.id)
-                val fresh = createEntry(app)
-                fresh.viewedAfterLoad = true
-                evictIfNeeded()
-                return fresh
+            } else {
+                existing.lastUsed = System.nanoTime()
+                existing.webView.onResume()
+                existing.webView.resumeTimers()
+                existing.webView.invalidate()
+                return existing
             }
-            existing.lastUsed = System.nanoTime()
-            resume(existing)
-            val hiddenTooLong = existing.detachedAt > 0L &&
-                System.currentTimeMillis() - existing.detachedAt > HIDDEN_RELOAD_MS
-            if (!existing.viewedAfterLoad || hiddenTooLong) {
-                // 首次进入:重载预热页,让 SPA 在可见状态全速启动(走缓存,极快);
-                // 隐藏过久:页面已被系统节流,重载恢复(走缓存)
-                existing.progressFlow.value = 0
-                existing.webView.reload()
-            }
-            existing.viewedAfterLoad = true
-            existing.detachedAt = 0L
-            return existing
         }
         val entry = createEntry(app)
-        entry.viewedAfterLoad = true
         evictIfNeeded()
         return entry
     }
@@ -125,16 +87,8 @@ class WebViewPool(
         pause(entry)
     }
 
-    private fun resume(entry: Entry) {
-        entry.lastUsed = System.nanoTime()
-        entry.webView.onResume()
-        entry.webView.resumeTimers()
-        entry.webView.invalidate()
-    }
-
     private fun pause(entry: Entry) {
         entry.lastUsed = System.nanoTime()
-        entry.detachedAt = System.currentTimeMillis()
         entry.webView.onPause()
         entry.webView.pauseTimers()
         (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
@@ -153,7 +107,6 @@ class WebViewPool(
     }
 
     fun destroyAll() {
-        warmToken += 1
         entries.values.forEach(::destroyEntry)
         entries.clear()
     }
@@ -190,9 +143,7 @@ class WebViewPool(
                 }
             },
             onProgress = { view, value ->
-                entryRef?.takeIf { it.webView === view }?.let {
-                    it.progressFlow.value = value
-                }
+                entryRef?.takeIf { it.webView === view }?.progressFlow?.value = value
             },
             onMainDocumentError = { view, detail ->
                 entryRef?.takeIf { it.webView === view }?.let {
@@ -228,6 +179,5 @@ class WebViewPool(
 
     companion object {
         const val MAX_ENTRIES = 5
-        const val HIDDEN_RELOAD_MS = 3 * 60_000L
     }
 }

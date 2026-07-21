@@ -66,8 +66,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.remoteeverything.app.data.FloatingButton
 import com.remoteeverything.app.data.FloatingLayout
-import com.remoteeverything.app.data.FloatingPanel
 import com.remoteeverything.app.ui.CatalogUiState
 import com.remoteeverything.app.ui.SessionViewModel
 import com.remoteeverything.app.ui.components.CenteredLoading
@@ -101,11 +101,11 @@ fun RemoteScreen(
     var editMode by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
 
-    var panels by remember(installationId, appId) {
-        mutableStateOf(installationId?.let { session.settings.fkPanels(it, appId) } ?: emptyList())
+    var buttons by remember(installationId, appId) {
+        mutableStateOf(installationId?.let { session.settings.fkButtons(it, appId) } ?: emptyList())
     }
-    var panelsVisible by remember(installationId, appId) {
-        mutableStateOf(installationId?.let { session.settings.fkPanelsVisible(it, appId) } ?: true)
+    var buttonsVisible by remember(installationId, appId) {
+        mutableStateOf(installationId?.let { session.settings.fkButtonsVisible(it, appId) } ?: true)
     }
     var appOrientation by remember(installationId, appId) {
         mutableStateOf(installationId?.let { session.settings.appOrientation(it, appId) } ?: "global")
@@ -171,9 +171,9 @@ fun RemoteScreen(
         )
     }
 
-    fun persistPanels(next: List<FloatingPanel>) {
-        panels = next
-        session.settings.setFkPanels(installationId, appId, next)
+    fun persistButtons(next: List<FloatingButton>) {
+        buttons = next
+        session.settings.setFkButtons(installationId, appId, next)
     }
 
     fun reload() {
@@ -245,12 +245,16 @@ fun RemoteScreen(
             )
         }
 
-        if (panelsVisible && panels.isNotEmpty() && pageFailed == null) {
-            FloatingPanelLayer(
-                panels = panels,
+        // 左右边缘滑动 → 打开控制面板(取代直接返回;返回键仍可用)
+        EdgeSwipeZone(alignment = Alignment.CenterStart, direction = 1f, onTrigger = { sheetOpen = true })
+        EdgeSwipeZone(alignment = Alignment.CenterEnd, direction = -1f, onTrigger = { sheetOpen = true })
+
+        if (buttonsVisible && buttons.isNotEmpty() && pageFailed == null) {
+            FloatingButtonLayer(
+                buttons = buttons,
                 editMode = editMode,
-                onKey = { injector.inject(it) },
-                onCommit = ::persistPanels,
+                onAction = { injector.inject(it) },
+                onCommit = ::persistButtons,
             )
         }
 
@@ -264,17 +268,13 @@ fun RemoteScreen(
                     .clickable { editMode = false },
             ) {
                 Text(
-                    "编辑悬浮布局 · 点这里完成",
+                    "编辑悬浮按钮 · 点这里完成",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                 )
             }
         }
-
-        // 左右边缘滑动 → 打开控制面板(取代直接返回;返回键仍可用)
-        EdgeSwipeZone(alignment = Alignment.CenterStart, direction = 1f, onTrigger = { sheetOpen = true })
-        EdgeSwipeZone(alignment = Alignment.CenterEnd, direction = -1f, onTrigger = { sheetOpen = true })
 
         // 边缘把手:点按打开控制面板,上下拖动调整位置(按应用记忆);热区宽于视觉条
         run {
@@ -390,14 +390,14 @@ fun RemoteScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Column {
-                        Text("显示悬浮面板", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text("共 ${panels.size} 个面板", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("显示悬浮按钮", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        Text("共 ${buttons.size} 个按钮", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
-                        checked = panelsVisible,
+                        checked = buttonsVisible,
                         onCheckedChange = { checked ->
-                            panelsVisible = checked
-                            session.settings.setFkPanelsVisible(installationId, appId, checked)
+                            buttonsVisible = checked
+                            session.settings.setFkButtonsVisible(installationId, appId, checked)
                         },
                     )
                 }
@@ -405,15 +405,15 @@ fun RemoteScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
-                            persistPanels(panels + FloatingLayout.defaultPanel())
-                            panelsVisible = true
-                            session.settings.setFkPanelsVisible(installationId, appId, true)
+                            persistButtons(buttons + FloatingLayout.newButton())
+                            buttonsVisible = true
+                            session.settings.setFkButtonsVisible(installationId, appId, true)
                             editMode = true
                             closeSheet()
                         },
                         modifier = Modifier.weight(1f),
-                        enabled = panels.size < FloatingLayout.MAX_PANELS,
-                    ) { Text("新建面板") }
+                        enabled = buttons.size < FloatingLayout.MAX_BUTTONS,
+                    ) { Text("新建") }
                     OutlinedButton(
                         onClick = {
                             editMode = !editMode
