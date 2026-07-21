@@ -220,7 +220,7 @@ class AppUpdater(private val context: Context) {
         const val LATEST_RELEASE_API = "https://api.github.com/repos/hxaxd/remote-everything/releases/latest"
         const val UPDATE_DIRECTORY = "updates"
         const val MAX_REDIRECTS = 5
-        const val OFFICIAL_SIGNER_SHA256 = "9f0519461758a1d9790a989a09553bf11135e80057f84aa2a04c3975c4794f7a"
+        const val OFFICIAL_SIGNER_SHA256 = "0fa51efa8c5ed1e1a6265dbcbf863bd3996619109430860b564a7cc4f73fca9e"
         val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
         val ASSET_HOSTS = setOf("github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com")
     }
