@@ -1,12 +1,9 @@
 package com.remoteeverything.app.ui.screens
 
-import android.content.ClipboardManager
-import android.content.Context
 import android.graphics.Rect
 import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,8 +36,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -59,26 +53,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.remoteeverything.app.data.FloatingButton
-import com.remoteeverything.app.data.FloatingLayout
 import com.remoteeverything.app.ui.CatalogUiState
 import com.remoteeverything.app.ui.SessionViewModel
 import com.remoteeverything.app.ui.components.CenteredLoading
-import com.remoteeverything.app.web.ShortcutInjector
 import com.remoteeverything.app.web.WebViewPool
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
- * 远程应用界面:预热 WebView + 边缘把手 + 底部控制面板 + 悬浮面板层。
- * 返回手势分级:先关面板,再退出编辑,最后才回目录(WebView 保留在池中)。
+ * 远程应用界面:常驻 WebView + 边缘把手/边缘滑动呼出控制面板。
+ * 返回手势:先关面板,再回目录(WebView 保留在池中)。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,19 +84,11 @@ fun RemoteScreen(
     val catalog by session.catalog.collectAsStateWithLifecycle()
     val app = (catalog as? CatalogUiState.Ready)?.snapshot?.apps?.firstOrNull { it.id == appId }
     val installationId = profile?.installationId
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var sheetOpen by remember { mutableStateOf(false) }
-    var editMode by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableIntStateOf(0) }
 
-    var buttons by remember(installationId, appId) {
-        mutableStateOf(installationId?.let { session.settings.fkButtons(it, appId) } ?: emptyList())
-    }
-    var buttonsVisible by remember(installationId, appId) {
-        mutableStateOf(installationId?.let { session.settings.fkButtonsVisible(it, appId) } ?: true)
-    }
     var appOrientation by remember(installationId, appId) {
         mutableStateOf(installationId?.let { session.settings.appOrientation(it, appId) } ?: "global")
     }
@@ -157,25 +139,6 @@ fun RemoteScreen(
         onDispose { pool.onEntryGone = previous }
     }
 
-    val injector = remember(appId) {
-        ShortcutInjector(
-            webView = { pool.entry(appId)?.webView },
-            clipboardText = {
-                val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                manager.primaryClip
-                    ?.takeIf { it.itemCount > 0 }
-                    ?.getItemAt(0)
-                    ?.coerceToText(context)
-                    ?.toString()
-            },
-        )
-    }
-
-    fun persistButtons(next: List<FloatingButton>) {
-        buttons = next
-        session.settings.setFkButtons(installationId, appId, next)
-    }
-
     fun reload() {
         pool.release(appId)
         pool.invalidate(appId)
@@ -186,8 +149,7 @@ fun RemoteScreen(
         scope.launch { sheetState.hide() }.invokeOnCompletion { sheetOpen = false }
     }
 
-    BackHandler(enabled = !sheetOpen && !editMode) { onExitToCatalog() }
-    BackHandler(enabled = !sheetOpen && editMode) { editMode = false }
+    BackHandler(enabled = !sheetOpen) { onExitToCatalog() }
     BackHandler(enabled = sheetOpen) { closeSheet() }
 
     BoxWithConstraints(
@@ -248,33 +210,6 @@ fun RemoteScreen(
         // 左右边缘滑动 → 打开控制面板(取代直接返回;返回键仍可用)
         EdgeSwipeZone(alignment = Alignment.CenterStart, direction = 1f, onTrigger = { sheetOpen = true })
         EdgeSwipeZone(alignment = Alignment.CenterEnd, direction = -1f, onTrigger = { sheetOpen = true })
-
-        if (buttonsVisible && buttons.isNotEmpty() && pageFailed == null) {
-            FloatingButtonLayer(
-                buttons = buttons,
-                editMode = editMode,
-                onAction = { injector.inject(it) },
-                onCommit = ::persistButtons,
-            )
-        }
-
-        if (editMode) {
-            Surface(
-                shape = MaterialTheme.shapes.large,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 20.dp)
-                    .clickable { editMode = false },
-            ) {
-                Text(
-                    "编辑悬浮按钮 · 点这里完成",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-            }
-        }
 
         // 边缘把手:点按打开控制面板,上下拖动调整位置(按应用记忆);热区宽于视觉条
         run {
@@ -373,46 +308,6 @@ fun RemoteScreen(
                                 shape = SegmentedButtonDefaults.itemShape(index = index, count = 3),
                             ) { Text(label) }
                         }
-                }
-                Spacer(Modifier.height(22.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column {
-                        Text("显示悬浮按钮", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-                        Text("共 ${buttons.size} 个按钮", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(
-                        checked = buttonsVisible,
-                        onCheckedChange = { checked ->
-                            buttonsVisible = checked
-                            session.settings.setFkButtonsVisible(installationId, appId, checked)
-                        },
-                    )
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            persistButtons(buttons + FloatingLayout.newButton())
-                            buttonsVisible = true
-                            session.settings.setFkButtonsVisible(installationId, appId, true)
-                            editMode = true
-                            closeSheet()
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = buttons.size < FloatingLayout.MAX_BUTTONS,
-                    ) { Text("新建") }
-                    OutlinedButton(
-                        onClick = {
-                            editMode = !editMode
-                            closeSheet()
-                        },
-                        modifier = Modifier.weight(1f),
-                    ) { Text(if (editMode) "完成编辑" else "编辑布局") }
                 }
                 Spacer(Modifier.height(22.dp))
 
