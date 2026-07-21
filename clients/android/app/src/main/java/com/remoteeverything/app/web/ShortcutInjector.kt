@@ -1,22 +1,22 @@
 package com.remoteeverything.app.web
 
 import android.webkit.WebView
-import com.remoteeverything.app.data.FloatingKey
+import com.remoteeverything.app.data.FloatingButton
 import org.json.JSONObject
 
 /**
- * 悬浮按键动作 → WebView JS 注入。
+ * 悬浮按钮动作 → WebView JS 注入。
  * 键事件逻辑与旧版 MainActivity.keyJs/pasteJs 一致,扩展了 alt/shift 修饰键与自定义文本。
  */
 class ShortcutInjector(
     private val webView: () -> WebView?,
     private val clipboardText: () -> String?,
 ) {
-    fun inject(key: FloatingKey) {
-        val js = when (key.action) {
-            FloatingKey.ACTION_KEY -> keyJs(key.key, key.code, key.ctrl, key.alt, key.shift)
-            FloatingKey.ACTION_PASTE -> clipboardText()?.let(::insertJs)
-            FloatingKey.ACTION_TEXT -> insertJs(key.text)
+    fun inject(button: FloatingButton) {
+        val js = when (button.action) {
+            FloatingButton.ACTION_KEY -> keyJs(button.key, button.code, button.ctrl, button.alt, button.shift)
+            FloatingButton.ACTION_PASTE -> clipboardText()?.let(::insertJs)
+            FloatingButton.ACTION_TEXT -> insertJs(button.text)
             else -> null
         } ?: return
         webView()?.evaluateJavascript(js, null)

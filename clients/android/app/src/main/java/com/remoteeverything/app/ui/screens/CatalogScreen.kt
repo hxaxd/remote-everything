@@ -54,10 +54,7 @@ fun CatalogScreen(
     LaunchedEffect(catalog) {
         refreshing = false
         val ready = catalog as? CatalogUiState.Ready ?: return@LaunchedEffect
-        if (ready.snapshot.computerConnected) {
-            pool.pruneStopped(ready.snapshot.apps)
-            pool.warm(ready.snapshot.apps)
-        }
+        if (ready.snapshot.computerConnected) pool.pruneStopped(ready.snapshot.apps)
     }
 
     Scaffold(
