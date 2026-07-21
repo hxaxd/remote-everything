@@ -337,11 +337,9 @@ fun RemoteScreen(
                     .padding(bottom = 36.dp),
             ) {
                 Text(app.name, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(Modifier.height(4.dp))
-                Text("选项", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(20.dp))
 
-                SectionLabel("屏幕方向(本应用)")
+                SectionLabel("屏幕方向")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf("global" to "跟随全局", "system" to "跟随系统", "portrait" to "竖屏", "landscape" to "横屏")
                         .forEachIndexed { index, (value, label) ->
@@ -358,7 +356,7 @@ fun RemoteScreen(
                 }
                 Spacer(Modifier.height(22.dp))
 
-                SectionLabel("显示模式(本应用)")
+                SectionLabel("显示模式")
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                     listOf("global" to "跟随全局", "phone" to "手机", "desktop" to "电脑")
                         .forEachIndexed { index, (value, label) ->
@@ -376,12 +374,6 @@ fun RemoteScreen(
                             ) { Text(label) }
                         }
                 }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "电脑模式以桌面浏览器标识加载页面,适合为宽屏设计的应用;切换后页面自动重建。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 Spacer(Modifier.height(22.dp))
 
                 Row(
