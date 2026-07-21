@@ -10,8 +10,8 @@ android {
         applicationId = "com.remoteeverything.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 20
-        versionName = "3.3.0"
+        versionCode = 21
+        versionName = "3.3.1"
     }
 
     val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
