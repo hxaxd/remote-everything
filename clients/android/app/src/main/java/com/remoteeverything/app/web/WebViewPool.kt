@@ -68,7 +68,6 @@ class WebViewPool(
                 pointRoutingCookie(app.id)
                 existing.lastUsed = System.nanoTime()
                 existing.webView.onResume()
-                existing.webView.resumeTimers()
                 existing.webView.invalidate()
                 return existing
             }
@@ -101,8 +100,9 @@ class WebViewPool(
 
     private fun pause(entry: Entry) {
         entry.lastUsed = System.nanoTime()
+        // 只按视图暂停(onPause 只停动画/媒体,不动 JS);绝不能用 pauseTimers,
+        // 它是进程级的,会冻结所有 WebView 的定时器并波及后续新建页面
         entry.webView.onPause()
-        entry.webView.pauseTimers()
         (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
     }
 
