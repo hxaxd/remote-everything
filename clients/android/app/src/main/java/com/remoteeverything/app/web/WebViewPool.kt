@@ -34,6 +34,8 @@ class WebViewPool(
     ) {
         val progress = progressFlow.asStateFlow()
         internal var lastUsed: Long = 0L
+        internal var loadedAt: Long = 0L
+        internal var viewedAfterLoad = false
         val loaded: Boolean get() = progressFlow.value >= 100
     }
 
@@ -69,31 +71,59 @@ class WebViewPool(
         }
     }
 
-    /** 进入应用:命中缓存直接返回;未命中立即创建加载。 */
+    /** 进入应用:命中缓存直接返回;未命中立即创建加载。超时预热页自动用缓存快速重载。 */
     fun acquire(app: RemoteApp): Entry {
         val existing = entries[app.id]
         if (existing != null) {
             existing.lastUsed = System.nanoTime()
+            existing.webView.onResume()
+            existing.webView.resumeTimers()
+            existing.webView.invalidate()
+            if (existing.loaded && !existing.viewedAfterLoad &&
+                System.currentTimeMillis() - existing.loadedAt > STALE_AFTER_MS
+            ) {
+                // 预热页在不可见状态停留过久,SPA 自举可能已被冻结,重载一次(走 HTTP 缓存,很快)
+                existing.progressFlow.value = 0
+                existing.webView.reload()
+            }
+            existing.viewedAfterLoad = true
             return existing
         }
         val entry = createEntry(app)
+        entry.viewedAfterLoad = true
         evictIfNeeded()
         return entry
     }
 
     fun entry(appId: String): Entry? = entries[appId]
 
-    /** 离开应用界面:只从视图树卸载,保留页面状态。 */
+    /** 离开应用界面:只从视图树卸载并暂停,保留页面状态。 */
     fun release(appId: String) {
         val entry = entries[appId] ?: return
         entry.lastUsed = System.nanoTime()
+        entry.webView.onPause()
+        entry.webView.pauseTimers()
         (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
     }
 
     /** 按条目卸载:界面重组时旧条目可能已被替换,只摘自身视图。 */
     fun release(entry: Entry) {
         entry.lastUsed = System.nanoTime()
+        entry.webView.onPause()
+        entry.webView.pauseTimers()
         (entry.webView.parent as? ViewGroup)?.removeView(entry.webView)
+    }
+
+    /** 已停止应用的缓存页作废(进程已死,页面不可再用),下次进入重新加载。 */
+    fun pruneStopped(apps: List<RemoteApp>) {
+        val stopped = apps.filter { it.code == "stopped" }.map { it.id }.toSet()
+        if (stopped.isEmpty()) return
+        stopped.forEach { id ->
+            entries.remove(id)?.let { victim ->
+                (victim.webView.parent as? ViewGroup)?.removeView(victim.webView)
+                runCatching { victim.webView.destroy() }
+            }
+        }
     }
 
     /** 销毁单个条目(如手动重新加载前)。 */
@@ -137,7 +167,13 @@ class WebViewPool(
                 }
             },
             onProgress = { view, value ->
-                entryRef?.takeIf { it.webView === view }?.progressFlow?.value = value
+                entryRef?.takeIf { it.webView === view }?.let {
+                    it.progressFlow.value = value
+                    if (value >= 100) {
+                        it.loadedAt = System.currentTimeMillis()
+                        it.viewedAfterLoad = false
+                    }
+                }
             },
         )
         val entry = Entry(app.id, webView, progress)
@@ -167,5 +203,6 @@ class WebViewPool(
 
     companion object {
         const val MAX_ENTRIES = 5
+        const val STALE_AFTER_MS = 90_000L
     }
 }

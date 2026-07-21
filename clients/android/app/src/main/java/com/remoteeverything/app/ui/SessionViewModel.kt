@@ -75,6 +75,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     private var setupJob: Job? = null
     private var setupPayload: SetupPayload? = null
     private var bootstrapped = false
+    private var lastErrorNotifyAt = 0L
 
     fun bootstrap() {
         if (bootstrapped) return
@@ -115,8 +116,13 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                         handleAuthorizationRevoked(config)
                         return@launch
                     }
-                    val detail = cause.message?.takeIf(String::isNotBlank) ?: cause.javaClass.simpleName
-                    _catalog.value = CatalogUiState.Error(detail)
+                    // 瞬时失败不清屏:已有数据保留展示,提示后由下一轮轮询恢复
+                    if (_catalog.value is CatalogUiState.Ready) {
+                        notifyTransientError()
+                    } else {
+                        val detail = cause.message?.takeIf(String::isNotBlank) ?: cause.javaClass.simpleName
+                        _catalog.value = CatalogUiState.Error(detail)
+                    }
                 }
                 delay(5_000)
             }
@@ -133,8 +139,16 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 .onFailure { error ->
                     val cause = generateSequence(error) { it.cause }.last()
                     if (cause is DeviceAuthorizationException) handleAuthorizationRevoked(config)
+                    else if (_catalog.value is CatalogUiState.Ready) notifyTransientError()
                 }
         }
+    }
+
+    private fun notifyTransientError() {
+        val now = System.currentTimeMillis()
+        if (now - lastErrorNotifyAt < 30_000) return
+        lastErrorNotifyAt = now
+        _messages.tryEmit("连接失败,稍后自动重试")
     }
 
     fun controlApp(app: RemoteApp, action: String) {
