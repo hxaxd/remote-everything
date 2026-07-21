@@ -18,7 +18,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: pip
       - name: Install contract validator
         run: python -m pip install "jsonschema==4.25.1"
       - name: Validate schemas and fixtures
