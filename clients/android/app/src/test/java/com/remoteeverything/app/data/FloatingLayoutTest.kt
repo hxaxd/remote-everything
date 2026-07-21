@@ -2,171 +2,127 @@ package com.remoteeverything.app.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingLayoutTest {
 
-    private fun key(
+    private fun button(
         id: String = FloatingLayout.newId(),
         label: String = "Esc",
-        action: String = FloatingKey.ACTION_KEY,
+        action: String = FloatingButton.ACTION_KEY,
         key: String = "Escape",
         code: String = "Escape",
         ctrl: Boolean = false,
         text: String = "",
-    ) = FloatingKey(id, label, action, key, code, ctrl, text = text)
-
-    private fun panel(
-        id: String = FloatingLayout.newId(),
         x: Float = FloatingLayout.UNSET,
         y: Float = FloatingLayout.UNSET,
-        scale: Float = 1f,
-        keys: List<FloatingKey> = listOf(key()),
-    ) = FloatingPanel(id, x, y, scale, keys)
+    ) = FloatingButton(id, label, action, key, code, ctrl, text = text, x = x, y = y)
 
     @Test
-    fun `encode decode round trip preserves panels`() {
-        val panels = listOf(
-            panel(
-                x = 0.25f, y = 0.75f, scale = 1.2f,
-                keys = listOf(
-                    key(label = "Ctrl+C", key = "c", code = "KeyC", ctrl = true),
-                    key(label = "粘贴", action = FloatingKey.ACTION_PASTE, key = "", code = ""),
-                    key(label = "你好", action = FloatingKey.ACTION_TEXT, key = "", code = "", text = "你好，世界 🌏"),
-                ),
-            ),
-            panel(keys = listOf(key(label = "↑", key = "ArrowUp", code = "ArrowUp"))),
+    fun `encode decode round trip preserves buttons`() {
+        val buttons = listOf(
+            button(x = 0.25f, y = 0.75f),
+            button(label = "粘贴", action = FloatingButton.ACTION_PASTE, key = "", code = ""),
+            button(label = "你好", action = FloatingButton.ACTION_TEXT, key = "", code = "", text = "你好,世界 🌏"),
+            button(label = "Ctrl+A", key = "a", code = "KeyA", ctrl = true),
         )
-        assertEquals(panels, FloatingLayout.decode(FloatingLayout.encode(panels)))
+        assertEquals(buttons, FloatingLayout.decode(FloatingLayout.encode(buttons)))
     }
 
     @Test
     fun `encode empty list round trips`() {
-        assertEquals(emptyList<FloatingPanel>(), FloatingLayout.decode(FloatingLayout.encode(emptyList())))
+        assertEquals(emptyList<FloatingButton>(), FloatingLayout.decode(FloatingLayout.encode(emptyList())))
     }
 
     @Test
     fun `decode rejects wrong version`() {
-        assertThrows { FloatingLayout.decode("""{"v":2,"panels":[]}""") }
+        assertThrows { FloatingLayout.decode("""{"v":1,"buttons":[]}""") }
+        assertThrows { FloatingLayout.decode("""{"v":3,"buttons":[]}""") }
     }
 
     @Test
     fun `decode rejects unknown field`() {
-        assertThrows { FloatingLayout.decode("""{"v":1,"panels":[],"extra":true}""") }
+        assertThrows { FloatingLayout.decode("""{"v":2,"buttons":[],"extra":true}""") }
     }
 
     @Test
-    fun `decode rejects malformed panel id`() {
+    fun `decode rejects malformed button id`() {
         assertThrows {
-            FloatingLayout.decode("""{"v":1,"panels":[{"id":"zz","x":-1,"y":-1,"scale":1,"keys":[]}]}""")
+            FloatingLayout.decode("""{"v":2,"buttons":[{"id":"zz","label":"Esc","action":"key","key":"Escape","code":"Escape","ctrl":false,"alt":false,"shift":false,"text":"","x":-1,"y":-1}]}""")
         }
     }
 
     @Test
-    fun `decode rejects duplicate panel ids`() {
+    fun `decode rejects duplicate ids`() {
         val id = FloatingLayout.newId()
-        val json = """{"v":1,"panels":[${panelJson(id)},${panelJson(id)}]}"""
-        assertThrows { FloatingLayout.decode(json) }
+        val one = """{"id":"$id","label":"Esc","action":"key","key":"Escape","code":"Escape","ctrl":false,"alt":false,"shift":false,"text":"","x":-1,"y":-1}"""
+        assertThrows { FloatingLayout.decode("""{"v":2,"buttons":[$one,$one]}""") }
     }
 
     @Test
-    fun `decode rejects too many panels`() {
-        val panels = (1..FloatingLayout.MAX_PANELS + 1).joinToString(",") { panelJson(FloatingLayout.newId()) }
-        assertThrows { FloatingLayout.decode("""{"v":1,"panels":[$panels]}""") }
-    }
-
-    @Test
-    fun `scale outside range is rejected`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(scale = FloatingLayout.MIN_SCALE - 0.01f))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(scale = FloatingLayout.MAX_SCALE + 0.01f))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(scale = Float.NaN))) }
+    fun `decode rejects too many buttons`() {
+        val many = (1..FloatingLayout.MAX_BUTTONS + 1).joinToString(",") {
+            """{"id":"${"%08d".format(it)}","label":"Esc","action":"key","key":"Escape","code":"Escape","ctrl":false,"alt":false,"shift":false,"text":"","x":-1,"y":-1}"""
+                .replace("0", "a")
+        }
+        assertThrows { FloatingLayout.decode("""{"v":2,"buttons":[$many]}""") }
     }
 
     @Test
     fun `position outside range is rejected except unset sentinel`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(x = -0.5f))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(y = 1.01f))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(x = Float.POSITIVE_INFINITY))) }
-        // -1 哨兵与边界值合法
-        FloatingLayout.encode(listOf(panel(x = FloatingLayout.UNSET, y = 0f)))
-        FloatingLayout.encode(listOf(panel(x = 1f, y = 1f)))
+        assertThrows { FloatingLayout.encode(listOf(button(x = -0.5f))) }
+        assertThrows { FloatingLayout.encode(listOf(button(y = 1.01f))) }
+        assertThrows { FloatingLayout.encode(listOf(button(x = Float.NaN))) }
+        FloatingLayout.encode(listOf(button(x = FloatingLayout.UNSET, y = 0f)))
+        FloatingLayout.encode(listOf(button(x = 1f, y = 1f)))
     }
 
     @Test
     fun `label constraints enforced`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(label = ""))))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(label = "123456789"))))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(label = "a\nb"))))) }
-        FloatingLayout.encode(listOf(panel(keys = listOf(key(label = "Ctrl+A")))))
+        assertThrows { FloatingLayout.encode(listOf(button(label = ""))) }
+        assertThrows { FloatingLayout.encode(listOf(button(label = "123456789"))) }
+        assertThrows { FloatingLayout.encode(listOf(button(label = "a\nb"))) }
+        FloatingLayout.encode(listOf(button(label = "Ctrl+A")))
     }
 
     @Test
     fun `key action requires key and code without text`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(key = ""))))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(code = ""))))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(text = "x"))))) }
+        assertThrows { FloatingLayout.encode(listOf(button(key = ""))) }
+        assertThrows { FloatingLayout.encode(listOf(button(code = ""))) }
+        assertThrows { FloatingLayout.encode(listOf(button(text = "x"))) }
     }
 
     @Test
     fun `paste action rejects payloads`() {
-        val paste = key(action = FloatingKey.ACTION_PASTE, key = "", code = "")
-        FloatingLayout.encode(listOf(panel(keys = listOf(paste))))
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(paste.copy(text = "x"))))) }
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(paste.copy(key = "v"))))) }
+        val paste = button(action = FloatingButton.ACTION_PASTE, key = "", code = "")
+        FloatingLayout.encode(listOf(paste))
+        assertThrows { FloatingLayout.encode(listOf(paste.copy(text = "x"))) }
+        assertThrows { FloatingLayout.encode(listOf(paste.copy(key = "v"))) }
     }
 
     @Test
     fun `text action requires text without key fields`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(action = FloatingKey.ACTION_TEXT, key = "", code = ""))))) }
-        val textKey = key(action = FloatingKey.ACTION_TEXT, key = "", code = "", text = "命令 --help")
-        val source = listOf(panel(keys = listOf(textKey)))
+        assertThrows { FloatingLayout.encode(listOf(button(action = FloatingButton.ACTION_TEXT, key = "", code = ""))) }
+        val textButton = button(action = FloatingButton.ACTION_TEXT, key = "", code = "", text = "命令 --help")
+        val source = listOf(textButton)
         assertEquals(source, FloatingLayout.decode(FloatingLayout.encode(source)))
     }
 
     @Test
     fun `unknown action rejected`() {
-        assertThrows { FloatingLayout.encode(listOf(panel(keys = listOf(key(action = "hack"))))) }
+        assertThrows { FloatingLayout.encode(listOf(button(action = "hack"))) }
     }
 
     @Test
-    fun `migrate legacy returns null when nothing customized`() {
-        assertNull(FloatingLayout.migrateLegacy(visible = false, x = FloatingLayout.UNSET, y = FloatingLayout.UNSET, scale = 1f))
+    fun `new button appears at center with unique ids`() {
+        val first = FloatingLayout.newButton()
+        val second = FloatingLayout.newButton()
+        assertEquals(0.5f, first.x, 0.001f)
+        assertEquals(0.5f, first.y, 0.001f)
+        assertEquals("Escape", first.key)
+        assertNotEquals(first.id, second.id)
+        FloatingLayout.encode(listOf(first, second))
     }
-
-    @Test
-    fun `migrate legacy keeps customized position and clamps scale`() {
-        val panels = FloatingLayout.migrateLegacy(visible = true, x = 0.3f, y = 0.6f, scale = 2.5f)!!
-        assertEquals(1, panels.size)
-        assertEquals(0.3f, panels[0].x, 0.0001f)
-        assertEquals(0.6f, panels[0].y, 0.0001f)
-        assertEquals(FloatingLayout.MAX_SCALE, panels[0].scale, 0.0001f)
-        assertEquals(5, panels[0].keys.size)
-    }
-
-    @Test
-    fun `migrate legacy preserves position even when hidden`() {
-        val panels = FloatingLayout.migrateLegacy(visible = false, x = 0.1f, y = 0.2f, scale = 1f)!!
-        assertEquals(1, panels.size)
-    }
-
-    @Test
-    fun `default keys match legacy five actions`() {
-        val keys = FloatingLayout.defaultKeys()
-        assertEquals(5, keys.size)
-        assertEquals("Escape", keys[0].key)
-        assertEquals("Tab", keys[1].key)
-        assertEquals("c", keys[2].key)
-        assertTrue(keys[2].ctrl)
-        assertEquals(FloatingKey.ACTION_PASTE, keys[3].action)
-        assertEquals("Enter", keys[4].key)
-        // 每次生成的 id 唯一
-        assertNotEquals(keys[0].id, keys[1].id)
-    }
-
-    private fun panelJson(id: String): String =
-        """{"id":"$id","x":-1,"y":-1,"scale":1,"keys":[{"id":"${FloatingLayout.newId()}","label":"Esc","action":"key","key":"Escape","code":"Escape","ctrl":false,"alt":false,"shift":false,"text":""}]}"""
 
     private fun assertThrows(block: () -> Unit) {
         try {
