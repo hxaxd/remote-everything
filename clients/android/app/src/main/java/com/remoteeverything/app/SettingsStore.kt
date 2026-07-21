@@ -56,7 +56,7 @@ class SettingsStore(context: Context) : SetupProfileStore {
             if (prefs.getString("active_profile", null) == installationId) remove("active_profile")
             if (stagedProfile()?.installationId == installationId) remove("staged_profile")
             val marker = "_${installationId}_"
-            prefs.all.keys.filter { key -> key.startsWith("orientation_") || key.startsWith("fk_") || key.startsWith("handle_") }.filter { marker in it }.forEach { key -> remove(key) }
+            prefs.all.keys.filter { key -> key.startsWith("orientation_") || key.startsWith("display_") || key.startsWith("fk_") || key.startsWith("handle_") }.filter { marker in it }.forEach { key -> remove(key) }
         }
     }
 
@@ -83,6 +83,25 @@ class SettingsStore(context: Context) : SetupProfileStore {
             "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // 显示模式:phone(手机 UA)或 desktop(电脑 UA + 宽视口);应用级可取 global(跟随全局)
+    fun globalDisplayMode(): String = prefs.getString("global_display_mode", "phone") ?: "phone"
+
+    fun setGlobalDisplayMode(value: String) {
+        prefs.edit { putString("global_display_mode", value) }
+    }
+
+    fun appDisplayMode(installationId: String, appId: String): String = prefs.getString(appKey("display", installationId, appId), "global") ?: "global"
+
+    fun setAppDisplayMode(installationId: String, appId: String, value: String) {
+        prefs.edit { putString(appKey("display", installationId, appId), value) }
+    }
+
+    fun resolveDisplayMode(installationId: String?, appId: String?): String {
+        val appValue = if (installationId != null && appId != null) appDisplayMode(installationId, appId) else "global"
+        val effective = if (appValue == "global") globalDisplayMode() else appValue
+        return if (effective == "desktop") "desktop" else "phone"
     }
 
     // 悬浮快捷键（旧版单面板的只读取值,仅供一次性迁移使用;新界面使用下方 fkPanels 系列）

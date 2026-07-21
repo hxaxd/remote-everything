@@ -2,28 +2,37 @@ package com.remoteeverything.app.ui.screens
 
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Rect
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -51,9 +60,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remoteeverything.app.data.FloatingLayout
 import com.remoteeverything.app.data.FloatingPanel
@@ -99,6 +110,9 @@ fun RemoteScreen(
     var appOrientation by remember(installationId, appId) {
         mutableStateOf(installationId?.let { session.settings.appOrientation(it, appId) } ?: "global")
     }
+    var appDisplayMode by remember(installationId, appId) {
+        mutableStateOf(installationId?.let { session.settings.appDisplayMode(it, appId) } ?: "global")
+    }
     var handleY by remember(installationId, appId) {
         mutableFloatStateOf(installationId?.let { session.settings.handleY(it, appId) } ?: -1f)
     }
@@ -127,6 +141,7 @@ fun RemoteScreen(
 
     val entry = remember(appId, reloadTick) { pool.acquire(app) }
     val progress by entry.progress.collectAsStateWithLifecycle()
+    val pageFailed by entry.failed.collectAsStateWithLifecycle()
 
     DisposableEffect(entry) {
         onDispose { pool.release(entry) }
@@ -184,19 +199,53 @@ fun RemoteScreen(
 
         key(reloadTick) {
             AndroidView(
-                factory = { entry.webView },
+                factory = {
+                    entry.webView.apply { post { applyGestureExclusion(this) } }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }
 
-        if (progress < 100) {
+        // 加载失败:展示真实错误与重试入口
+        pageFailed?.let { detail ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color(0xFF020617))
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                Text("远程页面没有成功打开", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(24.dp))
+                Button(onClick = { reload() }, modifier = Modifier.fillMaxWidth()) { Text("重试") }
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = { onExitToCatalog() }, modifier = Modifier.fillMaxWidth()) { Text("返回目录") }
+            }
+        }
+
+        if (progress < 100 && pageFailed == null) {
             LinearProgressIndicator(
                 progress = { progress / 100f },
                 modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter),
             )
         }
 
-        if (panelsVisible && panels.isNotEmpty()) {
+        if (panelsVisible && panels.isNotEmpty() && pageFailed == null) {
             FloatingPanelLayer(
                 panels = panels,
                 editMode = editMode,
@@ -222,6 +271,10 @@ fun RemoteScreen(
                 )
             }
         }
+
+        // 左右边缘滑动 → 打开控制面板(取代直接返回;返回键仍可用)
+        EdgeSwipeZone(alignment = Alignment.CenterStart, direction = 1f, onTrigger = { sheetOpen = true })
+        EdgeSwipeZone(alignment = Alignment.CenterEnd, direction = -1f, onTrigger = { sheetOpen = true })
 
         // 边缘把手:点按打开控制面板,上下拖动调整位置(按应用记忆);热区宽于视觉条
         run {
@@ -305,6 +358,32 @@ fun RemoteScreen(
                 }
                 Spacer(Modifier.height(22.dp))
 
+                SectionLabel("显示模式(本应用)")
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    listOf("global" to "跟随全局", "phone" to "手机", "desktop" to "电脑")
+                        .forEachIndexed { index, (value, label) ->
+                            SegmentedButton(
+                                selected = appDisplayMode == value,
+                                onClick = {
+                                    if (value != appDisplayMode) {
+                                        appDisplayMode = value
+                                        session.settings.setAppDisplayMode(installationId, appId, value)
+                                        closeSheet()
+                                        reload()
+                                    }
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = 3),
+                            ) { Text(label) }
+                        }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "电脑模式以桌面浏览器标识加载页面,适合为宽屏设计的应用;切换后页面自动重建。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(22.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -355,4 +434,55 @@ fun RemoteScreen(
             }
         }
     }
+}
+
+/** 边缘滑动触发区:从屏幕边缘向内水平拖动超过阈值即触发,不拦截点击与垂直滚动。 */
+@Composable
+private fun BoxScope.EdgeSwipeZone(alignment: Alignment, direction: Float, onTrigger: () -> Unit) {
+    Box(
+        Modifier
+            .align(alignment)
+            .fillMaxHeight()
+            .width(28.dp)
+            .pointerInput(direction) {
+                var acc = 0f
+                var triggered = false
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        acc = 0f
+                        triggered = false
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        if (triggered) return@detectHorizontalDragGestures
+                        acc += dragAmount
+                        if (acc * direction > 56.dp.toPx()) {
+                            triggered = true
+                            change.consume()
+                            onTrigger()
+                        } else if (acc * direction > 8.dp.toPx()) {
+                            change.consume()
+                        }
+                    },
+                )
+            },
+    )
+}
+
+/** 为 WebView 声明手势排除区(左右边缘中部各一条,系统上限 200dp),让边缘滑动交给应用。 */
+private fun applyGestureExclusion(view: View) {
+    if (view.height == 0 || view.width == 0) {
+        view.post { applyGestureExclusion(view) }
+        return
+    }
+    val density = view.resources.displayMetrics.density
+    val edge = (28 * density).toInt()
+    val half = (100 * density).toInt()
+    val centerY = view.height / 2
+    ViewCompat.setSystemGestureExclusionRects(
+        view,
+        listOf(
+            Rect(0, (centerY - half).coerceAtLeast(0), edge, centerY + half),
+            Rect(view.width - edge, (centerY - half).coerceAtLeast(0), view.width, centerY + half),
+        ),
+    )
 }
