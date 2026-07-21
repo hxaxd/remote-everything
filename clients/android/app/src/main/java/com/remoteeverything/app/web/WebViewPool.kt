@@ -4,6 +4,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.net.Uri
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.WebView
 import com.remoteeverything.app.ClientIdentity
 import com.remoteeverything.app.ConnectionConfig
@@ -55,13 +56,16 @@ class WebViewPool(
         this.identity = identity
     }
 
-    /** 进入应用:命中缓存直接续上;失败条目重建;未命中立即创建加载。 */
+    /** 进入应用:命中缓存直接续上(先把路由 Cookie 指回本应用);失败条目重建;未命中立即创建加载。 */
     fun acquire(app: RemoteApp): Entry {
         val existing = entries[app.id]
         if (existing != null) {
             if (existing.failedFlow.value != null || existing.displayMode != displayModeResolver(app.id)) {
                 invalidate(app.id)
             } else {
+                // 路由 Cookie 是全源共享的:其他应用进入后已被改写,必须先指回本应用,
+                // 否则该页面的后续请求会被代理到别的应用
+                pointRoutingCookie(app.id)
                 existing.lastUsed = System.nanoTime()
                 existing.webView.onResume()
                 existing.webView.resumeTimers()
@@ -72,6 +76,14 @@ class WebViewPool(
         val entry = createEntry(app)
         evictIfNeeded()
         return entry
+    }
+
+    /** 与服务端 proxysecurity.RoutingCookieName 一致。 */
+    private fun pointRoutingCookie(appId: String) {
+        val origin = config?.gatewayOrigin ?: return
+        val manager = CookieManager.getInstance()
+        manager.setCookie(origin, "$ROUTING_COOKIE_NAME=$appId; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400")
+        manager.flush()
     }
 
     fun entry(appId: String): Entry? = entries[appId]
@@ -156,7 +168,8 @@ class WebViewPool(
         entryRef = entry
         entry.lastUsed = System.nanoTime()
         entries[app.id] = entry
-        webView.loadUrl(app.openUrl)
+        // 主文档绕过缓存:/open 设置本应用路由 Cookie 并跳转,避免陈旧缓存页
+        webView.loadUrl(app.openUrl, mapOf("Cache-Control" to "no-cache"))
         return entry
     }
 
@@ -179,5 +192,8 @@ class WebViewPool(
 
     companion object {
         const val MAX_ENTRIES = 5
+
+        /** 与服务端 proxysecurity.RoutingCookieName 一致。 */
+        private const val ROUTING_COOKIE_NAME = "RemoteEverythingApp"
     }
 }
