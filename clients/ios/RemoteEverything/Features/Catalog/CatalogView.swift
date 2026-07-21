@@ -29,11 +29,11 @@ struct CatalogView: View {
                     )
                 }
             case .error(let detail):
-                ContentUnavailableView(
-                    "加载失败",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(detail)
-                ) {
+                ContentUnavailableView {
+                    Label("加载失败", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(detail)
+                } actions: {
                     Button("重试") {
                         catalogVM.startPolling()
                     }

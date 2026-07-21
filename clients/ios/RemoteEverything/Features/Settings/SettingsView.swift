@@ -62,7 +62,7 @@ struct SettingsView: View {
                     // Version info
                     HStack(spacing: 12) {
                         Image(systemName: "info.circle.fill")
-                            .foregroundStyle(.accent)
+                            .foregroundStyle(Color.accentColor)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("远程万物")
                                 .font(.headline)
@@ -77,10 +77,7 @@ struct SettingsView: View {
                     // Update status text
                     Text(updateDescription)
                         .font(.subheadline)
-                        .foregroundStyle(
-                            if case .error = updater.state { Color.red }
-                            else { Color.secondary }
-                        )
+                        .foregroundStyle(updateDescriptionColor)
 
                     // Download progress
                     if case .downloading(_, let progress) = updater.state {
@@ -127,6 +124,13 @@ struct SettingsView: View {
         case .error(let detail):
             return detail
         }
+    }
+
+    private var updateDescriptionColor: Color {
+        if case .error = updater.state {
+            return .red
+        }
+        return .secondary
     }
 
     @ViewBuilder

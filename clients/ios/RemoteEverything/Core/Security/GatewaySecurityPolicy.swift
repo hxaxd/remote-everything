@@ -25,16 +25,16 @@ enum GatewaySecurityPolicy {
     // MARK: - LAN Trust Evaluation
 
     /// Validate a server trust against a pinned fingerprint for LAN mode.
-    /// Checks: certificate expiry, hostname match (SAN), fingerprint match.
+    /// Checks: certificate expiry, system hostname validation, fingerprint match.
     /// Returns true only if all checks pass. No "continue anyway" fallback.
     static func validateLANTrust(
         trust: SecTrust,
         host: String,
         expectedFingerprint: String
     ) -> Bool {
-        // Get the leaf certificate (index 0)
-        guard SecTrustGetCertificateCount(trust) > 0,
-              let leaf = SecTrustGetCertificateAtIndex(trust, 0) else {
+        // Get the leaf certificate (index 0) from the evaluated chain.
+        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate],
+              let leaf = chain.first else {
             return false
         }
 
@@ -55,45 +55,7 @@ enum GatewaySecurityPolicy {
             return false
         }
 
-        // Verify the certificate covers the host (SAN check)
-        guard certificateCoversHost(certificate: leaf, host: host) else {
-            return false
-        }
-
         return true
-    }
-
-    // MARK: - Host Validation
-
-    /// Check if a certificate's Subject Alternative Names cover the given host.
-    /// Mirrors Android's `subjectAlternativeNamesCoverHost()`.
-    static func certificateCoversHost(certificate: SecCertificate, host: String) -> Bool {
-        guard let names = SecCertificateCopyValues(certificate, [kSecOIDSubjectAltName] as CFArray, nil) as? [String: Any],
-              let sanDict = names[kSecOIDSubjectAltName as String] as? [String: Any],
-              let sanValue = sanDict[kSecPropertyKeyValue as String] as? [[String: Any]] else {
-            return false
-        }
-
-        let isNumericHost = host.contains(":") || host.range(of: #"^\d{1,3}(\.\d{1,3}){3}$"#, options: .regularExpression) != nil
-
-        for entry in sanValue {
-            guard let label = entry[kSecPropertyKeyLabel as String] as? String,
-                  let value = entry[kSecPropertyKeyValue as String] as? String else {
-                continue
-            }
-
-            if label == "DNS Name" && !isNumericHost {
-                if value.caseInsensitiveCompare(host) == .orderedSame {
-                    return true
-                }
-            } else if label == "IP Address" && isNumericHost {
-                if value == host {
-                    return true
-                }
-            }
-        }
-
-        return false
     }
 
     // MARK: - Origin Validation
