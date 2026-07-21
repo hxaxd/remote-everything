@@ -1,0 +1,5 @@
+{
+  "description": "Setup URI with short installation ID must be rejected",
+  "uri": "remote-everything://setup?v=2&id=short&name=PC&mode=lan&origin=https%3A%2F%2F192.168.1.5%3A60001&fingerprint=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D",
+  "error": "invalid_installation_id"
+}

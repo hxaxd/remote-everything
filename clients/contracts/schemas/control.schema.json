@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/control.schema.json",
+  "title": "Control Action Response",
+  "description": "Schema for POST /__remote_everything/apps/:id/:action response. Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "description": "Whether the action succeeded."
+    },
+    "action": {
+      "type": "string",
+      "enum": ["start", "stop"],
+      "description": "The action that was requested."
+    },
+    "computer_connected": {
+      "type": "boolean",
+      "description": "Whether the gateway can reach the node."
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether the app is enabled."
+    },
+    "running": {
+      "type": "boolean",
+      "description": "Whether the app is running."
+    },
+    "code": {
+      "type": "string",
+      "enum": ["ready", "starting", "stopping", "stopped", "computer_offline", "app_not_found", "state_update_failed"],
+      "description": "Status code."
+    },
+    "app": {
+      "type": "object",
+      "description": "Full app state, present only when computer is connected.",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "accent": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+        "launch_fragment": { "type": "string" },
+        "computer_connected": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "running": { "type": "boolean" },
+        "code": { "type": "string" }
+      },
+      "required": ["id", "name", "description", "icon", "accent", "launch_fragment", "computer_connected", "enabled", "running", "code"],
+      "additionalProperties": false
+    },
+    "error_code": {
+      "type": "string",
+      "enum": ["stop_command_failed"],
+      "description": "Error code present only when ok=false and a specific failure reason exists."
+    }
+  },
+  "required": ["ok", "action", "computer_connected", "enabled", "running", "code"],
+  "additionalProperties": false
+}

@@ -1,0 +1,12 @@
+{
+  "description": "Valid public mode setup URI parameters",
+  "uri": "remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab&name=Public+PC&mode=public&origin=https%3A%2F%2Fremote.example.com&invitation=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq",
+  "expected": {
+    "v": "2",
+    "id": "abababababababababababababababababababababababababababababababab",
+    "name": "Public PC",
+    "mode": "public",
+    "origin": "https://remote.example.com",
+    "invitation": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq"
+  }
+}

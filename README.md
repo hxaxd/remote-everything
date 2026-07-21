@@ -2,85 +2,169 @@
 
 # Remote Everything · 远程万物
 
-**坐在工位前，用手机打开你电脑上的应用。**
+**让电脑上的本地 Web 应用，安全地出现在你的移动设备上。**
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue?style=for-the-badge)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/hxaxd/remote-everything?style=for-the-badge)](https://github.com/hxaxd/remote-everything/releases)
-[![Platform](https://img.shields.io/badge/%E8%A2%AB%E6%8E%A7%E7%AB%AF-Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-success?style=for-the-badge)](#remote-everything--远程万物)
+[![Clients](https://img.shields.io/badge/客户端-Android%20·%20iOS%20·%20HarmonyOS-7c3aed?style=for-the-badge)](#支持范围)
+[![Nodes](https://img.shields.io/badge/节点-Windows%20·%20Linux%20·%20macOS-059669?style=for-the-badge)](#支持范围)
+[![Checks](https://img.shields.io/github/actions/workflow/status/hxaxd/remote-everything/repository.yml?branch=main&style=for-the-badge&label=checks)](https://github.com/hxaxd/remote-everything/actions/workflows/repository.yml)
 
 **中文** · [English](README_EN.md)
 
-[这是什么](#这是什么) · [亮点](#亮点) · [快速开始](#快速开始) · [常见问题](#常见问题)
+[项目介绍](#项目介绍) · [核心能力](#核心能力) · [快速开始](#快速开始) · [安全模型](#安全模型) · [参与项目](#参与项目)
 
 </div>
 
-## 这是什么
+## 项目介绍
 
-你的好应用都长在电脑上：Kimi Code 的网页版、SillyTavern、自己写的小工具。人一走开，它们就跟你没关系了。
+KimiWeb、SillyTavern、CloudCLI 和你自己写的小工具都运行在电脑上，但你不必一直坐在电脑前。
 
-远程万物把它们原样送进你的手机——不改应用、不搬上云、不用记任何地址。电脑上跑一个小节点，手机上装一个通用 APK，中间走你自己的服务器或组网。就这样。
+Remote Everything 在电脑上运行一个轻量节点，把明确登记的本地 Web 应用送到 Android、iOS 或 HarmonyOS 客户端。它不改造原应用、不把数据搬到第三方云端，也不要求维护一套账号系统：同网直接连接，异地则经过你自己的服务器或已有组网。
 
-## 亮点
+> 一个移动客户端，连接多台电脑；一个电脑实例，管理多个本地应用。
 
-- 🚀 **30 秒配对**：手机扫个码就完事。没有账号体系，没有地址、端口、密码要填。
-- 🔐 **你点头才进得来**：新手机必须你亲手核对指纹、点批准；邀请码单次使用、限时失效。链路全程加密，服务器是你自己的。
-- 🖥️ **三平台被控端**：Windows / Linux / macOS 随你登录运行，退出时自动收走应用进程，不留一点残留。
-- 🌐 **同网异地都通**：同网络直连；异地走你的云服务器（共用一个 443）；没有服务器也不慌——已有组网直接用，没有就推荐免费 Tailscale。
-- ✨ **打开就是登录态**：深度适配 KimiWeb 和酒馆，点进去直接用；其他本地 Web 应用一句话接入。
-- 🤖 **全程 Agent 驱动**：安装、接入、升级、卸载，你说人话，Agent 干活。
+## 核心能力
 
-## 适合干什么
+- 🚀 **扫码即连**：安装客户端、扫描二维码、核对指纹，不手填地址、端口、密码或令牌。
+- 📱 **三端原生客户端**：Android、iOS、HarmonyOS 使用相同协议和产品结构，并保留各平台原生安全与 Web 容器能力。
+- 🖥️ **三平台电脑节点**：Windows、Linux、macOS 均在用户登录会话中运行，并在退出时回收受管应用进程树。
+- 🔐 **设备级信任**：公网设备必须经过单次邀请、证书申请、完整指纹人工确认和 mTLS 激活。
+- 🌐 **同网与异地**：LAN 或已有组网直接访问；公网模式复用服务器 443，由 Caddy 与 FRP 提供受控入口。
+- 🧭 **多电脑切换**：每台电脑是独立 installation ID，客户端用多个 Profile 管理和切换，互不影响。
+- 🧩 **应用即接即用**：已适配 KimiWeb、SillyTavern 与 CloudCLI，其他本地 Web 应用也可按统一定义接入。
+- 🗂️ **登录态严格隔离**：每个“安装实例 × 应用”拥有独立、持久的 Cookie、缓存、Web Storage 和 Service Worker 数据空间。
+- 🔄 **可信更新**：客户端显示版本与项目入口；Android 校验发布摘要、包身份和签名，iOS 与 HarmonyOS 使用各自官方分发渠道。
+- 🤖 **Agent 驱动运维**：安装、接入应用、配对设备、巡检、升级和卸载都有可执行 Skill，不依赖手写部署笔记。
 
-- 通勤路上，接着用家里电脑上的 Kimi Code 干活
-- 躺在床上，挂酒馆继续你的角色卡
-- 自己跑的各种内部小工具，出门在外手机随时看一眼
+## 支持范围
+
+| 类别 | 支持内容 |
+|---|---|
+| 移动客户端 | Android · iOS · HarmonyOS |
+| 电脑节点 | Windows · Linux · macOS |
+| 访问形态 | LAN / 远程组网 · Linux 公网网关 |
+| 已适配应用 | KimiWeb · SillyTavern · CloudCLI |
+| 多电脑 | 每台电脑独立实例，客户端多 Profile 切换 |
+
+## 工作原理
+
+```text
+Android / iOS / HarmonyOS
+          │
+          │ HTTPS（LAN 证书固定 / public mTLS）
+          ▼
+   LAN 入口或公网 Gateway
+          │
+          │ 内部控制令牌 + 受限反向代理
+          ▼
+ Windows / Linux / macOS Node
+          │
+          ├── KimiWeb
+          ├── SillyTavern
+          ├── CloudCLI
+          └── 其他 loopback Web 应用
+```
+
+一台电脑对应一个 Node、一个 Gateway、一个 `installationId` 和客户端中的一个 Profile。公网形态下，多台电脑的 Gateway 可以共享同一个 Caddy 443 入口，但身份、端口、设备记录与运行状态始终独立。
 
 ## 快速开始
+
+### 1. 取得项目
 
 ```bash
 git clone https://github.com/hxaxd/remote-everything.git
 cd remote-everything
 ```
 
-然后给 Agent 发一句话：
+### 2. 安装移动客户端
+
+从当前 [Release](https://github.com/hxaxd/remote-everything/releases) 或该版本标注的官方分发渠道，安装与你设备系统对应的 Android、iOS 或 HarmonyOS 客户端。
+
+### 3. 让 Agent 完成部署
+
+对仓库中的 Agent 说：
 
 ```text
-帮我部署
+帮我部署 Remote Everything
 ```
 
-接下来你只做三件事：回答它两个选择题（同网还是异地、有没有服务器）→ 用手机扫它递来的二维码 → 核对指纹点批准。结束。
+接下来只需要选择同网或异地访问、扫描二维码，并在公网模式下核对完整设备指纹。节点、动态端口、证书、服务管理器和运行记录都由安装 Skill 处理。
 
-日常也是一句话的事：
+日常操作同样使用自然语言：
 
-- `把本机的 XX 应用接进远程万物`
-- `给新手机配对`
-- `升级一下` / `看看现在什么状态` / `卸载干净`
+- `把本机的 XX 应用接进 Remote Everything`
+- `给这台移动设备配对`
+- `检查当前状态`
+- `升级到最新版本`
+- `卸载并清理运行环境`
 
-## 安全吗
+## 安全模型
 
-手机要持有你这台网关签发的证书才能连上，而证书只发给你亲手批准的设备——批准前你要在手机和 Agent 两边核对同一串指纹。配对邀请单次使用、限时失效。流量只在你自己的设备之间流动：要么局域网直连，要么经过你自己的云服务器或组网，没有第三方经手。
+- **LAN**：客户端固定二维码中的服务端证书 SHA-256 指纹，并同时检查证书有效期与目标主机；入口仅允许指定局域网或组网接口访问。
+- **公网**：配对邀请单次使用且限时有效。设备证书先处于 pending，用户核对完整指纹并批准后才会激活；后续请求使用 mTLS 和设备记录双重鉴权。
+- **服务端**：控制令牌只存在于 Gateway 与 Node 链路，不进入移动客户端或发布包；公网只新增既有 443 流量。
+- **客户端**：设备凭据存入系统安全存储；不同安装实例和应用的 Web 数据相互隔离，外部链接交给系统浏览器。
+- **供应链**：发布资产提供 SHA-256；正式客户端使用固定签名或平台官方分发签名，CI 会拒绝把部署凭据打进客户端。
 
-## 它是怎么工作的
+安全漏洞请不要创建公开议题，按 [安全策略](SECURITY.md) 私密报告。
 
-一句话：节点在你电脑上用 loopback 代理你注册的应用，手机经局域网入口或基于 FRP 的公网 mTLS 网关访问；APK 不含任何凭据，内部令牌不离开服务器。细节都在 [`skills/`](skills/) 里。
+## 适合的场景
+
+- 通勤途中继续处理家里或工位电脑上的 KimiWeb 会话；
+- 在移动设备上使用本机 SillyTavern，同时保留独立登录态；
+- 随时查看 CloudCLI 会话和其他自托管工具；
+- 用一个客户端管理多台不同系统的电脑，而不暴露每个应用的原始端口。
+
+## 参与项目
+
+```text
+clients/   三端移动客户端与共享协议
+nodes/     Windows / Linux / macOS 节点
+server/    LAN 入口与 public 网关
+internal/  Go 共享核心
+apps/      已适配应用
+skills/    可执行运维流程
+```
+
+- [贡献指南](CONTRIBUTING.md)
+- [跨端客户端实施计划](plan.md)
+- [支持说明](SUPPORT.md)
+- [行为准则](CODE_OF_CONDUCT.md)
+- [安全策略](SECURITY.md)
 
 ## 常见问题
 
-**需要公网 IP 或域名吗？**
-不需要。同网直连什么都不用；异地有两条路：你有云服务器就走服务器，没有就用免费 Tailscale 组网。
+<details>
+<summary><strong>需要公网 IP 或域名吗？</strong></summary>
 
-**手机上要装几个 App？**
-一个。所有实例、所有应用共用一个通用 APK。
+不需要。同网使用 LAN 入口；异地可以复用已有组网，也可以使用自己的 Linux 公网服务器。公网服务器通常使用域名，也支持满足证书要求的其他 HTTPS 入口。
+</details>
 
-**电脑关机了会怎样？**
-手机目录里显示电脑离线，开机后自己恢复，不用重新配对。
+<details>
+<summary><strong>移动设备上需要装几个客户端？</strong></summary>
 
-**有 iOS 吗？**
-目前只有 Android 客户端。
+每台移动设备安装一个与其系统对应的通用客户端。一个客户端可以保存多台电脑的 Profile，并访问每台电脑登记的全部应用。
+</details>
 
-**收费吗？**
-Apache-2.0 开源免费。服务器是你自己的，没有人收你订阅费。
+<details>
+<summary><strong>电脑关机后需要重新配对吗？</strong></summary>
+
+不需要。目录会显示电脑离线，节点恢复后客户端自动重新连接。只有凭据被吊销、证书续期或实例被重建时才需要对应操作。
+</details>
+
+<details>
+<summary><strong>数据会经过项目维护者的服务器吗？</strong></summary>
+
+不会。流量只在你的移动设备、电脑、局域网/组网和你自己的公网服务器之间传递。
+</details>
+
+<details>
+<summary><strong>收费吗？</strong></summary>
+
+项目按 Apache-2.0 开源免费。你只需要承担自己选择的服务器或网络服务成本。
+</details>
 
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache License 2.0](LICENSE)

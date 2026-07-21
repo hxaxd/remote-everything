@@ -4,9 +4,9 @@
     <style name="Theme.RemoteEverything" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:navigationBarColor">#020617</item>
-        <item name="android:statusBarColor">#020617</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FAFAF9</item>
+        <item name="android:statusBarColor">#FAFAF9</item>
         <item name="android:windowNoTitle">true</item>
     </style>
 </resources>

@@ -7,7 +7,6 @@
 *.keystore
 remote-everything.properties
 AGENTS.local.md
-PLAN.md
 local.properties
 /.runtime/
 /.local-quarantine/
@@ -18,6 +17,7 @@ __pycache__/
 
 # 构建产物
 /dist/
+/*.apk
 **/build/
 .gradle/
 .kotlin/

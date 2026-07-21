@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/pairing.schema.json",
+  "title": "Pairing Response",
+  "description": "Schema for POST /__remote_everything_pair response (public mode). Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true,
+      "description": "Always true for a valid pairing response."
+    },
+    "device_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Echoed device name."
+    },
+    "certificate_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 fingerprint of the issued client certificate."
+    },
+    "credential_format": {
+      "type": "string",
+      "const": "pkcs12",
+      "description": "Credential encoding format. Only pkcs12 is supported."
+    },
+    "credential_pkcs12": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Base64-encoded PKCS#12 archive containing the client certificate and private key."
+    },
+    "pending_expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC instant when the pending authorization expires."
+    }
+  },
+  "required": ["ok", "device_name", "certificate_fingerprint", "credential_format", "credential_pkcs12", "pending_expires_at"],
+  "additionalProperties": false
+}

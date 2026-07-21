@@ -1,0 +1,23 @@
+{
+  "description": "Valid stop action response — app is stopping",
+  "payload": {
+    "ok": true,
+    "action": "stop",
+    "computer_connected": true,
+    "enabled": false,
+    "running": true,
+    "code": "stopping",
+    "app": {
+      "id": "editor",
+      "name": "Editor",
+      "description": "",
+      "icon": "E",
+      "accent": "#2563eb",
+      "launch_fragment": "",
+      "computer_connected": true,
+      "enabled": false,
+      "running": true,
+      "code": "stopping"
+    }
+  }
+}

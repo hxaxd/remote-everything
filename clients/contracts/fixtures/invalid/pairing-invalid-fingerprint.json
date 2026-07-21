@@ -1,0 +1,12 @@
+{
+  "description": "Pairing response with invalid certificate fingerprint must be rejected",
+  "payload": {
+    "ok": true,
+    "device_name": "device",
+    "certificate_fingerprint": "short",
+    "credential_format": "pkcs12",
+    "credential_pkcs12": "credential",
+    "pending_expires_at": "2027-01-01T00:00:00Z"
+  },
+  "error": "invalid_certificate_fingerprint"
+}

@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object ProfileCodec {
-    private val fields = setOf("installation_id", "name", "mode", "origin", "fingerprint")
+    private val fields = setOf("installation_id", "name", "mode", "origin", "fingerprint", "public_key_pin")
 
     fun encode(value: ConnectionConfig): JSONObject = JSONObject()
         .put("installation_id", value.installationId)
@@ -12,6 +12,7 @@ object ProfileCodec {
         .put("mode", value.mode)
         .put("origin", value.gatewayOrigin)
         .put("fingerprint", value.gatewayFingerprint)
+        .put("public_key_pin", value.gatewayPublicKeyPin)
 
     fun encodeAll(values: List<ConnectionConfig>): String = JSONArray().apply { values.forEach { put(encode(it)) } }.toString()
 
@@ -23,6 +24,7 @@ object ProfileCodec {
             value.getString("mode"),
             value.getString("origin"),
             value.getString("fingerprint"),
+            value.getString("public_key_pin"),
         )
     }
 

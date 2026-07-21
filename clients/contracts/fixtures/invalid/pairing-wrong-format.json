@@ -1,0 +1,12 @@
+{
+  "description": "Pairing response with non-pkcs12 credential format must be rejected",
+  "payload": {
+    "ok": true,
+    "device_name": "device",
+    "certificate_fingerprint": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "credential_format": "pem",
+    "credential_pkcs12": "credential",
+    "pending_expires_at": "2027-01-01T00:00:00Z"
+  },
+  "error": "invalid_credential_format"
+}

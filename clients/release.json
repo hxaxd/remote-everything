@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "versionName": "3.4.0",
+  "buildNumber": 26,
+  "protocolVersion": 2,
+  "minimumPlatforms": {
+    "androidSdk": 30,
+    "ios": "17.0",
+    "harmonyApi": "21"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "description": "Offline catalog with non-empty apps array must be rejected",
+  "payload": {
+    "ok": true,
+    "computer_connected": false,
+    "code": "computer_offline",
+    "apps": [{}]
+  },
+  "error": "offline_with_apps"
+}
