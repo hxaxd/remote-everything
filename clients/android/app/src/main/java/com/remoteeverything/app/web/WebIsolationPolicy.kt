@@ -23,7 +23,7 @@ internal object WebIsolationPolicy {
     }
 
     fun routingCookie(appId: String): String =
-        "$ROUTING_COOKIE_NAME=$appId; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400"
+        "$ROUTING_COOKIE_NAME=$appId; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=86400"
 
     private const val PROFILE_PREFIX = "remote-"
     private const val ROUTING_COOKIE_NAME = "RemoteEverythingApp"

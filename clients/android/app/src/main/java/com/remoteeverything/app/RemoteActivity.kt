@@ -280,7 +280,7 @@ class RemoteActivity : ComponentActivity() {
                 runOnUiThread {
                     if (generation != pageGeneration || browser !== webView) return@runOnUiThread
                     browser.onResume()
-                    browser.loadUrl(openUrl, mapOf("Cache-Control" to "no-cache"))
+                    browser.loadUrl(openUrl)
                 }
             }
         } catch (error: Throwable) {

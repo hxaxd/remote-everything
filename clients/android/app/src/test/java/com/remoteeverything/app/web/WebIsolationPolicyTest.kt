@@ -20,7 +20,7 @@ class WebIsolationPolicyTest {
     @Test
     fun routingCookieMatchesGatewayContract() {
         assertEquals(
-            "RemoteEverythingApp=kimi; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400",
+            "RemoteEverythingApp=kimi; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=86400",
             WebIsolationPolicy.routingCookie("kimi"),
         )
     }
