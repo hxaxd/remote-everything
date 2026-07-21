@@ -1,10 +1,6 @@
 {
   "string": [
     {
-      "name": "app_name",
-      "value": "远程万物"
-    },
-    {
       "name": "module_desc",
       "value": "Remote Everything HarmonyOS客户端"
     },

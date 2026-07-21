@@ -1,5 +1,6 @@
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { ConnectionConfig } from '../models/ConnectionConfig';
+import { HttpsUrl } from '../network/HttpsUrl';
 
 /**
  * Certificate pinning, fingerprint calculation, and host validation.
@@ -13,10 +14,16 @@ export class GatewaySecurityPolicy {
    */
   static async fingerprint(certData: Uint8Array): Promise<string> {
     const md = cryptoFramework.createMd('SHA256');
-    const hash = await md.digest({ data: certData });
+    await md.update({ data: certData });
+    const hash = await md.digest();
+    return GatewaySecurityPolicy.formatFingerprint(hash.data);
+  }
+
+  /** Format digest bytes without depending on the device crypto provider. */
+  static formatFingerprint(hash: Uint8Array): string {
     let hex = '';
-    for (let i = 0; i < hash.data.length; i++) {
-      hex += hash.data[i].toString(16).padStart(2, '0');
+    for (let i = 0; i < hash.length; i++) {
+      hex += hash[i].toString(16).padStart(2, '0');
     }
     return hex;
   }
@@ -24,17 +31,9 @@ export class GatewaySecurityPolicy {
   /**
    * Verify that a URL is within the gateway's origin.
    */
-  static isGatewayOrigin(url: string, config: ConnectionConfig): boolean {
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== 'https:') {
-        return false;
-      }
-      const port = parsed.port ? parseInt(parsed.port) : 443;
-      return config.isGatewayEndpoint(parsed.hostname, port);
-    } catch {
-      return false;
-    }
+  static isGatewayOrigin(value: string, config: ConnectionConfig): boolean {
+    const parsed = HttpsUrl.parse(value);
+    return parsed !== null && config.isGatewayEndpoint(parsed.host, parsed.port);
   }
 
   /**

@@ -86,9 +86,9 @@ export class CredentialStore {
         CredentialStore.passwordAlias(installationId, 'pending'),
         password
       );
-    } catch (error) {
+    } catch {
       CredentialStore.deleteFile(pendingPath);
-      throw error;
+      throw new Error('凭据密码保存失败');
     }
     if (!(await CredentialStore.hasStagedCredential(installationId))) {
       throw new Error('待激活设备身份保存失败');
@@ -154,7 +154,7 @@ export class CredentialStore {
     const certificateChainPath = CredentialStore.webCertificatePath(installationId, state);
     const privateKey = typeof parsed.privateKey === 'string'
       ? parsed.privateKey
-      : new util.TextDecoder('utf-8').decodeWithStream(parsed.privateKey, { stream: false });
+      : new util.TextDecoder('utf-8').decodeToString(parsed.privateKey);
     CredentialStore.writeText(privateKeyPath, privateKey);
 
     let certificateChain = await CredentialStore.pemCertificate(parsed.cert);
@@ -236,7 +236,9 @@ export class CredentialStore {
   }
 
   private static async sha256Hex(data: Uint8Array): Promise<string> {
-    const digest = await cryptoFramework.createMd('SHA256').digest({ data: data });
+    const md = cryptoFramework.createMd('SHA256');
+    await md.update({ data: data });
+    const digest = await md.digest();
     let value = '';
     for (let index = 0; index < digest.data.length; index++) {
       value += digest.data[index].toString(16).padStart(2, '0');
@@ -336,7 +338,7 @@ export class CredentialStore {
       if (secret === undefined) {
         return null;
       }
-      return new util.TextDecoder('utf-8').decodeWithStream(secret, { stream: false });
+      return new util.TextDecoder('utf-8').decodeToString(secret);
     } catch {
       return null;
     }

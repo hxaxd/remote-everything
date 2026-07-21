@@ -1,3 +1,5 @@
+import { HttpsUrl } from '../network/HttpsUrl';
+
 /**
  * A saved connection profile. Mirrors Android's `ConnectionConfig`.
  */
@@ -26,20 +28,11 @@ export class ConnectionConfig {
   }
 
   get gatewayHost(): string {
-    try {
-      return new URL(this.gatewayOrigin).hostname;
-    } catch {
-      return this.gatewayOrigin;
-    }
+    return HttpsUrl.parse(this.gatewayOrigin, true)?.host ?? this.gatewayOrigin;
   }
 
   get gatewayPort(): number {
-    try {
-      const url = new URL(this.gatewayOrigin);
-      return url.port ? parseInt(url.port) : 443;
-    } catch {
-      return 443;
-    }
+    return HttpsUrl.parse(this.gatewayOrigin, true)?.port ?? 443;
   }
 
   get pairUrl(): string { return `${this.gatewayOrigin}/__remote_everything_pair`; }
@@ -59,14 +52,8 @@ export class ConnectionConfig {
   }
 
   isGatewayUrl(value: string): boolean {
-    try {
-      const url = new URL(value);
-      const port = url.port ? parseInt(url.port, 10) : 443;
-      return url.protocol === 'https:' && url.username === '' && url.password === '' &&
-        this.isGatewayEndpoint(url.hostname, port);
-    } catch {
-      return false;
-    }
+    const parsed = HttpsUrl.parse(value);
+    return parsed !== null && this.isGatewayEndpoint(parsed.host, parsed.port);
   }
 }
 

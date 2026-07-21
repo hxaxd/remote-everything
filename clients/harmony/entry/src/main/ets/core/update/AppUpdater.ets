@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { bundleManager, common } from '@kit.AbilityKit';
+import { uri } from '@kit.ArkTS';
 
 // MARK: - Types
 
@@ -163,9 +164,8 @@ export class AppUpdater {
   }
 
   private async openUrl(context: common.UIAbilityContext, url: string): Promise<void> {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com' ||
-        parsed.username !== '' || parsed.password !== '') {
+    const parsed = new uri.URI(url);
+    if (parsed.scheme !== 'https' || parsed.host !== 'github.com' || parsed.userInfo !== '') {
       throw new Error('项目地址无效');
     }
     await context.startAbility({

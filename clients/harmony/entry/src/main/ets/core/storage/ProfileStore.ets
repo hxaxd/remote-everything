@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { ConnectionConfig, ConnectionMode } from '../models/ConnectionConfig';
 import { CredentialStore } from '../security/CredentialStore';
+import { SetupProfileStore } from '../../features/setup/SetupTransaction';
 
 interface StoredProfile {
   installationId: string;
@@ -12,7 +13,7 @@ interface StoredProfile {
   gatewayPublicKeyPin: string;
 }
 
-export class ProfileStore {
+export class ProfileStore implements SetupProfileStore {
   private static readonly PROFILES_KEY = 'remote_everything_profiles';
   private static readonly STAGED_PROFILE_KEY = 'remote_everything_staged_profile';
   private static readonly ACTIVE_PROFILE_KEY = 'remote_everything_active_profile';

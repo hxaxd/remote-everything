@@ -7,22 +7,7 @@ import { ConnectionConfig, ConnectionMode } from '../../core/models/ConnectionCo
 import { CredentialStore } from '../../core/security/CredentialStore';
 import { WebIsolationPolicy } from '../../core/web/WebIsolationPolicy';
 import { router } from '@kit.ArkUI';
-
-interface WebClientAuthenticationHandler {
-  confirm(privateKeyPath: string, certificateChainPath: string): void;
-  cancel(): void;
-}
-
-interface WebFileSelectorResult {
-  handleFileList(files: Array<string>): void;
-}
-
-interface WebPermissionRequest {
-  getOrigin(): string;
-  getAccessibleResource(): Array<string>;
-  grant(resources: Array<string>): void;
-  deny(): void;
-}
+import { uri } from '@kit.ArkTS';
 
 @Entry
 @Component
@@ -54,6 +39,11 @@ export struct RemoteWebPage {
     this.pageGeneration += 1;
     this.controller.stop();
     this.webSource = '';
+  }
+
+  onBackPress(): boolean {
+    router.back();
+    return true;
   }
 
   prepareNavigation(generation: number): void {
@@ -94,7 +84,7 @@ export struct RemoteWebPage {
   }
 
   private async confirmClientIdentity(
-    handler: WebClientAuthenticationHandler,
+    handler: ClientAuthenticationHandler,
     host: string,
     port: number
   ): Promise<void> {
@@ -113,7 +103,7 @@ export struct RemoteWebPage {
     }
   }
 
-  private async selectFiles(result: WebFileSelectorResult, maximum: number): Promise<void> {
+  private async selectFiles(result: FileSelectorResult, maximum: number): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
       const options = new picker.DocumentSelectOptions();
@@ -125,7 +115,7 @@ export struct RemoteWebPage {
     }
   }
 
-  private async grantMediaPermission(request: WebPermissionRequest): Promise<void> {
+  private async grantMediaPermission(request: PermissionRequest): Promise<void> {
     const config = this.config;
     const resources = request.getAccessibleResource();
     const supported = resources.filter((resource: string) =>
@@ -161,8 +151,8 @@ export struct RemoteWebPage {
 
   private openExternal(url: string): void {
     try {
-      const parsed = new URL(url);
-      if (!['https:', 'http:', 'mailto:', 'tel:'].includes(parsed.protocol)) {
+      const parsed = new uri.URI(url);
+      if (!['https', 'http', 'mailto', 'tel'].includes(parsed.scheme)) {
         return;
       }
       const context = getContext(this) as common.UIAbilityContext;
@@ -181,7 +171,7 @@ export struct RemoteWebPage {
     let value = match !== null ? decodeURIComponent(match[1]) : '';
     if (value === '') {
       try {
-        const path = new URL(url).pathname;
+        const path = new uri.URI(url).path;
         value = decodeURIComponent(path.substring(path.lastIndexOf('/') + 1));
       } catch {
         value = '';
@@ -340,10 +330,5 @@ export struct RemoteWebPage {
     }
     .width('100%')
     .height('100%')
-    .title(this.appName)
-    .onBackPress(() => {
-      router.back();
-      return true;
-    })
   }
 }

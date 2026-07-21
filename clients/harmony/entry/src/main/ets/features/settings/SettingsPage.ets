@@ -54,11 +54,21 @@ export struct SettingsPage {
     this.checking = false;
   }
 
+  @Builder
+  groupHeader(title: string) {
+    Text(title)
+      .fontSize(14)
+      .fontWeight(FontWeight.Medium)
+      .fontColor('#666666')
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 12, bottom: 6 })
+  }
+
   build() {
     Column() {
       List() {
         // Orientation
-        ListItemGroup({ header: '屏幕方向' }) {
+        ListItemGroup({ header: () => { this.groupHeader('屏幕方向'); } }) {
           ListItem() {
             Row() {
               Button('跟随系统')
@@ -79,7 +89,7 @@ export struct SettingsPage {
         }
 
         // Display mode
-        ListItemGroup({ header: '显示模式' }) {
+        ListItemGroup({ header: () => { this.groupHeader('显示模式'); } }) {
           ListItem() {
             Row() {
               Button('手机')
@@ -96,7 +106,7 @@ export struct SettingsPage {
         }
 
         // Theme
-        ListItemGroup({ header: '主题' }) {
+        ListItemGroup({ header: () => { this.groupHeader('主题'); } }) {
           ListItem() {
             Row() {
               Button('跟随系统')
@@ -117,7 +127,7 @@ export struct SettingsPage {
         }
 
         // About & Update
-        ListItemGroup({ header: '关于与更新' }) {
+        ListItemGroup({ header: () => { this.groupHeader('关于与更新'); } }) {
           ListItem() {
             Column() {
               Row() {
@@ -174,6 +184,5 @@ export struct SettingsPage {
       .width('100%').layoutWeight(1)
     }
     .width('100%').height('100%')
-    .title('设置')
   }
 }

@@ -1,5 +1,6 @@
 import { ConnectionConfig, ConnectionMode } from '../models/ConnectionConfig';
 import { SetupPayload } from '../models/SetupPayload';
+import { HttpsUrl } from './HttpsUrl';
 
 /**
  * Strict parser for `remote-everything://setup` URIs.
@@ -13,27 +14,14 @@ export class SetupParser {
 
   static parse(uriString: string): SetupPayload {
     const trimmed = uriString.trim();
-    let url: URL;
-    try {
-      url = new URL(trimmed);
-    } catch {
+    const setupMatch = /^remote-everything:\/\/setup\/?\?([^#]+)$/i.exec(trimmed);
+    if (setupMatch === null) {
       throw new Error('初始化链接无效');
-    }
-
-    if (url.protocol !== 'remote-everything:' || url.hostname !== 'setup' ||
-        (url.pathname !== '' && url.pathname !== '/') || url.hash !== '') {
-      throw new Error('初始化链接无效');
-    }
-
-    if (!url.searchParams || url.searchParams.toString() === '') {
-      throw new Error('初始化链接缺少参数');
     }
 
     const values = new Map<string, string>();
-    const params = url.searchParams;
-
     // Check for duplicate keys by scanning raw query
-    const rawQuery = url.search.substring(1);
+    const rawQuery = setupMatch[1];
     const seenKeys = new Set<string>();
     for (const item of rawQuery.split('&')) {
       if (!item) continue;
@@ -97,11 +85,15 @@ export class SetupParser {
 
     const normalized = name.trim();
     // Count Unicode code points
-    const codePointCount = [...normalized].length;
-    const hasControlChars = [...normalized].some(c => {
-      const cp = c.codePointAt(0) ?? 0;
-      return cp < 32 || cp === 127;
-    });
+    let codePointCount = 0;
+    let hasControlChars = false;
+    for (const character of normalized) {
+      codePointCount += 1;
+      const codePoint = character.codePointAt(0) ?? 0;
+      if (codePoint < 32 || codePoint === 127) {
+        hasControlChars = true;
+      }
+    }
 
     if (normalized.length === 0 || codePointCount > 80 || hasControlChars) {
       throw new Error('安装实例名称无效');
@@ -111,26 +103,12 @@ export class SetupParser {
       throw new Error('连接模式无效');
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(origin.trim());
-    } catch {
+    const parsed = HttpsUrl.parse(origin.trim(), true);
+    if (parsed === null) {
       throw new Error('服务地址必须是 HTTPS 源站');
     }
 
-    if (parsed.protocol !== 'https:' ||
-        !parsed.hostname ||
-        parsed.username !== '' ||
-        parsed.password !== '' ||
-        parsed.search !== '' ||
-        parsed.hash !== '' ||
-        (parsed.pathname !== '' && parsed.pathname !== '/')) {
-      throw new Error('服务地址必须是 HTTPS 源站');
-    }
-
-    const host = parsed.hostname.toLowerCase();
-    const portPart = parsed.port ? `:${parsed.port}` : '';
-    const normalizedOrigin = `https://${host}${portPart}`;
+    const normalizedOrigin = `https://${parsed.authority}`;
 
     let normalizedFingerprint = fingerprint
       .toLowerCase()

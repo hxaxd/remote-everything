@@ -152,11 +152,11 @@ export class RemoteApi {
     const json = payload as Record<string, Object>;
     const keys = new Set(Object.keys(json));
 
-    const validKeySets = [
-      RemoteApi.ACTION_KEYS,
-      new Set([...RemoteApi.ACTION_KEYS, 'app']),
-      new Set([...RemoteApi.ACTION_KEYS, 'app', 'error_code'])
-    ];
+    const actionWithApp = new Set<string>(RemoteApi.ACTION_KEYS);
+    actionWithApp.add('app');
+    const actionWithError = new Set<string>(actionWithApp);
+    actionWithError.add('error_code');
+    const validKeySets = [RemoteApi.ACTION_KEYS, actionWithApp, actionWithError];
     const hasValidKeys = validKeySets.some(s => RemoteApi.setsEqual(keys, s));
     if (!hasValidKeys) {
       throw new Error('控制响应字段无效');
@@ -213,12 +213,13 @@ export class RemoteApi {
   private static validMetadata(value: string, max: number, allowEmpty: boolean): boolean {
     if (value.trim() !== value) return false;
     if (!allowEmpty && value.length === 0) return false;
-    const codePointCount = [...value].length;
-    if (codePointCount > max) return false;
-    return ![...value].some(c => {
-      const cp = c.codePointAt(0) ?? 0;
-      return cp < 32 || cp === 127;
-    });
+    let codePointCount = 0;
+    for (const character of value) {
+      codePointCount += 1;
+      const codePoint = character.codePointAt(0) ?? 0;
+      if (codePoint < 32 || codePoint === 127) return false;
+    }
+    return codePointCount <= max;
   }
 
   private static setsEqual(a: Set<string>, b: Set<string>): boolean {

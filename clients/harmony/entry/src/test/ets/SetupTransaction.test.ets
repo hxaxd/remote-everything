@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@ohos/hypium';
+import { DEFAULT, describe, it, expect } from '@ohos/hypium';
 import { SetupParser } from '../../main/ets/core/network/SetupParser';
 import { RemoteApi } from '../../main/ets/core/network/RemoteApi';
 import {
@@ -7,8 +7,15 @@ import {
 } from '../../main/ets/features/setup/SetupTransaction';
 import { ConnectionConfig, ConnectionMode } from '../../main/ets/core/models/ConnectionConfig';
 import { ClientIdentity } from '../../main/ets/core/security/CredentialStore';
+import { SetupPayload } from '../../main/ets/core/models/SetupPayload';
 
 const INSTALLATION_ID = 'ab'.repeat(32);
+
+interface RequestCall {
+  url: string;
+  method: string;
+  body: string | null;
+}
 
 // --- Fakes ---
 
@@ -74,7 +81,7 @@ class FakeIdentityStore implements SetupIdentityStore {
 
 class FakeTransport implements SetupTransport {
   verifyCalls = 0;
-  requestCalls: Array<{ url: string, method: string, body: string | null }> = [];
+  requestCalls: RequestCall[] = [];
   activateResponses: HTTPResult[] = [];
   pairResponse: HTTPResult = {
     status: 200,
@@ -100,7 +107,8 @@ class FakeTransport implements SetupTransport {
     config: ConnectionConfig, url: string, method: string,
     identity: ClientIdentity | null, headers: Record<string, string>, body: string | null
   ): Promise<HTTPResult> {
-    this.requestCalls.push({ url, method, body });
+    const call: RequestCall = { url: url, method: method, body: body };
+    this.requestCalls.push(call);
     if (url.includes('pair')) return this.pairResponse;
     if (this.activateResponses.length > 0) return this.activateResponses.shift()!;
     return this.activateResponse;
@@ -112,7 +120,7 @@ class FakeTransport implements SetupTransport {
 export default function setupTransactionTest() {
   describe('SetupTransaction', () => {
 
-    it('lan_connection_verifies_before_committing', async () => {
+    it('lan_connection_verifies_before_committing', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const transport = new FakeTransport();
 
@@ -127,16 +135,14 @@ export default function setupTransactionTest() {
         'A'.repeat(43) + '='
       );
 
-      const result = await transaction.begin(
-        { profile: config, invitation: '' }
-      );
+      const result = await transaction.begin(new SetupPayload(config, ''));
 
       expect(result.kind).assertEqual(SetupStateKind.READY);
       expect(transport.verifyCalls).assertEqual(1);
-      expect(store.committed).assertNotNull();
+      expect(store.committed).not().assertNull();
     });
 
-    it('public_pairing_commits_after_activation', async () => {
+    it('public_pairing_commits_after_activation', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
@@ -150,17 +156,14 @@ export default function setupTransactionTest() {
         'https://remote.example.com'
       );
 
-      const result = await transaction.begin({
-        profile: config,
-        invitation: 'A'.repeat(43)
-      });
+      const result = await transaction.begin(new SetupPayload(config, 'A'.repeat(43)));
 
       expect(result.kind).assertEqual(SetupStateKind.READY);
       expect(identityStore.promoted).assertTrue();
       expect(identityStore.staged).assertFalse();
     });
 
-    it('activation_failure_retries_without_pairing_again', async () => {
+    it('activation_failure_retries_without_pairing_again', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
@@ -174,7 +177,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'Public', 'public',
         'https://remote.example.com'
       );
-      const setup = { profile: config, invitation: 'A'.repeat(43) };
+      const setup = new SetupPayload(config, 'A'.repeat(43));
 
       const transaction = new SetupTransaction(
         store, identityStore, 'device', transport
@@ -190,7 +193,7 @@ export default function setupTransactionTest() {
       expect(transport.requestCalls.filter((call) => call.url.includes('activate')).length).assertEqual(2);
     });
 
-    it('approval_pending_continues_without_re_pairing', async () => {
+    it('approval_pending_continues_without_re_pairing', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
@@ -204,7 +207,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'Public', 'public',
         'https://remote.example.com'
       );
-      const setup = { profile: config, invitation: 'A'.repeat(43) };
+      const setup = new SetupPayload(config, 'A'.repeat(43));
 
       const transaction = new SetupTransaction(
         store, identityStore, 'device', transport
@@ -219,7 +222,7 @@ export default function setupTransactionTest() {
       expect(transport.requestCalls.filter((call) => call.url.includes('activate')).length).assertEqual(2);
     });
 
-    it('denied_invitation_discards_local_transaction', async () => {
+    it('denied_invitation_discards_local_transaction', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
@@ -229,7 +232,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'Public', 'public',
         'https://remote.example.com'
       );
-      const setup = { profile: config, invitation: 'A'.repeat(43) };
+      const setup = new SetupPayload(config, 'A'.repeat(43));
 
       const transaction = new SetupTransaction(
         store, identityStore, 'device', transport
@@ -240,7 +243,7 @@ export default function setupTransactionTest() {
       expect(result.action).assertEqual(SetupAction.RESTART_SETUP);
     });
 
-    it('recovery_only_returns_activatable_public_transaction', async () => {
+    it('recovery_only_returns_activatable_public_transaction', DEFAULT, async () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'Public', 'public',
         'https://remote.example.com'
@@ -255,7 +258,7 @@ export default function setupTransactionTest() {
       );
 
       const recovered = await transaction.recover();
-      expect(recovered).assertNotNull();
+      expect(recovered).not().assertNull();
 
       // LAN staged should not be recoverable
       const lanConfig = SetupParser.create(

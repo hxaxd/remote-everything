@@ -1,5 +1,4 @@
-import { describe, it, expect } from '@ohos/hypium';
-import { util } from '@kit.ArkTS';
+import { DEFAULT, describe, it, expect } from '@ohos/hypium';
 import { GatewaySecurityPolicy } from '../../main/ets/core/security/GatewaySecurityPolicy';
 import { SetupParser } from '../../main/ets/core/network/SetupParser';
 
@@ -8,26 +7,20 @@ const INSTALLATION_ID = 'ab'.repeat(32);
 export default function gatewaySecurityPolicyTest() {
   describe('GatewaySecurityPolicy', () => {
 
-    it('fingerprint_is_deterministic_and_lowercase_hex', async () => {
-      const encoder = new util.TextEncoder();
-      const data = encoder.encodeInto('test-certificate-data');
-      const fp1 = await GatewaySecurityPolicy.fingerprint(data);
-      const fp2 = await GatewaySecurityPolicy.fingerprint(data);
-      expect(fp1).assertEqual(fp2);
-      expect(fp1.length).assertEqual(64);
-      // Only lowercase hex
-      const validHex = /^[0-9a-f]+$/;
-      expect(validHex.test(fp1)).assertTrue();
+    it('fingerprint_format_is_lowercase_and_zero_padded', DEFAULT, () => {
+      const value = GatewaySecurityPolicy.formatFingerprint(
+        new Uint8Array([0, 1, 10, 15, 16, 127, 128, 255])
+      );
+      expect(value).assertEqual('00010a0f107f80ff');
     });
 
-    it('different_data_produces_different_fingerprint', async () => {
-      const encoder = new util.TextEncoder();
-      const fp1 = await GatewaySecurityPolicy.fingerprint(encoder.encodeInto('cert-a'));
-      const fp2 = await GatewaySecurityPolicy.fingerprint(encoder.encodeInto('cert-b'));
+    it('different_digest_bytes_produce_different_fingerprints', DEFAULT, () => {
+      const fp1 = GatewaySecurityPolicy.formatFingerprint(new Uint8Array([1, 2, 3]));
+      const fp2 = GatewaySecurityPolicy.formatFingerprint(new Uint8Array([1, 2, 4]));
       expect(fp1 === fp2).assertFalse();
     });
 
-    it('lan_mode_does_not_allow_client_cert', () => {
+    it('lan_mode_does_not_allow_client_cert', DEFAULT, () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'LAN PC', 'lan',
         'https://192.168.1.5:60001',
@@ -39,7 +32,7 @@ export default function gatewaySecurityPolicyTest() {
       )).assertFalse();
     });
 
-    it('public_mode_allows_client_cert_only_for_gateway', () => {
+    it('public_mode_allows_client_cert_only_for_gateway', DEFAULT, () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'Public PC', 'public',
         'https://remote.example.com'
@@ -57,7 +50,7 @@ export default function gatewaySecurityPolicyTest() {
       )).assertFalse();
     });
 
-    it('gateway_origin_validation', () => {
+    it('gateway_origin_validation', DEFAULT, () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'PC', 'public',
         'https://remote.example.com:8443'

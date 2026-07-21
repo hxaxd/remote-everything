@@ -1,6 +1,8 @@
 import { ConnectionConfig, ConnectionMode } from '../../core/models/ConnectionConfig';
 import { SetupPayload } from '../../core/models/SetupPayload';
-import { RemoteApi } from '../../core/network/RemoteApi';
+import { CatalogSnapshot } from '../../core/models/RemoteApp';
+import { PairingCredential } from '../../core/models/PairingCredential';
+import { RemoteApi as RemoteApiDecoder } from '../../core/network/RemoteApi';
 import { ClientIdentity, CredentialStore } from '../../core/security/CredentialStore';
 import { GatewaySecurityPolicy } from '../../core/security/GatewaySecurityPolicy';
 import { http } from '@kit.NetworkKit';
@@ -109,7 +111,7 @@ export class ProductionSetupTransport implements SetupTransport {
     if (response.status !== 200) {
       throw new Error(`目录服务返回 ${response.status}`);
     }
-    RemoteApi.decodeCatalog(config, JSON.parse(response.body) as object);
+    RemoteApiDecoder.decodeCatalog(config, JSON.parse(response.body) as object);
   }
 
   async request(
@@ -131,6 +133,10 @@ export class ProductionSetupTransport implements SetupTransport {
         requestHeaders[name] = headers[name];
       });
 
+      if (body !== null) {
+        requestHeaders['Content-Type'] = 'application/json; charset=utf-8';
+      }
+
       const requestOptions: http.HttpRequestOptions = {
         method: method as http.RequestMethod,
         header: requestHeaders,
@@ -141,7 +147,6 @@ export class ProductionSetupTransport implements SetupTransport {
       };
 
       if (body !== null) {
-        requestOptions.header!['Content-Type'] = 'application/json; charset=utf-8';
         requestOptions.extraData = body;
       }
 
@@ -179,7 +184,7 @@ export class ProductionSetupTransport implements SetupTransport {
           bodyStr = result;
         } else if (result instanceof ArrayBuffer) {
           const decoder = new util.TextDecoder('utf-8');
-          bodyStr = decoder.decodeWithStream(new Uint8Array(result), { stream: false });
+          bodyStr = decoder.decodeToString(new Uint8Array(result));
         }
 
         resolve({ status: status, body: bodyStr });
@@ -227,11 +232,16 @@ export class ProductionIdentityStore implements SetupIdentityStore {
 // MARK: - Helpers
 
 function codePointPrefix(value: string, maximum: number): string {
-  const chars = [...value];
-  if (chars.length <= maximum) {
-    return value;
+  let prefix = '';
+  let count = 0;
+  for (const character of value) {
+    if (count >= maximum) {
+      break;
+    }
+    prefix += character;
+    count += 1;
   }
-  return chars.slice(0, maximum).join('');
+  return prefix;
 }
 
 function failureDetail(error: Error, fallback: string): string {
@@ -393,9 +403,9 @@ export class SetupTransaction {
       return SetupState.failed(config, '配对响应不是有效 JSON', SetupAction.RETRY_PAIRING);
     }
 
-    let credential;
+    let credential: PairingCredential;
     try {
-      credential = RemoteApi.decodePairingCredential(credentialJson);
+      credential = RemoteApiDecoder.decodePairingCredential(credentialJson);
     } catch (err) {
       return SetupState.failed(
         config,
@@ -494,10 +504,10 @@ export class SetupTransaction {
     }
 
     // Decode catalog from activation response
-    let catalog;
+    let catalog: CatalogSnapshot;
     try {
-      const json = JSON.parse(response.body);
-      catalog = RemoteApi.decodeCatalog(config, json);
+      const json = JSON.parse(response.body) as object;
+      catalog = RemoteApiDecoder.decodeCatalog(config, json);
     } catch (err) {
       return SetupState.failed(
         config,

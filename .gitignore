@@ -25,6 +25,9 @@ __pycache__/
 .externalNativeBuild/
 *.iml
 .idea/
+.hvigor/
+.test/
+oh_modules/
 
 # 系统
 .DS_Store
