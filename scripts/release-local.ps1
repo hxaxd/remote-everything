@@ -222,9 +222,11 @@ function Upload-Release {
     $paths=@($Assets + 'SHA256SUMS' | ForEach-Object { Join-Path $Output $_ })
     gh release view $Tag *> $null; $exists=$LASTEXITCODE -eq 0
     if(-not $exists){
-        $args=@('release','create',$Tag)+$paths+@('--verify-tag','--generate-notes','--title',$Tag)
-        if($Mode -eq 'Draft'){$args+='--draft'}
-        Run { gh @args } "Could not create release $Tag"; return
+        $releaseArguments=@('release','create',$Tag)+$paths+@('--verify-tag','--generate-notes','--title',$Tag)
+        if($Mode -eq 'Draft'){$releaseArguments+='--draft'}
+        & gh @releaseArguments
+        if($LASTEXITCODE -ne 0){throw "Could not create release $Tag (exit code $LASTEXITCODE)"}
+        return
     }
     $release=gh release view $Tag --json isDraft | ConvertFrom-Json
     if(-not $release.isDraft){throw "Published release $Tag is immutable."}
