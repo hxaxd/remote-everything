@@ -1,0 +1,9 @@
+# Default review owner
+* @hxaxd
+
+# Security- and release-sensitive areas
+/.github/ @hxaxd
+/clients/ @hxaxd
+/internal/ @hxaxd
+/server/ @hxaxd
+/skills/ @hxaxd

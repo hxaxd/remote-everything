@@ -1,0 +1,13 @@
+{
+  "description": "Valid LAN mode setup URI parameters",
+  "uri": "remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab&name=Home+PC&mode=lan&origin=https%3A%2F%2F192.168.1.5%3A60001&fingerprint=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D",
+  "expected": {
+    "v": "2",
+    "id": "abababababababababababababababababababababababababababababababab",
+    "name": "Home PC",
+    "mode": "lan",
+    "origin": "https://192.168.1.5:60001",
+    "fingerprint": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "public_key_pin": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+  }
+}

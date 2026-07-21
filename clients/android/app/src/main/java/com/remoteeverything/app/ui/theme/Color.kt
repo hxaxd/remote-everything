@@ -2,29 +2,36 @@ package com.remoteeverything.app.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// 品牌深色色板:在旧版 slate 夜色基础上做 M3 层次化进化
-val Slate950 = Color(0xFF020617) // 背景
-val Slate900 = Color(0xFF0F172A) // 卡片/表面
-val Slate850 = Color(0xFF131E36) // 高一层表面
-val Slate800 = Color(0xFF1E293B) // 更高表面/分隔容器
-val Slate700 = Color(0xFF334155) // 描边
-val Slate400 = Color(0xFF94A3B8) // 次级文字
-val Slate500 = Color(0xFF64748B) // 弱化文字
-val Slate100 = Color(0xFFF1F5F9) // 主文字
+// "Warm Stone & Amber":Tailwind 经典 stone 暖灰 + amber 蜂蜜色,明暗双主题同源
+// 中性色(stone)
+val Stone50 = Color(0xFFFAFAF9)
+val Stone100 = Color(0xFFF5F5F4)
+val Stone200 = Color(0xFFE7E5E4)
+val Stone300 = Color(0xFFD6D3D1)
+val Stone400 = Color(0xFFA8A29E)
+val Stone500 = Color(0xFF78716C)
+val Stone600 = Color(0xFF57534E)
+val Stone700 = Color(0xFF44403C)
+val Stone800 = Color(0xFF292524)
+val Stone900 = Color(0xFF1C1917)
+val Stone950 = Color(0xFF0C0A09)
 
-val Blue400 = Color(0xFF60A5FA) // 主强调(暗底可读)
-val Blue600 = Color(0xFF2563EB) // 品牌蓝(按压容器)
-val Blue900 = Color(0xFF1E3A8A) // 主色容器
-val Blue100 = Color(0xFFDBEAFE) // 容器上文字
-
-val Red400 = Color(0xFFF87171)
-val Red900 = Color(0xFF7F1D1D)
-val Red100 = Color(0xFFFECACA)
-
-val Green400 = Color(0xFF4ADE80)
-val Green900 = Color(0xFF14532D)
-val Green100 = Color(0xFFDCFCE7)
-
-val Amber400 = Color(0xFFFBBF24)
-val Amber900 = Color(0xFF78350F)
+// 强调色(amber)
 val Amber100 = Color(0xFFFEF3C7)
+val Amber400 = Color(0xFFFBBF24)
+val Amber700 = Color(0xFFB45309)
+val Amber900 = Color(0xFF78350F)
+val Amber950 = Color(0xFF451A03)
+
+// 语义色
+val Red100 = Color(0xFFFEE2E2)
+val Red400 = Color(0xFFF87171)
+val Red600 = Color(0xFFDC2626)
+val Red900 = Color(0xFF7F1D1D)
+val Red950 = Color(0xFF450A0A)
+
+val Green100 = Color(0xFFDCFCE7)
+val Green400 = Color(0xFF4ADE80)
+val Green600 = Color(0xFF16A34A)
+val Green900 = Color(0xFF14532D)
+val Green950 = Color(0xFF052E16)

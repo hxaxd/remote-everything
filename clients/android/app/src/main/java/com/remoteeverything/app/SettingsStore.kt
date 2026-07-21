@@ -108,4 +108,21 @@ class SettingsStore(context: Context) : SetupProfileStore {
     fun setHandleY(installationId: String, appId: String, y: Float) {
         prefs.edit { putFloat(appKey("handle_y", installationId, appId), y) }
     }
+
+    // 主题模式: system / light / dark
+    fun themeMode(): String = prefs.getString("theme_mode", "system") ?: "system"
+
+    fun setThemeMode(value: String) {
+        prefs.edit { putString("theme_mode", value) }
+    }
+
+    // 应用排序:按 installationId 保存 app ID 顺序列表
+    fun appOrder(installationId: String): List<String> {
+        val raw = prefs.getString("app_order_$installationId", null) ?: return emptyList()
+        return runCatching { org.json.JSONArray(raw).let { arr -> (0 until arr.length()).map { arr.getString(it) } } }.getOrDefault(emptyList())
+    }
+
+    fun setAppOrder(installationId: String, order: List<String>) {
+        prefs.edit { putString("app_order_$installationId", org.json.JSONArray(order).toString()) }
+    }
 }

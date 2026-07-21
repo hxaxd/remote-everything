@@ -62,13 +62,15 @@ def validate_frp_contract(client_text, server_text):
 
 def validate_caddy_contract(text):
     active = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
-    markers = ["@pair path /__remote_everything_pair", "@tunnel expression", "@device expression"]
+    markers = ["@pair path /__remote_everything_pair", "@tunnel expression", "@device_control {", "@device expression"]
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        raise ValueError("Caddy routes must be ordered pairing, tunnel, device")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
+        raise ValueError("Caddy routes must be ordered pairing, tunnel, device control, device data")
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "max_conns_per_host 2", "max_conns_per_host 4", "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
+    if active.count("max_conns_per_host 2") != 1 or active.count("max_conns_per_host 4") != 1:
+        raise ValueError("Caddy device control/data connection lanes must be unique")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
         raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
     site_address = ""

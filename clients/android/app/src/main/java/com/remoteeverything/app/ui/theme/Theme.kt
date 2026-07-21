@@ -1,10 +1,13 @@
 package com.remoteeverything.app.ui.theme
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -14,36 +17,69 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val AppColorScheme = darkColorScheme(
-    primary = Blue400,
-    onPrimary = Color(0xFF0B2559),
-    primaryContainer = Blue900,
-    onPrimaryContainer = Blue100,
-    secondary = Slate400,
-    onSecondary = Slate950,
-    secondaryContainer = Slate800,
-    onSecondaryContainer = Color(0xFFCBD5E1),
+private val LightColorScheme = lightColorScheme(
+    primary = Amber700,
+    onPrimary = Color.White,
+    primaryContainer = Amber100,
+    onPrimaryContainer = Amber950,
+    secondary = Stone500,
+    onSecondary = Color.White,
+    secondaryContainer = Stone200,
+    onSecondaryContainer = Stone800,
+    tertiary = Green600,
+    onTertiary = Color.White,
+    tertiaryContainer = Green100,
+    onTertiaryContainer = Green900,
+    error = Red600,
+    onError = Color.White,
+    errorContainer = Red100,
+    onErrorContainer = Red900,
+    background = Stone50,
+    onBackground = Stone900,
+    surface = Stone50,
+    onSurface = Stone900,
+    surfaceVariant = Stone100,
+    onSurfaceVariant = Stone500,
+    surfaceContainerLowest = Color.White,
+    surfaceContainerLow = Stone100,
+    surfaceContainer = Color(0xFFEFEDEB),
+    surfaceContainerHigh = Stone200,
+    surfaceContainerHighest = Color(0xFFDDD9D5),
+    outline = Stone300,
+    outlineVariant = Stone200,
+    scrim = Color(0x52000000),
+)
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Amber400,
+    onPrimary = Amber950,
+    primaryContainer = Amber900,
+    onPrimaryContainer = Amber100,
+    secondary = Stone400,
+    onSecondary = Stone900,
+    secondaryContainer = Stone700,
+    onSecondaryContainer = Stone200,
     tertiary = Green400,
-    onTertiary = Color(0xFF052E16),
+    onTertiary = Green950,
     tertiaryContainer = Green900,
     onTertiaryContainer = Green100,
     error = Red400,
-    onError = Color(0xFF450A0A),
+    onError = Red950,
     errorContainer = Red900,
-    onErrorContainer = Red100,
-    background = Slate950,
-    onBackground = Slate100,
-    surface = Slate950,
-    onSurface = Slate100,
-    surfaceVariant = Slate900,
-    onSurfaceVariant = Slate400,
-    surfaceContainerLowest = Color(0xFF01040F),
-    surfaceContainerLow = Slate900,
-    surfaceContainer = Slate850,
-    surfaceContainerHigh = Slate800,
-    surfaceContainerHighest = Color(0xFF28364E),
-    outline = Slate700,
-    outlineVariant = Color(0xFF22314A),
+    onErrorContainer = Color(0xFFFECACA),
+    background = Stone950,
+    onBackground = Stone100,
+    surface = Stone950,
+    onSurface = Stone100,
+    surfaceVariant = Stone900,
+    onSurfaceVariant = Stone400,
+    surfaceContainerLowest = Color(0xFF060505),
+    surfaceContainerLow = Color(0xFF141210),
+    surfaceContainer = Stone900,
+    surfaceContainerHigh = Stone800,
+    surfaceContainerHighest = Color(0xFF353230),
+    outline = Stone700,
+    outlineVariant = Stone800,
     scrim = Color(0xB3000000),
 )
 
@@ -76,26 +112,46 @@ data class SemanticColors(
     val onWarnContainer: Color,
 )
 
-val LocalSemanticColors = staticCompositionLocalOf {
-    SemanticColors(
-        ok = Green400,
-        okContainer = Green900,
-        onOkContainer = Green100,
-        warn = Amber400,
-        warnContainer = Amber900,
-        onWarnContainer = Amber100,
-    )
-}
+private val LightSemantic = SemanticColors(
+    ok = Green600,
+    okContainer = Green100,
+    onOkContainer = Green900,
+    warn = Amber700,
+    warnContainer = Amber100,
+    onWarnContainer = Amber950,
+)
+
+private val DarkSemantic = SemanticColors(
+    ok = Green400,
+    okContainer = Green900,
+    onOkContainer = Green100,
+    warn = Amber400,
+    warnContainer = Amber900,
+    onWarnContainer = Amber100,
+)
+
+val LocalSemanticColors = staticCompositionLocalOf { LightSemantic }
 
 val MaterialTheme.semantic: SemanticColors
     @Composable get() = LocalSemanticColors.current
 
+const val THEME_SYSTEM = "system"
+const val THEME_LIGHT = "light"
+const val THEME_DARK = "dark"
+
 @Composable
-fun RemoteEverythingTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = AppColorScheme,
-        typography = AppTypography,
-        shapes = AppShapes,
-        content = content,
-    )
+fun RemoteEverythingTheme(themeMode: String = THEME_SYSTEM, content: @Composable () -> Unit) {
+    val dark = when (themeMode) {
+        THEME_LIGHT -> false
+        THEME_DARK -> true
+        else -> isSystemInDarkTheme()
+    }
+    CompositionLocalProvider(LocalSemanticColors provides if (dark) DarkSemantic else LightSemantic) {
+        MaterialTheme(
+            colorScheme = if (dark) DarkColorScheme else LightColorScheme,
+            typography = AppTypography,
+            shapes = AppShapes,
+            content = content,
+        )
+    }
 }

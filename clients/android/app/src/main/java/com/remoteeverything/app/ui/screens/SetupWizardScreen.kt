@@ -19,14 +19,17 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,6 +55,19 @@ fun SetupWizardScreen(
     val start by session.startState.collectAsStateWithLifecycle()
     val pending = (start as? StartState.PendingActivation)?.config
 
+    // 步骤只前进不回退:轮询重试期间状态在 Activating↔AwaitingApproval 之间
+    // 摆动,但 UI 指示器应保持最高已达到的步数,避免"闪退再前进"的视觉 bug。
+    var maxStep by remember { mutableIntStateOf(-1) }
+    val currentStep = when (state) {
+        is SetupState.Pairing -> 0
+        is SetupState.Activating -> 1
+        is SetupState.AwaitingApproval -> 2
+        is SetupState.Ready -> 3
+        else -> -1
+    }
+    if (currentStep > maxStep) maxStep = currentStep
+    val displayedStep = maxOf(currentStep, maxStep)
+
     // 离开向导(返回/取消/完成)即终止后台事务;完成时事务已自行清理,此为幂等兜底
     DisposableEffect(Unit) {
         onDispose { session.cancelSetup() }
@@ -73,23 +89,36 @@ fun SetupWizardScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(36.dp))
-            StepIndicator(state)
+            StepIndicator(displayedStep, state != null && state !is SetupState.Failed && state !is SetupState.Ready)
             Spacer(Modifier.height(48.dp))
 
             when (val current = state) {
                 null -> Unit
-                is SetupState.Pairing -> WizardBody(
-                    icon = Icons.Filled.Sync,
-                    title = "正在验证连接",
-                    detail = if (current.config.mode == "public") "正在验证邀请并申请设备身份…" else "正在验证节点证书和应用目录…",
-                    running = true,
-                )
-                is SetupState.Activating -> WizardBody(
-                    icon = Icons.Filled.VerifiedUser,
-                    title = "正在验证完整链路",
-                    detail = "设备身份已签发,正在验证完整链路…",
-                    running = true,
-                )
+                is SetupState.Pairing -> {
+                    // 已到达过等待批准阶段后的重试:保持旧阶段体感,避免轮询闪屏
+                    if (maxStep >= 2) {
+                        WizardBody(Icons.Filled.HourglassTop, "等待人工批准", "正在重试验证,请稍候…", running = true)
+                    } else {
+                        WizardBody(
+                            icon = Icons.Filled.Sync,
+                            title = "正在验证连接",
+                            detail = if (current.config.mode == "public") "正在验证邀请并申请设备身份…" else "正在验证节点证书和应用目录…",
+                            running = true,
+                        )
+                    }
+                }
+                is SetupState.Activating -> {
+                    if (maxStep >= 2) {
+                        WizardBody(Icons.Filled.HourglassTop, "等待人工批准", "正在重试验证,请稍候…", running = true)
+                    } else {
+                        WizardBody(
+                            icon = Icons.Filled.VerifiedUser,
+                            title = "正在验证完整链路",
+                            detail = "设备身份已签发,正在验证完整链路…",
+                            running = true,
+                        )
+                    }
+                }
                 is SetupState.AwaitingApproval -> WizardBody(
                     icon = Icons.Filled.HourglassTop,
                     title = "等待人工批准",
@@ -124,28 +153,23 @@ fun SetupWizardScreen(
             }
 
             Spacer(Modifier.weight(1f))
-            TextButton(
+            // 取消按钮在所有运行状态下均可点击,确实终止后台事务
+            OutlinedButton(
                 onClick = {
                     session.cancelSetup()
                     onCancel()
                 },
-                modifier = Modifier.padding(bottom = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                enabled = state != null,
             ) {
-                Text("取消并返回")
+                Text(if (state is SetupState.AwaitingApproval) "取消等待并返回" else "取消并返回")
             }
         }
     }
 }
 
 @Composable
-private fun StepIndicator(state: SetupState?) {
-    val current = when (state) {
-        is SetupState.Pairing -> 0
-        is SetupState.Activating -> 1
-        is SetupState.AwaitingApproval -> 2
-        is SetupState.Ready -> 3
-        else -> -1
-    }
+private fun StepIndicator(step: Int, running: Boolean) {
     val labels = listOf("验证连接", "签发身份", "等待批准")
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -153,12 +177,12 @@ private fun StepIndicator(state: SetupState?) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         labels.forEachIndexed { index, label ->
-            val reached = current > index || (current == 3)
-            val active = current == index
+            val reached = step > index || step == 3
+            val active = step == index && running
             Surface(
                 shape = MaterialTheme.shapes.small,
                 color = when {
-                    reached || active -> MaterialTheme.colorScheme.primary
+                    reached -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.surfaceContainerHigh
                 },
                 modifier = Modifier.weight(1f),
@@ -166,7 +190,7 @@ private fun StepIndicator(state: SetupState?) {
                 Text(
                     label,
                     style = MaterialTheme.typography.labelMedium,
-                    color = if (reached || active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (reached) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )

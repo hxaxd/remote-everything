@@ -1,0 +1,7 @@
+# Reviewed deterministic credentials used exclusively by historical unit tests.
+26ea0a92398b49fb2a69bca20e6b69d26fd028c8:internal/gatewaycore/gateway_test.go:generic-api-key:11
+f193d41ed4b698c8c196c65013c075555e7ef111:server/gateway/enrollment_test.go:generic-api-key:121
+f193d41ed4b698c8c196c65013c075555e7ef111:server/gateway/enrollment_test.go:generic-api-key:203
+f193d41ed4b698c8c196c65013c075555e7ef111:server/gateway/enrollment_test.go:generic-api-key:213
+f193d41ed4b698c8c196c65013c075555e7ef111:server/gateway/enrollment_test.go:generic-api-key:225
+f193d41ed4b698c8c196c65013c075555e7ef111:server/gateway/enrollment_test.go:generic-api-key:247

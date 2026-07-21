@@ -135,7 +135,7 @@ func (service *publicService) issueInvitationReplacing(ttl time.Duration, name, 
 		Schema: recordSchema, TokenHash: invitationHash(token),
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := setupcodec.Build("public", service.config.InstallationID, name, origin, token)
+	setupURI, err := setupcodec.Build("public", service.config.InstallationID, name, origin, token, "")
 	if err != nil {
 		return err
 	}

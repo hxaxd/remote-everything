@@ -6,6 +6,7 @@
 
 {{PUBLIC_HOST}} {
 	log
+	encode zstd gzip
 
 	tls {
 		issuer acme {
@@ -28,10 +29,26 @@
 		reverse_proxy "{{FRPS_UPSTREAM}}"
 	}
 
+	@device_control {
+		path /__remote_everything*
+		expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
+	}
+	handle @device_control {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
+			transport http {
+				max_conns_per_host 2
+			}
+		}
+	}
+
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
+			transport http {
+				max_conns_per_host 4
+			}
 		}
 	}
 

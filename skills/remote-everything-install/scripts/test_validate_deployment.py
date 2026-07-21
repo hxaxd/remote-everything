@@ -33,14 +33,21 @@ class DeploymentContractTests(unittest.TestCase):
         validator.validate_caddy_contract(caddy)
         pair = caddy.index("@pair path")
         tunnel = caddy.index("@tunnel expression")
+        device_control = caddy.index("\t@device_control {")
         device = caddy.index("\t@device expression")
-        broken = caddy[:pair] + caddy[tunnel:device] + caddy[pair:tunnel] + caddy[device:]
+        broken = caddy[:pair] + caddy[tunnel:device_control] + caddy[pair:tunnel] + caddy[device_control:]
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(broken)
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\tauto_https disable_redirects\n", ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\tdisable_http_challenge\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\tencode zstd gzip\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 2\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 4\n", ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\theader_up X-Remote-Everything-Client-Fingerprint", "\t\t\theader_up -X-Remote-Everything-Client-Fingerprint\n\t\t\theader_up X-Remote-Everything-Client-Fingerprint"))
         ip_caddy = caddy.replace("remote.example.com", "192.0.2.1")

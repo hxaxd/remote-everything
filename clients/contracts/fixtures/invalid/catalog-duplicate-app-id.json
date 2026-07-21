@@ -1,0 +1,35 @@
+{
+  "description": "Catalog with duplicate app IDs must be rejected",
+  "payload": {
+    "ok": true,
+    "computer_connected": true,
+    "code": "ready",
+    "apps": [
+      {
+        "id": "editor",
+        "name": "Editor",
+        "description": "",
+        "icon": "E",
+        "accent": "#2563eb",
+        "launch_fragment": "",
+        "computer_connected": true,
+        "enabled": false,
+        "running": false,
+        "code": "stopped"
+      },
+      {
+        "id": "editor",
+        "name": "Editor 2",
+        "description": "",
+        "icon": "F",
+        "accent": "#ff0000",
+        "launch_fragment": "",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "ready"
+      }
+    ]
+  },
+  "error": "duplicate_app_id"
+}

@@ -1,0 +1,9 @@
+{
+  "description": "Valid activation response — node reachable and ready",
+  "payload": {
+    "ok": true,
+    "computer_connected": true,
+    "code": "ready",
+    "apps": []
+  }
+}

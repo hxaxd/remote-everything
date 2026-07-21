@@ -1,5 +1,6 @@
 package com.remoteeverything.app.ui.screens
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -8,53 +9,65 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.remoteeverything.app.RemoteApp
 import com.remoteeverything.app.ui.CatalogUiState
 import com.remoteeverything.app.ui.SessionViewModel
 import com.remoteeverything.app.ui.components.AppCard
 import com.remoteeverything.app.ui.components.CenteredLoading
 import com.remoteeverything.app.ui.components.MessageCard
-import com.remoteeverything.app.web.WebViewPool
 
-/** 应用目录:状态横幅 + 应用卡片列表 + 下拉刷新;加载成功后预热 WebView 池。 */
+/** 应用目录:状态横幅 + 应用卡片列表 + 下拉刷新 + 长按拖拽排序。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CatalogScreen(
     session: SessionViewModel,
-    pool: WebViewPool,
     onSettings: () -> Unit,
-    onEnterApp: (String) -> Unit,
+    onEnterApp: (RemoteApp) -> Unit,
 ) {
     val catalog by session.catalog.collectAsStateWithLifecycle()
+    val refreshing by session.catalogRefreshing.collectAsStateWithLifecycle()
     val profile by session.activeProfile.collectAsStateWithLifecycle()
-    var refreshing by remember { mutableStateOf(false) }
+    var pendingStop by remember { mutableStateOf<RemoteApp?>(null) }
 
-    LaunchedEffect(catalog) {
-        refreshing = false
-        val ready = catalog as? CatalogUiState.Ready ?: return@LaunchedEffect
-        if (ready.snapshot.computerConnected) pool.pruneStopped(ready.snapshot.apps)
+    // 拖拽排序状态
+    var draggedIndex by remember { mutableIntStateOf(-1) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+
+    // 自定义排序持久化
+    val installationId = profile?.installationId
+    var savedOrder by remember(installationId) {
+        mutableStateOf(installationId?.let { session.settings.appOrder(it) } ?: emptyList())
     }
 
     Scaffold(
@@ -80,11 +93,10 @@ fun CatalogScreen(
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
         PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = {
-                refreshing = true
-                session.refreshCatalog()
-            },
+            // 下拉圆形指示器只表示手势本身，释放后立即收起；实际请求用顶部进度条表示。
+            // 这样即使系统动画状态异常，也不会出现永久转圈遮住目录。
+            isRefreshing = false,
+            onRefresh = session::refreshCatalog,
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
             LazyColumn(
@@ -139,20 +151,92 @@ fun CatalogScreen(
                                     },
                                 )
                             }
-                            else -> items(snapshot.apps, key = { it.id }) { app ->
-                                val config = profile
-                                AppCard(
-                                    app = app,
-                                    canEnter = config != null && config.isGatewayUrl(app.openUrl),
-                                    onPower = { session.controlApp(app, if (app.code == "stopped") "start" else "stop") },
-                                    onEnter = { onEnterApp(app.id) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                            else -> {
+                                val apps = snapshot.apps
+                                val ordered = if (savedOrder.isEmpty()) apps else {
+                                    val ranks = savedOrder.withIndex().associate { it.value to it.index }
+                                    apps.sortedBy { ranks[it.id] ?: Int.MAX_VALUE }
+                                }
+
+                                itemsIndexed(ordered, key = { _, app -> app.id }) { index, app ->
+                                    val isDragging = draggedIndex == index
+                                    val canEnter = profile?.isGatewayUrl(app.openUrl) ?: false
+                                    AppCard(
+                                        app = app,
+                                        canEnter = canEnter,
+                                        onPower = {
+                                            if (app.code == "ready") pendingStop = app
+                                            else session.controlApp(app, "start")
+                                        },
+                                        onEnter = { onEnterApp(app) },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .zIndex(if (isDragging) 1f else 0f)
+                                            .graphicsLayer {
+                                                if (isDragging) translationY = dragOffset
+                                            }
+                                            .pointerInput(app.id) {
+                                                detectDragGesturesAfterLongPress(
+                                                    onDragStart = {
+                                                        draggedIndex = index
+                                                        dragOffset = 0f
+                                                    },
+                                                    onDrag = { change, dragAmount ->
+                                                        change.consume()
+                                                        dragOffset += dragAmount.y
+                                                        // PointerInputScope 实现 Density:160dp 约为 AppCard+间距
+                                                        val itemH = 160.dp.toPx()
+                                                        val steps = (dragOffset / itemH).toInt()
+                                                        if (steps != 0) {
+                                                            val newIndex = (index + steps).coerceIn(0, ordered.lastIndex)
+                                                            if (newIndex != index) {
+                                                                val newList = ordered.toMutableList()
+                                                                val moved = newList.removeAt(index)
+                                                                newList.add(newIndex, moved)
+                                                                savedOrder = newList.map { it.id }
+                                                                installationId?.let { session.settings.setAppOrder(it, savedOrder) }
+                                                                draggedIndex = newIndex
+                                                                dragOffset = 0f
+                                                            }
+                                                        }
+                                                    },
+                                                    onDragEnd = {
+                                                        draggedIndex = -1
+                                                        dragOffset = 0f
+                                                    },
+                                                    onDragCancel = {
+                                                        draggedIndex = -1
+                                                        dragOffset = 0f
+                                                    },
+                                                )
+                                            },
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+            if (refreshing) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
         }
+    }
+
+    pendingStop?.let { app ->
+        AlertDialog(
+            onDismissRequest = { pendingStop = null },
+            title = { Text("停止 ${app.name}") },
+            text = { Text("确定要停止「${app.name}」吗？停止后需要重新启动才能进入。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    session.controlApp(app, "stop")
+                    pendingStop = null
+                }) { Text("停止", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingStop = null }) { Text("取消") }
+            },
+        )
     }
 }

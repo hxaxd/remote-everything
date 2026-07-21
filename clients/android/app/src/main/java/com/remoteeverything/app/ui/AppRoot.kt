@@ -21,18 +21,15 @@ import androidx.navigation.compose.rememberNavController
 import com.remoteeverything.app.ui.components.CenteredLoading
 import com.remoteeverything.app.ui.screens.CatalogScreen
 import com.remoteeverything.app.ui.screens.ConnectionsScreen
-import com.remoteeverything.app.ui.screens.RemoteScreen
 import com.remoteeverything.app.ui.screens.SettingsScreen
 import com.remoteeverything.app.ui.screens.SetupWizardScreen
-import com.remoteeverything.app.web.WebViewPool
+import com.remoteeverything.app.RemoteApp
 
 object Routes {
     const val CONNECTIONS = "connections"
     const val SETUP = "setup"
     const val CATALOG = "catalog"
     const val SETTINGS = "settings"
-    const val REMOTE = "remote/{appId}"
-    fun remote(appId: String) = "remote/$appId"
 }
 
 /**
@@ -41,9 +38,9 @@ object Routes {
 @Composable
 fun AppRoot(
     session: SessionViewModel,
-    pool: WebViewPool,
     onImmersive: (Boolean) -> Unit,
     onOrientation: (Int) -> Unit,
+    onOpenRemote: (RemoteApp) -> Unit,
 ) {
     val start by session.startState.collectAsStateWithLifecycle()
     val activeProfile by session.activeProfile.collectAsStateWithLifecycle()
@@ -61,7 +58,7 @@ fun AppRoot(
     LaunchedEffect(activeProfile) {
         if (activeProfile == null && start !is StartState.Loading) {
             val route = nav.currentDestination?.route
-            if (route == Routes.CATALOG || route == Routes.SETTINGS || route == Routes.REMOTE) {
+            if (route == Routes.CATALOG || route == Routes.SETTINGS) {
                 nav.navigate(Routes.CONNECTIONS) { popUpTo(0) }
             }
         }
@@ -77,10 +74,10 @@ fun AppRoot(
             else -> AppNavHost(
                 nav = nav,
                 session = session,
-                pool = pool,
                 start = current,
                 onImmersive = onImmersive,
                 onOrientation = onOrientation,
+                onOpenRemote = onOpenRemote,
             )
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
@@ -100,10 +97,10 @@ private fun Splash() {
 private fun AppNavHost(
     nav: NavHostController,
     session: SessionViewModel,
-    pool: WebViewPool,
     start: StartState,
     onImmersive: (Boolean) -> Unit,
     onOrientation: (Int) -> Unit,
+    onOpenRemote: (RemoteApp) -> Unit,
 ) {
     // startDestination 只在首次组合时生效;向导完成后 start 会变为 Ready,必须钉住初始值
     val startDestination = remember {
@@ -117,12 +114,9 @@ private fun AppNavHost(
 
     // 非远程屏:退出沉浸,方向跟随全局设置
     LaunchedEffect(nav) {
-        nav.currentBackStackEntryFlow.collect { entry ->
-            val route = entry.destination.route
-            if (route != Routes.REMOTE) {
-                onImmersive(false)
-                onOrientation(session.settings.resolveOrientation(null, null))
-            }
+        nav.currentBackStackEntryFlow.collect {
+            onImmersive(false)
+            onOrientation(session.settings.resolveOrientation(null, null))
         }
     }
 
@@ -165,9 +159,8 @@ private fun AppNavHost(
         composable(Routes.CATALOG) {
             CatalogScreen(
                 session = session,
-                pool = pool,
                 onSettings = { nav.navigate(Routes.SETTINGS) },
-                onEnterApp = { appId -> nav.navigate(Routes.remote(appId)) },
+                onEnterApp = onOpenRemote,
             )
         }
         composable(Routes.SETTINGS) {
@@ -175,17 +168,6 @@ private fun AppNavHost(
                 session = session,
                 onBack = { nav.popBackStack() },
                 onManageConnections = { nav.navigate(Routes.CONNECTIONS) },
-            )
-        }
-        composable(Routes.REMOTE) { entry ->
-            val appId = entry.arguments?.getString("appId").orEmpty()
-            RemoteScreen(
-                appId = appId,
-                session = session,
-                pool = pool,
-                onImmersive = onImmersive,
-                onOrientation = onOrientation,
-                onExitToCatalog = { nav.popBackStack() },
             )
         }
     }

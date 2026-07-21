@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/setup-uri.schema.json",
+  "title": "Setup URI",
+  "description": "Schema for remote-everything://setup URI query parameters. Shared by Go, Kotlin, Swift, and ArkTS strict parsers.",
+  "type": "object",
+  "properties": {
+    "v": {
+      "type": "string",
+      "const": "2",
+      "description": "Protocol version. Only version 2 is supported."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Installation ID: 64 lowercase hex characters."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable computer name. 1–80 Unicode code points, no C0 or DEL control characters."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["lan", "public"],
+      "description": "Connection mode: lan (LAN with certificate pinning) or public (internet with mTLS)."
+    },
+    "origin": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://[^/?#]+$",
+      "description": "Gateway HTTPS origin: scheme, host, optional port only; no path, query, or fragment."
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 fingerprint of the gateway TLS certificate. Required for LAN mode, absent for public mode."
+    },
+    "public_key_pin": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$",
+      "description": "Base64-encoded SHA-256 digest of the gateway certificate SubjectPublicKeyInfo. Required for LAN mode, absent for public mode."
+    },
+    "invitation": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "Base64url invitation token. Required for public mode, absent for LAN mode."
+    }
+  },
+  "required": ["v", "id", "name", "mode", "origin"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "mode": { "const": "lan" } }
+      },
+      "then": {
+        "required": ["fingerprint", "public_key_pin"],
+        "properties": { "invitation": { "not": {} } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "mode": { "const": "public" } }
+      },
+      "then": {
+        "required": ["invitation"],
+        "properties": {
+          "fingerprint": { "not": {} },
+          "public_key_pin": { "not": {} }
+        }
+      }
+    }
+  ]
+}
