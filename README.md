@@ -128,6 +128,7 @@ skills/    可执行运维流程
 ```
 
 - [贡献指南](CONTRIBUTING.md)
+- [本地发行说明](docs/RELEASING.md)
 - [跨端客户端实施计划](plan.md)
 - [支持说明](SUPPORT.md)
 - [行为准则](CODE_OF_CONDUCT.md)

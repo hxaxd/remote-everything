@@ -12,7 +12,7 @@ body:
     attributes:
       label: Version / 版本
       description: Release tag and client build number if applicable.
-      placeholder: v3.4.0, build 26
+      placeholder: v3.4.1, build 27
     validations:
       required: true
   - type: checkboxes

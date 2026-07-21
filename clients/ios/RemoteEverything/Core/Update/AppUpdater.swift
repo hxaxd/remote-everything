@@ -127,7 +127,7 @@ final class AppUpdater {
     private static let latestReleaseApi = "https://api.github.com/repos/hxaxd/remote-everything/releases/latest"
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.4.0"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.4.1"
     }
 
     var currentBuild: String {
