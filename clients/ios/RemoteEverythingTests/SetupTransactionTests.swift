@@ -247,7 +247,7 @@ final class SetupTransactionTests: XCTestCase {
             fingerprint: String(repeating: "cd", count: 32),
             publicKeyPin: String(repeating: "A", count: 43) + "="
         )
-        store.stagedProfile = lanConfig
+        store.stagedProfileValue = lanConfig
         identityStore.staged = false
         let lanRecovered = transaction.recover()
         XCTAssertNil(lanRecovered)
@@ -257,22 +257,22 @@ final class SetupTransactionTests: XCTestCase {
 // MARK: - Fakes
 
 final class FakeProfileStore: SetupProfileStore {
-    var stagedProfile: ConnectionConfig?
+    var stagedProfileValue: ConnectionConfig?
     var committedProfile: ConnectionConfig?
 
     init(staged: ConnectionConfig? = nil) {
-        self.stagedProfile = staged
+        self.stagedProfileValue = staged
     }
 
-    func stagedProfile() -> ConnectionConfig? { stagedProfile }
-    func stageProfile(_ value: ConnectionConfig) { stagedProfile = value }
+    func stagedProfile() -> ConnectionConfig? { stagedProfileValue }
+    func stageProfile(_ value: ConnectionConfig) { stagedProfileValue = value }
     func commitStagedProfile() -> ConnectionConfig {
-        let profile = stagedProfile!
+        let profile = stagedProfileValue!
         committedProfile = profile
-        stagedProfile = nil
+        stagedProfileValue = nil
         return profile
     }
-    func discardStagedProfile() { stagedProfile = nil }
+    func discardStagedProfile() { stagedProfileValue = nil }
 }
 
 final class FakeIdentityStore: SetupIdentityStore {

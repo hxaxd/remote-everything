@@ -254,7 +254,7 @@ struct SetupWizardView: View {
             model.activeProfile = c
             catalogVM.activateAfterSetup(c)
             return .ready(c.name)
-        case .failed(let c, let msg, let action):
+        case .failed(_, let msg, let action):
             let hint = switch action {
             case .retryPairing: "请确认邀请码仍有效，然后重试配对"
             case .retryActivation: "设备身份已保留，请确认电脑在线后重试激活"
