@@ -37,6 +37,25 @@ interface PairingPayload {
   pending_expires_at: string;
 }
 
+interface ActionPayload {
+  ok: boolean;
+  action: string;
+  computer_connected: boolean;
+  enabled: boolean;
+  running: boolean;
+  code: string;
+  app?: Object;
+}
+
+interface MissingCodeActionPayload {
+  ok: boolean;
+  action: string;
+  computer_connected: boolean;
+  enabled: boolean;
+  running: boolean;
+  app: Object;
+}
+
 class EmptyPayload {}
 
 export default function remoteApiTest() {
@@ -101,6 +120,75 @@ export default function remoteApiTest() {
         'pending_expires_at': 'later'
       };
       expect(() => RemoteApi.decodePairingCredential(invalid)).assertThrowError(Error);
+    });
+
+    it('action_requires_exact_and_consistent_state', DEFAULT, () => {
+      const app: AppPayload = {
+        'id': 'editor',
+        'name': 'Editor',
+        'description': '',
+        'icon': 'E',
+        'accent': '#2563eb',
+        'launch_fragment': '',
+        'computer_connected': true,
+        'enabled': true,
+        'running': false,
+        'code': 'starting'
+      };
+      const valid: ActionPayload = {
+        'ok': true,
+        'action': 'start',
+        'computer_connected': true,
+        'enabled': true,
+        'running': false,
+        'code': 'starting',
+        'app': app
+      };
+      expect(RemoteApi.decodeAction(config, 'start', valid)).assertTrue();
+
+      const inconsistent: ActionPayload = {
+        'ok': valid.ok,
+        'action': valid.action,
+        'computer_connected': valid.computer_connected,
+        'enabled': valid.enabled,
+        'running': true,
+        'code': valid.code,
+        'app': app
+      };
+      expect(() => RemoteApi.decodeAction(config, 'start', inconsistent)).assertThrowError(Error);
+      expect(() => RemoteApi.decodeAction(config, 'stop', valid)).assertThrowError(Error);
+
+      const missingCode: MissingCodeActionPayload = {
+        'ok': true,
+        'action': 'start',
+        'computer_connected': true,
+        'enabled': true,
+        'running': false,
+        'app': app
+      };
+      expect(() => RemoteApi.decodeAction(config, 'start', missingCode)).assertThrowError(Error);
+    });
+
+    it('action_returns_false_for_known_terminal_failures', DEFAULT, () => {
+      const offline: ActionPayload = {
+        'ok': false,
+        'action': 'start',
+        'computer_connected': false,
+        'enabled': false,
+        'running': false,
+        'code': 'computer_offline'
+      };
+      expect(RemoteApi.decodeAction(config, 'start', offline)).assertFalse();
+
+      const notFound: ActionPayload = {
+        'ok': false,
+        'action': 'stop',
+        'computer_connected': true,
+        'enabled': false,
+        'running': false,
+        'code': 'app_not_found'
+      };
+      expect(RemoteApi.decodeAction(config, 'stop', notFound)).assertFalse();
     });
   });
 }

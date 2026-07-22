@@ -3,7 +3,9 @@ import { SetupPayload } from '../../core/models/SetupPayload';
 import { CatalogSnapshot } from '../../core/models/RemoteApp';
 import { PairingCredential } from '../../core/models/PairingCredential';
 import { RemoteApi as RemoteApiDecoder } from '../../core/network/RemoteApi';
-import { ClientIdentity, CredentialStore } from '../../core/security/CredentialStore';
+import {
+  ClientIdentity, CredentialPromotion, CredentialStore
+} from '../../core/security/CredentialStore';
 import { GatewaySecurityPolicy } from '../../core/security/GatewaySecurityPolicy';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
@@ -14,6 +16,7 @@ export interface SetupProfileStore {
   stagedProfile(): ConnectionConfig | null;
   stageProfile(value: ConnectionConfig): Promise<void>;
   commitStagedProfile(): Promise<ConnectionConfig>;
+  isProfileCommitted(value: ConnectionConfig): Promise<boolean>;
   discardStagedProfile(): Promise<void>;
 }
 
@@ -23,7 +26,13 @@ export interface SetupIdentityStore {
     installationId: string, encoded: string, password: string, expectedFingerprint: string
   ): Promise<void>;
   stagedClientIdentity(installationId: string): Promise<ClientIdentity>;
-  promoteCredential(installationId: string): Promise<void>;
+  promoteCredential(installationId: string): Promise<CredentialPromotion>;
+  markCredentialPromotionCommitted(promotion: CredentialPromotion): Promise<void>;
+  reconcileCredentialPromotion(
+    installationId: string, profileCommitted: boolean
+  ): Promise<void>;
+  rollbackCredentialPromotion(promotion: CredentialPromotion): Promise<void>;
+  completeCredentialPromotion(promotion: CredentialPromotion): Promise<void>;
   hasStagedCredential(installationId: string): Promise<boolean>;
   discardStagedCredential(installationId: string): Promise<void>;
 }
@@ -216,8 +225,27 @@ export class ProductionIdentityStore implements SetupIdentityStore {
     return await CredentialStore.stagedClientIdentity(installationId);
   }
 
-  async promoteCredential(installationId: string): Promise<void> {
-    await CredentialStore.promoteCredential(installationId);
+  async promoteCredential(installationId: string): Promise<CredentialPromotion> {
+    return await CredentialStore.promoteCredential(installationId);
+  }
+
+  async markCredentialPromotionCommitted(promotion: CredentialPromotion): Promise<void> {
+    await CredentialStore.markCredentialPromotionCommitted(promotion);
+  }
+
+  async reconcileCredentialPromotion(
+    installationId: string,
+    profileCommitted: boolean
+  ): Promise<void> {
+    await CredentialStore.reconcileCredentialPromotion(installationId, profileCommitted);
+  }
+
+  async rollbackCredentialPromotion(promotion: CredentialPromotion): Promise<void> {
+    await CredentialStore.rollbackCredentialPromotion(promotion);
+  }
+
+  async completeCredentialPromotion(promotion: CredentialPromotion): Promise<void> {
+    await CredentialStore.completeCredentialPromotion(promotion);
   }
 
   async hasStagedCredential(installationId: string): Promise<boolean> {
@@ -248,6 +276,24 @@ function failureDetail(error: Error, fallback: string): string {
   return error.message || fallback;
 }
 
+class OperationCompletion {
+  readonly promise: Promise<void>;
+  private resolver: (() => void) | null = null;
+
+  constructor() {
+    this.promise = new Promise<void>((resolve: () => void): void => {
+      this.resolver = resolve;
+    });
+  }
+
+  finish(): void {
+    if (this.resolver !== null) {
+      this.resolver();
+      this.resolver = null;
+    }
+  }
+}
+
 // MARK: - Transaction
 
 export class SetupTransaction {
@@ -255,6 +301,9 @@ export class SetupTransaction {
   private identity: SetupIdentityStore;
   private deviceName: string;
   private transport: SetupTransport;
+  private operationGeneration: number = 0;
+  private newestStartedOperation: number = 0;
+  private activeOperations: Map<number, OperationCompletion> = new Map();
 
   constructor(
     settings: SetupProfileStore,
@@ -277,6 +326,12 @@ export class SetupTransaction {
       return null;
     }
 
+    const profileCommitted = await this.settings.isProfileCommitted(staged);
+    await this.identity.reconcileCredentialPromotion(
+      staged.installationId,
+      profileCommitted
+    );
+
     if (staged.mode === ConnectionMode.PUBLIC &&
         await this.identity.hasStagedCredential(staged.installationId)) {
       return staged;
@@ -291,47 +346,168 @@ export class SetupTransaction {
    * Begin setup from a parsed URI.
    */
   async begin(setup: SetupPayload): Promise<SetupState> {
-    await this.discardPending();
+    const operation = this.startOperation();
+    try {
+      await this.waitForOlderOperations(operation);
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(setup.profile, operation);
+      }
+      await this.discardPendingArtifacts();
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(setup.profile, operation);
+      }
 
-    if (setup.profile.mode === ConnectionMode.LAN) {
-      return await this.connectLAN(setup.profile);
-    } else {
-      return await this.pair(setup);
+      if (setup.profile.mode === ConnectionMode.LAN) {
+        return await this.connectLAN(setup.profile, operation);
+      } else {
+        return await this.pair(setup, operation);
+      }
+    } finally {
+      this.finishOperation(operation);
     }
   }
 
   async retryPairing(setup: SetupPayload): Promise<SetupState> {
-    return await this.pair(setup);
+    const operation = this.startOperation();
+    try {
+      await this.waitForOlderOperations(operation);
+      return await this.pair(setup, operation);
+    } finally {
+      this.finishOperation(operation);
+    }
   }
 
   async retryActivation(config: ConnectionConfig): Promise<SetupState> {
-    return await this.activate(config, null);
+    const operation = this.startOperation();
+    try {
+      await this.waitForOlderOperations(operation);
+      return await this.activate(config, null, operation);
+    } finally {
+      this.finishOperation(operation);
+    }
   }
 
   async discardPending(): Promise<void> {
+    this.operationGeneration += 1;
+    const invalidatedGeneration = this.operationGeneration;
+    const completions: Promise<void>[] = [];
+    this.activeOperations.forEach((completion: OperationCompletion, generation: number): void => {
+      if (generation < invalidatedGeneration) {
+        completions.push(completion.promise);
+      }
+    });
+    // Cancellation is not complete until every invalidated operation has left
+    // its finally block. A caller may therefore start the same installation ID
+    // immediately after this promise resolves without a stale cleanup racing it.
+    await Promise.all(completions);
+    if (this.newestStartedOperation <= invalidatedGeneration) {
+      await this.discardPendingArtifacts();
+    }
+  }
+
+  async cancel(): Promise<void> {
+    // Invalidate in-flight work synchronously, before cleanup yields. Every setup
+    // step checks this generation after awaiting external work.
+    await this.discardPending();
+  }
+
+  private startOperation(): number {
+    this.operationGeneration += 1;
+    this.newestStartedOperation = this.operationGeneration;
+    this.activeOperations.set(this.operationGeneration, new OperationCompletion());
+    return this.operationGeneration;
+  }
+
+  private finishOperation(operation: number): void {
+    const completion = this.activeOperations.get(operation);
+    if (completion !== undefined) {
+      completion.finish();
+      this.activeOperations.delete(operation);
+    }
+  }
+
+  private async waitForOlderOperations(operation: number): Promise<void> {
+    const completions: Promise<void>[] = [];
+    this.activeOperations.forEach((completion: OperationCompletion, generation: number): void => {
+      if (generation < operation) {
+        completions.push(completion.promise);
+      }
+    });
+    await Promise.all(completions);
+  }
+
+  private async discardPendingArtifacts(): Promise<void> {
     const staged = this.settings.stagedProfile();
     if (staged === null) {
       return;
     }
-    await this.identity.discardStagedCredential(staged.installationId);
-    await this.settings.discardStagedProfile();
+    await this.discardArtifacts(staged);
   }
 
-  async cancel(): Promise<void> {
-    await this.discardPending();
+  private async discardArtifacts(config: ConnectionConfig): Promise<void> {
+    let cleanupError: Error | null = null;
+    try {
+      const committed = await this.settings.isProfileCommitted(config);
+      await this.identity.reconcileCredentialPromotion(config.installationId, committed);
+      await this.identity.discardStagedCredential(config.installationId);
+    } catch (error) {
+      cleanupError = error as Error;
+    }
+
+    // The staged profile is the recovery anchor for a persistent credential
+    // journal. Never remove it when identity reconciliation or cleanup failed.
+    if (cleanupError === null) {
+      try {
+        const staged = this.settings.stagedProfile();
+        if (staged !== null && staged.installationId === config.installationId) {
+          await this.settings.discardStagedProfile();
+        }
+      } catch (error) {
+        cleanupError = error as Error;
+      }
+    }
+
+    if (cleanupError !== null) {
+      throw cleanupError;
+    }
+  }
+
+  private isOperationCurrent(operation: number): boolean {
+    return operation === this.operationGeneration;
+  }
+
+  private async cancelledState(config: ConnectionConfig, operation: number): Promise<SetupState> {
+    // Cancellation may have raced an operation that created its staged data
+    // after cancel() performed its first cleanup. Clean by the operation's own
+    // installation ID before allowing the stale task to return.
+    if (this.newestStartedOperation <= operation) {
+      await this.discardArtifacts(config);
+    }
+    return SetupState.failed(config, '初始化已取消', SetupAction.RESTART_SETUP);
   }
 
   // MARK: - Private Steps
 
-  private async connectLAN(config: ConnectionConfig): Promise<SetupState> {
+  private async connectLAN(config: ConnectionConfig, operation: number): Promise<SetupState> {
     try {
       await this.transport.verifyCatalog(config);
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+
       await this.settings.stageProfile(config);
-      const committed = await this.settings.commitStagedProfile();
-      await this.settings.discardStagedProfile();
+      // This synchronous check is the final cancellation gate. The current path
+      // does not await between the check and entering durable finalization.
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      const committed = await this.finalizeLAN(config);
       return SetupState.ready(committed);
     } catch (err) {
-      await this.discardPending();
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config,
         failureDetail(err as Error, '局域网连接验证失败'),
@@ -340,21 +516,42 @@ export class SetupTransaction {
     }
   }
 
-  private async pair(setup: SetupPayload): Promise<SetupState> {
+  private async pair(setup: SetupPayload, operation: number): Promise<SetupState> {
     const config = setup.profile;
-    await this.settings.stageProfile(config);
+    try {
+      await this.settings.stageProfile(config);
+    } catch (err) {
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      return SetupState.failed(
+        config,
+        failureDetail(err as Error, '无法暂存连接'),
+        SetupAction.RESTART_SETUP
+      );
+    }
+
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
+    }
 
     // Generate credential password
     let password: string;
     try {
       password = await this.identity.credentialPassword(config.installationId);
     } catch (err) {
-      await this.discardPending();
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config,
         failureDetail(err as Error, '无法创建设备身份'),
         SetupAction.RESTART_SETUP
       );
+    }
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
     }
 
     // Build pair request body
@@ -375,15 +572,21 @@ export class SetupTransaction {
         body
       );
     } catch (err) {
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
       return SetupState.failed(
         config,
         failureDetail(err as Error, '无法连接配对服务'),
         SetupAction.RETRY_PAIRING
       );
     }
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
+    }
 
     if (response.status === 401) {
-      await this.discardPending();
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config, '邀请不可用、已过期或已被使用', SetupAction.RESTART_SETUP
       );
@@ -423,30 +626,59 @@ export class SetupTransaction {
         credential.fingerprint
       );
     } catch (err) {
-      await this.discardPending();
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config,
         failureDetail(err as Error, '设备身份保存失败'),
         SetupAction.RESTART_SETUP
       );
     }
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
+    }
 
-    return await this.activate(config, credential.pendingExpiresAt);
+    return await this.activate(config, credential.pendingExpiresAt, operation);
+  }
+
+  private async finalizeLAN(config: ConnectionConfig): Promise<ConnectionConfig> {
+    let committed: ConnectionConfig;
+    try {
+      committed = await this.settings.commitStagedProfile();
+    } catch (error) {
+      // A storage error after the append-only generation was renamed is a
+      // committed result, not a reason to report failure and delete staging.
+      if (!(await this.settings.isProfileCommitted(config))) {
+        throw error as Error;
+      }
+      committed = config;
+    }
+    try { await this.settings.discardStagedProfile(); } catch {}
+    return committed;
   }
 
   private async activate(
     config: ConnectionConfig,
-    pendingExpiresAt: string | null
+    pendingExpiresAt: string | null,
+    operation: number
   ): Promise<SetupState> {
     // Load staged client identity
     let clientIdentity: ClientIdentity;
     try {
       clientIdentity = await this.identity.stagedClientIdentity(config.installationId);
     } catch {
-      await this.discardPending();
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config, '待激活设备身份已丢失', SetupAction.RESTART_SETUP
       );
+    }
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
     }
 
     // POST activate
@@ -461,15 +693,21 @@ export class SetupTransaction {
         null
       );
     } catch (err) {
+      if (!this.isOperationCurrent(operation)) {
+        return await this.cancelledState(config, operation);
+      }
       return SetupState.failed(
         config,
         failureDetail(err as Error, '无法连接激活服务'),
         SetupAction.RETRY_ACTIVATION
       );
     }
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
+    }
 
     if (response.status === 401) {
-      await this.discardPending();
+      await this.discardArtifacts(config);
       return SetupState.failed(
         config, '待激活设备身份已被服务器拒绝', SetupAction.RESTART_SETUP
       );
@@ -522,11 +760,18 @@ export class SetupTransaction {
       );
     }
 
-    // Commit
+    // Commit. This synchronous check is deliberately the final cancellation
+    // gate: the current path does not await before durable finalization begins.
+    if (!this.isOperationCurrent(operation)) {
+      return await this.cancelledState(config, operation);
+    }
+
+    // The last cancellation gate is deliberately before this
+    // critical section: once finalization starts, cancel() waits for it instead
+    // of deleting the pending identity out from under promotion.
     let committed: ConnectionConfig;
     try {
-      await this.identity.promoteCredential(config.installationId);
-      committed = await this.settings.commitStagedProfile();
+      committed = await this.finalizePublic(config);
     } catch (err) {
       return SetupState.failed(
         config,
@@ -535,10 +780,61 @@ export class SetupTransaction {
       );
     }
 
-    // Clean up
-    try { await this.identity.discardStagedCredential(config.installationId); } catch {}
-    await this.settings.discardStagedProfile();
-
     return SetupState.ready(committed);
+  }
+
+  private async finalizePublic(config: ConnectionConfig): Promise<ConnectionConfig> {
+    const alreadyCommitted = await this.settings.isProfileCommitted(config);
+    await this.identity.reconcileCredentialPromotion(
+      config.installationId,
+      alreadyCommitted
+    );
+    const promotion = await this.identity.promoteCredential(config.installationId);
+    let committed: ConnectionConfig;
+    try {
+      committed = await this.settings.commitStagedProfile();
+    } catch (error) {
+      // A process interruption can occur after the durable profile generation
+      // becomes visible but before the storage call returns. Resolve that
+      // ambiguity from durable state before deciding which credential wins.
+      const profileCommitted = await this.settings.isProfileCommitted(config);
+      if (profileCommitted) {
+        committed = config;
+      } else {
+        try {
+          await this.identity.rollbackCredentialPromotion(promotion);
+        } catch {
+          throw new Error('连接保存失败，且旧设备身份恢复失败');
+        }
+        throw error as Error;
+      }
+    }
+
+    try {
+      await this.identity.markCredentialPromotionCommitted(promotion);
+    } catch {
+      // The profile itself proves which side of the cross-store transaction is
+      // authoritative. Reconciliation repairs and unlocks the active identity
+      // even if writing the final credential marker failed.
+      try {
+        await this.identity.reconcileCredentialPromotion(config.installationId, true);
+      } catch {
+        throw new Error('连接已保存，但设备身份完成标记失败');
+      }
+      try { await this.identity.discardStagedCredential(config.installationId); } catch {}
+      try { await this.settings.discardStagedProfile(); } catch {}
+      return committed;
+    }
+
+    try {
+      await this.identity.completeCredentialPromotion(promotion);
+    } catch {
+      // Cleanup is best-effort, but the promotion journal must not keep a valid
+      // committed identity locked for the remainder of this process.
+      await this.identity.reconcileCredentialPromotion(config.installationId, true);
+      try { await this.identity.discardStagedCredential(config.installationId); } catch {}
+    }
+    try { await this.settings.discardStagedProfile(); } catch {}
+    return committed;
   }
 }

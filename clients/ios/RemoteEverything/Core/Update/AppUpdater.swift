@@ -95,7 +95,7 @@ enum UpdateProtocol {
         }
     }
 
-    enum UpdateError: Error, CustomStringConvertible {
+    enum UpdateError: Error, LocalizedError, CustomStringConvertible {
         case invalidResponse
         case notInstallable
         case invalidTagFormat
@@ -113,6 +113,8 @@ enum UpdateProtocol {
             case .versionOutOfRange: return "版本号超出范围"
             }
         }
+
+        var errorDescription: String? { description }
     }
 }
 
@@ -120,9 +122,12 @@ enum UpdateProtocol {
 
 /// Checks GitHub Releases for updates. Mirrors Android's `AppUpdater`.
 /// On iOS, cannot download/install APK — only checks and directs to GitHub.
+@MainActor
 @Observable
 final class AppUpdater {
     private(set) var state: UpdateUiState = .idle
+    private var checking = false
+    private var checkedAutomatically = false
 
     private static let latestReleaseApi = "https://api.github.com/repos/hxaxd/remote-everything/releases/latest"
 
@@ -131,10 +136,19 @@ final class AppUpdater {
     }
 
     var currentBuild: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "26"
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "27"
+    }
+
+    func checkForUpdatesIfNeeded() async {
+        guard !checkedAutomatically else { return }
+        checkedAutomatically = true
+        await checkForUpdates()
     }
 
     func checkForUpdates() async {
+        guard !checking else { return }
+        checking = true
+        defer { checking = false }
         state = .checking
 
         do {

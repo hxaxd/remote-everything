@@ -40,6 +40,9 @@
         }
       },
       {
+        "name": "ohos.permission.ACCESS_CERT_MANAGER"
+      },
+      {
         "name": "ohos.permission.CAMERA",
         "reason": "$string:camera_permission_reason",
         "usedScene": {

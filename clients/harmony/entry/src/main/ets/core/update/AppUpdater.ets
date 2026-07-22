@@ -114,10 +114,14 @@ export function compareVersions(left: string, right: string): number {
 
 // MARK: - App Updater
 
+@Observed
 export class AppUpdater {
+  static readonly shared: AppUpdater = new AppUpdater();
   state: UpdateUiState = UpdateUiState.idle();
   currentVersion: string = '';
   currentVersionCode: number = 0;
+  private checking: boolean = false;
+  private checkedAutomatically: boolean = false;
 
   private static readonly LATEST_RELEASE_API =
     'https://api.github.com/repos/hxaxd/remote-everything/releases/latest';
@@ -131,11 +135,14 @@ export class AppUpdater {
       this.currentVersionCode = info.versionCode;
     } catch {
       this.currentVersion = '3.4.1';
-      this.currentVersionCode = 26;
+      this.currentVersionCode = 27;
     }
   }
 
   async checkForUpdates(): Promise<void> {
+    if (this.checking) return;
+    this.checking = true;
+    if (this.currentVersion === '') await this.load();
     this.state = UpdateUiState.checking();
 
     try {
@@ -152,7 +159,15 @@ export class AppUpdater {
       this.state = UpdateUiState.error(
         err instanceof Error ? err.message : '检查更新失败'
       );
+    } finally {
+      this.checking = false;
     }
+  }
+
+  async checkForUpdatesIfNeeded(): Promise<void> {
+    if (this.checkedAutomatically) return;
+    this.checkedAutomatically = true;
+    await this.checkForUpdates();
   }
 
   async openGitHubRelease(context: common.UIAbilityContext, release: AppRelease): Promise<void> {
@@ -186,18 +201,20 @@ export class AppUpdater {
       headers['X-GitHub-Api-Version'] = '2022-11-28';
     }
 
-    const response = await httpRequest.request(url, {
-      method: http.RequestMethod.GET,
-      header: headers,
-      connectTimeout: 10000,
-      readTimeout: 30000
-    });
+    try {
+      const response = await httpRequest.request(url, {
+        method: http.RequestMethod.GET,
+        header: headers,
+        connectTimeout: 10000,
+        readTimeout: 30000
+      });
 
-    if (response.responseCode !== 200) {
-      throw new Error('发布信息无效');
+      if (response.responseCode !== 200) {
+        throw new Error('发布信息无效');
+      }
+      return response.result as string ?? '';
+    } finally {
+      httpRequest.destroy();
     }
-
-    httpRequest.destroy();
-    return response.result as string ?? '';
   }
 }

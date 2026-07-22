@@ -8,6 +8,11 @@ import subprocess
 import tomllib
 
 
+FRP_POOL_COUNT = 16
+CONTROL_CONNECTION_LIMIT = 4
+DATA_CONNECTION_LIMIT = 16
+
+
 def read_rendered(path):
     with open(path, encoding="utf-8") as source:
         text = source.read()
@@ -36,6 +41,8 @@ def validate_frp_contract(client_text, server_text):
     server = tomllib.loads(server_text)
     if client.get("serverPort") != 443 or nested(client, "transport", "protocol") != "wss" or nested(client, "transport", "wireProtocol") != "v2":
         raise ValueError("frpc transport must be WSS v2 on 443")
+    if nested(client, "transport", "poolCount") != FRP_POOL_COUNT:
+        raise ValueError(f"frpc connection pool must be {FRP_POOL_COUNT}")
     tls = nested(client, "transport", "tls")
     for key in ("certFile", "keyFile", "serverName"):
         if not isinstance(tls.get(key), str) or not tls[key]:
@@ -54,6 +61,8 @@ def validate_frp_contract(client_text, server_text):
         raise ValueError("frpc node proxy contract is invalid")
     if server.get("bindAddr") != "127.0.0.1" or not isinstance(server.get("bindPort"), int):
         raise ValueError("frps must bind a dynamic loopback port")
+    if nested(server, "transport", "maxPoolCount") != FRP_POOL_COUNT:
+        raise ValueError(f"frps maximum connection pool must be {FRP_POOL_COUNT}")
     if "tls" in server.get("transport", {}):
         raise ValueError("frps behind the TLS-terminating reverse proxy must not require inner TLS")
     if nested(server, "auth", "method") != "token" or nested(server, "auth", "tokenSource", "type") != "file" or not nested(server, "auth", "tokenSource", "file", "path"):
@@ -66,10 +75,12 @@ def validate_caddy_contract(text):
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         raise ValueError("Caddy routes must be ordered pairing, tunnel, device control, device data")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "max_conns_per_host 2", "max_conns_per_host 4", "mode verify_if_given"):
+    control_marker = f"max_conns_per_host {CONTROL_CONNECTION_LIMIT}"
+    data_marker = f"max_conns_per_host {DATA_CONNECTION_LIMIT}"
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", control_marker, data_marker, "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
-    if active.count("max_conns_per_host 2") != 1 or active.count("max_conns_per_host 4") != 1:
+    if active.count(control_marker) != 1 or active.count(data_marker) != 1:
         raise ValueError("Caddy device control/data connection lanes must be unique")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
         raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")

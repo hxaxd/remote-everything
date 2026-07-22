@@ -48,7 +48,7 @@ npm install --prefix "{{PI_WEB_DIR}}" --install-strategy=nested --ignore-scripts
 - `WGPI_PI_BIN={{PI_BINARY}}`，不依赖计划任务继承的 PATH。
 - `HOME={{PI_HOME}}`，让 wgnr-pi 在 Windows 上找到 Pi 会话目录。
 
-启动器同时核验包名和版本，仅对 wgnr-pi 包目录内的静态文件替换 `sendFile` 行为；版本变化会拒绝启动，必须先完成更新验证。
+启动器同时核验包名和版本，仅对 wgnr-pi 包目录内的静态文件替换 `sendFile` 行为；并在进程内把 wgnr-pi 1.5.2 的 Windows 会话目录键映射到 Pi 自身使用的跨平台编码，修复会话已落盘但列表为空的问题。返回首页时只把已删除的 `mode-pi` 元素访问改为可选访问，避免 WebSocket 连接后的初始化被中断。两个兼容点都严格核对固定源码片段或路径组件，版本变化会拒绝启动，必须先完成更新验证。
 
 wgnr-pi 自身不鉴权，因此回环监听是强制安全边界。`proxy_url` 必须与 `WGPI_PORT` 一致且只能使用 `127.0.0.1`。
 

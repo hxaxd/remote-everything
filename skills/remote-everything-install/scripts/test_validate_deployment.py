@@ -23,6 +23,10 @@ class DeploymentContractTests(unittest.TestCase):
         server = (ASSETS / "frps.toml.tmpl").read_text(encoding="utf-8").replace("{{FRPS_PORT}}", "5003").replace("{{FRPS_TOKEN_FILE}}", "/token").replace("{{FRPS_LOG}}", "/frps.log")
         validator.validate_frp_contract(client, server)
         with self.assertRaises(ValueError):
+            validator.validate_frp_contract(client.replace("transport.poolCount = 16", "transport.poolCount = 15"), server)
+        with self.assertRaises(ValueError):
+            validator.validate_frp_contract(client, server.replace("transport.maxPoolCount = 16", "transport.maxPoolCount = 15"))
+        with self.assertRaises(ValueError):
             validator.validate_frp_contract(client, server + "\ntransport.tls.force = true\n")
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client.replace("[[proxies]]", 'transport.tls.trustedCaFile = "/ca.pem"\n\n[[proxies]]'), server)
@@ -45,9 +49,9 @@ class DeploymentContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\tencode zstd gzip\n", ""))
         with self.assertRaises(ValueError):
-            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 2\n", ""))
-        with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 4\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 16\n", ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\theader_up X-Remote-Everything-Client-Fingerprint", "\t\t\theader_up -X-Remote-Everything-Client-Fingerprint\n\t\t\theader_up X-Remote-Everything-Client-Fingerprint"))
         ip_caddy = caddy.replace("remote.example.com", "192.0.2.1")

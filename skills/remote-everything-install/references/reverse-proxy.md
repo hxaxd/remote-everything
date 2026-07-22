@@ -8,7 +8,7 @@
 4. 让精确 FRP WSS 路径只验证独立隧道 CA 并转发 FRPS loopback 上游。
 5. 丢弃客户端提交的同名指纹头；所有项目上游保持 loopback。
 6. 对设备页面的可压缩响应启用 Zstandard/Gzip 内容编码，避免大型前端资源在公网链路上原样传输。
-7. 设备上游分为独立连接通道：`/__remote_everything*` 目录与控制固定最多 2 个连接，其余网页数据固定最多 4 个连接。FRP v0.70.0 在默认 `poolCount=0` 时服务端工作连接通道容量为 10；总并发收敛到 6，并保证网页资源突发不能占用目录通道，避免 `work connection pool is full` 或目录探活等满 7 秒后误报节点离线。
+7. 设备上游分为独立连接通道：`/__remote_everything*` 目录与控制固定最多 4 个连接，其余网页数据固定最多 16 个连接。FRP v0.70.0 的客户端 `transport.poolCount` 与服务端 `transport.maxPoolCount` 均固定为 16；服务端工作连接通道容量随连接池扩展为 26，总并发收敛到 20。目录通道继续独立，双网页界面、长期 WebSocket 与流式响应不会轻易耗尽网页通道，同时保留明确的资源上限。
 
 先以能够读取 socket PID 的权限运行 `scripts/inspect_443.py`。脚本从 443 监听 PID 的 cgroup 精确解析 systemd unit 与 FragmentPath；非 systemd 进程返回真实 executable。端口已占用但 PID 不可见、系统命令失败或 unit 定义不明确时脚本以 `ok:false` 失败，不猜测 owner。然后检查该 owner 的证书验证、issuer 路由、WebSocket 和叶证书 SHA-256 指纹能力。满足契约时生成只包含本站点的最小片段，验证完整配置后原子重载，并记录真实插入点和恢复方法。
 
