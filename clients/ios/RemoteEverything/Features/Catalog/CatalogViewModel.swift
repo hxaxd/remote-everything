@@ -65,7 +65,7 @@ final class CatalogViewModel {
         if let first = selected {
             // Verify credential exists for public profiles
             if first.mode == .public && !KeychainStore.hasCredential(installationId: first.installationId) {
-                try? profileStore.remove(installationId: first.installationId)
+                try? await profileStore.remove(installationId: first.installationId)
                 profiles = profileStore.profiles
                 activeProfile = nil
                 return
@@ -176,9 +176,9 @@ final class CatalogViewModel {
         startPolling()
     }
 
-    func deleteProfile(_ config: ConnectionConfig) throws {
-        try KeychainStore.deleteAll(for: config.installationId)
-        try profileStore.remove(installationId: config.installationId)
+    @MainActor
+    func deleteProfile(_ config: ConnectionConfig) async throws {
+        try await profileStore.remove(installationId: config.installationId)
         profiles = profileStore.profiles
         if activeProfile?.installationId == config.installationId {
             stopPolling()
@@ -257,13 +257,20 @@ final class CatalogViewModel {
         // Error message will be shown via the UI binding
     }
 
+    @MainActor
     private func handleAuthorizationRevoked(config: ConnectionConfig) {
+        // Revoke the credential immediately, then let navigation unwind the
+        // active WebView before removing its persistent website data store.
         try? KeychainStore.deleteAll(for: config.installationId)
-        try? profileStore.remove(installationId: config.installationId)
-        profiles = profileStore.profiles
         if activeProfile?.installationId == config.installationId {
             stopPolling()
             activeProfile = nil
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await Task.yield()
+            try? await self.profileStore.remove(installationId: config.installationId)
+            self.profiles = self.profileStore.profiles
         }
     }
 }

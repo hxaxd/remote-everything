@@ -7,7 +7,7 @@
 - `caddy-systemd.service.tmpl`：无既有 443 入口时的 Linux Caddy；以非 root 部署账户运行，只授予绑定 443 的 capability，并把证书数据与自动配置放入 `.runtime`。
 - `launchd.plist.tmpl`：macOS 节点侧；安装到部署用户的 `~/Library/LaunchAgents/`，label 包含 `installation_id`，仅在该用户登录期间可用。
 - `scheduled-task.xml.tmpl` / `hidden-launcher.vbs.tmpl`：Windows 节点侧；渲染器用确定的 Windows 命令行规则生成每组件隐藏启动器，计划任务由用户登录触发并只经 wscript 调用该启动器。
-- `frpc.toml.tmpl` / `frps.toml.tmpl`：固定 FRP v0.70.0、wire protocol v2、WSS `/~!frp`、由 443 入口验证的独立隧道客户端证书、系统信任的公网服务端证书、文件 token 和明文 loopback FRPS 上游。TLS 只在 frpc 到 443 入口这一段终止一次；节点映射端口取自状态。
+- `frpc.toml.tmpl` / `frps.toml.tmpl`：固定 FRP v0.70.0、wire protocol v2、WSS `/~!frp`、16 条预建工作连接及相同服务端池上限、由 443 入口验证的独立隧道客户端证书、系统信任的公网服务端证书、文件 token 和明文 loopback FRPS 上游。TLS 只在 frpc 到 443 入口这一段终止一次；节点映射端口取自状态。
 - `Caddyfile.tmpl`：固定 Caddy v2.11.4；配对、设备和隧道按路径与证书 issuer 分类，覆盖设备指纹头，所有上游取自 `server.json`。
 
 渲染后运行对应检查：`systemd-analyze verify`、`plutil -lint`、计划任务 XML 注册后查询，以及 `scripts/validate_deployment.py` 对 FRP/Caddy 的契约和原生解析检查。无现有入口时用 `render.py caddy-systemd` 生成 Caddy 系统服务；把模板、渲染文件、管理器 ID 和检查结果写入运行记录。

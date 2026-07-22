@@ -37,7 +37,7 @@
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
 			transport http {
-				max_conns_per_host 2
+				max_conns_per_host 4
 			}
 		}
 	}
@@ -47,7 +47,7 @@
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
 			transport http {
-				max_conns_per_host 4
+				max_conns_per_host 16
 			}
 		}
 	}

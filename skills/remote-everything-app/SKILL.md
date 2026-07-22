@@ -14,7 +14,7 @@ description: 管理 Remote Everything 节点应用。用于发现、登记、更
 1. 检查应用启动命令、工作目录、loopback `proxy_url` 与停止方式；从应用现有标识与元数据推导稳定 ID 和显示名称，登记后启动并验证。只有用户明确要求保持停用时才不启动；不让用户填写技术字段。探活地址从 `proxy_url` 派生。
 2. 将严格应用定义写入权限受限的临时 JSON 文件，执行 `remote-everything-control app set --state <state/node> --file <文件>`，登记后销毁临时文件。
 3. 执行 `app list` 核对定义；需要启用时调用本地控制接口 `start`，等待 `status` 返回 `ready`。
-4. 从 Android、iOS 或 HarmonyOS 的真实移动客户端入口访问应用，验证路径、查询参数、Cookie 和 WebSocket 行为，并与已登记应用逐一复验共存。应用共享网关 origin，但客户端必须按 `installationId × appId` 使用独立且持久的 Web 数据空间，Cookie、Web Storage、缓存和 Service Worker 不得跨应用共享；应用不得占用 `/__remote_everything` 路径。网关会丢弃应用返回的 `RemoteEverythingApp` 路由 Cookie。
+4. 从 Android、iOS 或 HarmonyOS 的真实移动客户端入口访问应用，验证路径、查询参数、Cookie 和 WebSocket 行为，并与已登记应用逐一复验共存。应用共享网关 origin；Android 与 iOS 必须按 `installationId × appId` 使用独立且持久的 Web 数据空间，HarmonyOS 必须在应用切换前清空无痕 Cookie、Web Storage 与缓存，任何平台都不得跨应用复用会话资料。应用不得占用 `/__remote_everything` 路径。网关会丢弃应用返回的 `RemoteEverythingApp` 路由 Cookie。
 
 ## 更新
 

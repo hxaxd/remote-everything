@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+const testToken = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" // gitleaks:allow -- deterministic test fixture
 
 func newTestGateway(t *testing.T, application http.HandlerFunc) (*Gateway, *httptest.Server) {
 	t.Helper()

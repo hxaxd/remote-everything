@@ -4,10 +4,10 @@ import SwiftUI
 /// Mirrors Android's `SettingsScreen`.
 struct SettingsView: View {
     @Bindable var model: AppViewModel
+    @Bindable var updater: AppUpdater
     @AppStorage("theme_mode") private var themeMode = "system"
-    @AppStorage("display_mode") private var displayMode = "phone"
+    @AppStorage("global_display_mode") private var displayMode = "phone"
     @AppStorage("global_orientation") private var orientation = "system"
-    @State private var updater = AppUpdater()
 
     var body: some View {
         Form {
@@ -19,6 +19,10 @@ struct SettingsView: View {
                     Text("横屏锁定").tag("landscape")
                 }
                 .pickerStyle(.segmented)
+                .onChange(of: orientation) {
+                    ClientSettings.shared.setGlobalOrientation(orientation)
+                    OrientationController.apply(orientation)
+                }
             }
 
             // Display mode
@@ -28,6 +32,9 @@ struct SettingsView: View {
                     Text("电脑").tag("desktop")
                 }
                 .pickerStyle(.segmented)
+                .onChange(of: displayMode) {
+                    ClientSettings.shared.setGlobalDisplayMode(displayMode)
+                }
             }
 
             // Theme
@@ -38,6 +45,9 @@ struct SettingsView: View {
                     Text("深色").tag("dark")
                 }
                 .pickerStyle(.segmented)
+                .onChange(of: themeMode) {
+                    ClientSettings.shared.setThemeMode(themeMode)
+                }
             }
 
             // Connection info

@@ -50,6 +50,9 @@ struct CatalogView: View {
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
+                EditButton()
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     model.navigationPath.append(.settings)
                 } label: {
@@ -60,6 +63,12 @@ struct CatalogView: View {
         .onDisappear {
             // Keep polling while in catalog subtree
         }
+        .onChange(of: catalogVM.activeProfile?.installationId) {
+            if catalogVM.activeProfile == nil {
+                model.activeProfile = nil
+                model.navigationPath.removeAll()
+            }
+        }
     }
 
     // MARK: - App List
@@ -67,12 +76,12 @@ struct CatalogView: View {
     @ViewBuilder
     private func appList(_ snapshot: CatalogSnapshot) -> some View {
         List {
-            ForEach(snapshot.apps) { app in
+            ForEach(orderedApps(snapshot.apps)) { app in
                 AppCardView(
                     app: app,
                     onOpen: {
                         model.navigationPath.append(
-                            .remote(appId: app.id, openUrl: app.openUrl)
+                            .remote(appId: app.id, appName: app.name, openUrl: app.openUrl)
                         )
                     },
                     onToggle: {
@@ -83,10 +92,28 @@ struct CatalogView: View {
                     }
                 )
             }
+            .onMove { source, destination in
+                var apps = orderedApps(snapshot.apps)
+                apps.move(fromOffsets: source, toOffset: destination)
+                if let installationId = catalogVM.activeProfile?.installationId {
+                    ClientSettings.shared.setAppOrder(apps.map(\.id), installationId: installationId)
+                }
+            }
         }
         .refreshable {
             await catalogVM.refreshCatalog()
         }
+    }
+
+    private func orderedApps(_ apps: [RemoteApp]) -> [RemoteApp] {
+        guard let installationId = catalogVM.activeProfile?.installationId else { return apps }
+        let order = ClientSettings.shared.appOrder(installationId: installationId)
+        let positions = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        return apps.enumerated().sorted { left, right in
+            let leftPosition = positions[left.element.id] ?? (order.count + left.offset)
+            let rightPosition = positions[right.element.id] ?? (order.count + right.offset)
+            return leftPosition < rightPosition
+        }.map(\.element)
     }
 }
 

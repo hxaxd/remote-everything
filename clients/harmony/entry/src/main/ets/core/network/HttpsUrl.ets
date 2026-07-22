@@ -23,6 +23,7 @@ export class HttpsUrl {
   private static readonly IPV6_GROUP_PATTERN = /^[0-9a-f]{1,4}$/i;
 
   static parse(value: string, originOnly: boolean = false): HttpsUrlParts | null {
+    if (typeof value !== 'string') return null;
     if (HttpsUrl.hasUnsafeCharacter(value)) {
       return null;
     }
