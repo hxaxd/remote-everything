@@ -6,6 +6,8 @@ struct ConnectionsView: View {
     @Bindable var catalogVM: CatalogViewModel
     @State private var showDeleteAlert = false
     @State private var profileToDelete: ConnectionConfig?
+    @State private var deletingInstallationId: String?
+    @State private var deleteError: String?
 
     var body: some View {
         List {
@@ -45,6 +47,7 @@ struct ConnectionsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .disabled(deletingInstallationId != nil)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             profileToDelete = profile
@@ -69,14 +72,37 @@ struct ConnectionsView: View {
         .alert("删除连接", isPresented: $showDeleteAlert, presenting: profileToDelete) { profile in
             Button("取消", role: .cancel) {}
             Button("删除", role: .destructive) {
-                try? catalogVM.deleteProfile(profile)
-                if catalogVM.activeProfile == nil {
-                    model.activeProfile = nil
-                    model.navigationPath.removeAll()
+                deletingInstallationId = profile.installationId
+                Task { @MainActor in
+                    defer {
+                        deletingInstallationId = nil
+                        profileToDelete = nil
+                    }
+                    do {
+                        try await catalogVM.deleteProfile(profile)
+                        if catalogVM.activeProfile == nil {
+                            model.activeProfile = nil
+                            model.navigationPath.removeAll()
+                        }
+                    } catch {
+                        deleteError = error.localizedDescription
+                    }
                 }
             }
+            .disabled(deletingInstallationId != nil)
         } message: { profile in
             Text("确定要删除「\(profile.name)」吗？\n此操作将同时清除设备凭据和应用数据。")
+        }
+        .alert(
+            "未能删除连接",
+            isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            )
+        ) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(deleteError ?? "未知错误")
         }
     }
 }

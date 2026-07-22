@@ -2,59 +2,59 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#FAFAF9"
+      "value": "#0C0A09"
     },
     {
       "name": "page_background",
-      "value": "#FAFAF9"
+      "value": "#0C0A09"
     },
     {
       "name": "surface_card",
-      "value": "#F5F5F4"
+      "value": "#141210"
     },
     {
       "name": "surface_elevated",
-      "value": "#FFFFFF"
-    },
-    {
-      "name": "text_primary",
       "value": "#1C1917"
     },
     {
+      "name": "text_primary",
+      "value": "#F5F5F4"
+    },
+    {
       "name": "text_secondary",
-      "value": "#78716C"
+      "value": "#A8A29E"
     },
     {
       "name": "outline",
-      "value": "#E7E5E4"
+      "value": "#292524"
     },
     {
       "name": "primary",
-      "value": "#B45309"
+      "value": "#FBBF24"
     },
     {
       "name": "on_primary",
-      "value": "#FFFFFF"
-    },
-    {
-      "name": "primary_container",
-      "value": "#FEF3C7"
-    },
-    {
-      "name": "on_primary_container",
       "value": "#451A03"
     },
     {
+      "name": "primary_container",
+      "value": "#78350F"
+    },
+    {
+      "name": "on_primary_container",
+      "value": "#FEF3C7"
+    },
+    {
       "name": "success",
-      "value": "#16A34A"
+      "value": "#4ADE80"
     },
     {
       "name": "success_container",
-      "value": "#DCFCE7"
+      "value": "#14532D"
     },
     {
       "name": "error",
-      "value": "#DC2626"
+      "value": "#F87171"
     }
   ]
 }

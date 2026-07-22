@@ -31,15 +31,15 @@ struct AppRoot: View {
                 case .connections:
                     ConnectionsView(model: model, catalogVM: catalogVM)
                 case .settings:
-                    SettingsView(model: model)
+                    SettingsView(model: model, updater: model.updater)
                 case .setupWizard:
                     SetupWizardView(model: model, catalogVM: catalogVM)
-                case .remote(let appId, let openUrl):
+                case .remote(let appId, let appName, let openUrl):
                     if let config = model.activeProfile {
                         RemoteWebView(
                             config: config,
                             appId: appId,
-                            appName: appId,
+                            appName: appName,
                             openUrl: openUrl
                         )
                     }
@@ -47,10 +47,12 @@ struct AppRoot: View {
             }
         }
         .task {
+            OrientationController.apply(ClientSettings.shared.globalOrientation)
             await catalogVM.bootstrap()
             if catalogVM.activeProfile != nil {
                 model.activeProfile = catalogVM.activeProfile
             }
+            await model.updater.checkForUpdatesIfNeeded()
         }
         .preferredColorScheme(preferredColorScheme)
     }

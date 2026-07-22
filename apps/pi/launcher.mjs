@@ -1,7 +1,9 @@
-import { createRequire } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import nodePath from "node:path";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { patchIndexHtml, piSessionKey, upstreamSessionKey } from "./compat.mjs";
 
 const [serverScript, portText, workdir, home, piBinary] = process.argv.slice(2);
 
@@ -41,6 +43,24 @@ if (packageMetadata.name !== "wgnr-pi" || packageMetadata.version !== "1.5.2") {
   fail("expected wgnr-pi 1.5.2");
 }
 
+// wgnr-pi 1.5.2 only encodes POSIX separators when locating sessions. Redirect
+// that one broken Windows path component to the encoding used by Pi itself.
+const brokenSessionKey = upstreamSessionKey(workdir);
+const correctSessionKey = piSessionKey(workdir);
+if (brokenSessionKey !== correctSessionKey) {
+  const originalJoin = nodePath.join;
+  nodePath.join = (...parts) => originalJoin(...parts.map((part) => part === brokenSessionKey ? correctSessionKey : part));
+  syncBuiltinESMExports();
+}
+
+const indexPath = realpathSync(join(serverRoot, "public", "index.html"));
+let patchedIndexHtml;
+try {
+  patchedIndexHtml = patchIndexHtml(readFileSync(indexPath, "utf8"));
+} catch (error) {
+  fail(`unsupported wgnr-pi page: ${error.message}`);
+}
+
 // Express' sendFile ignores absolute paths containing the managed `.runtime`
 // directory on Windows. Keep the compatibility behavior process-local and
 // constrain it to files shipped inside the pinned wgnr-pi package.
@@ -54,6 +74,7 @@ express.response.sendFile = function sendManagedFile(filePath, ...args) {
   const insideServer = relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
   if (!insideServer) return originalSendFile.call(this, filePath, ...args);
   this.type(absolutePath);
+  if (absolutePath === indexPath) return this.send(patchedIndexHtml);
   return this.send(readFileSync(absolutePath));
 };
 

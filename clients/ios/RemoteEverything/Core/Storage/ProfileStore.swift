@@ -32,13 +32,33 @@ final class ProfileStore {
         try save()
     }
 
-    func remove(installationId: String) throws {
-        profiles.removeAll { $0.installationId == installationId }
-        try save()
-        if activeInstallationId() == installationId {
-            setActiveInstallationId(nil)
+    @MainActor
+    func remove(installationId: String) async throws {
+        let registry = WebDataStoreRegistry.shared
+        try await registry.prepareProfileRemoval(installationId: installationId)
+
+        do {
+            // Keep the profile addressable until sensitive and WebKit data have
+            // both been cleared. A failed cleanup can then be retried safely.
+            try KeychainStore.deleteAll(for: installationId)
+            ClientSettings.shared.removeAppScopedValues(installationId: installationId)
+
+            let previousProfiles = profiles
+            profiles.removeAll { $0.installationId == installationId }
+            do {
+                try save()
+            } catch {
+                profiles = previousProfiles
+                throw error
+            }
+            if activeInstallationId() == installationId {
+                setActiveInstallationId(nil)
+            }
+            registry.finishProfileRemoval(installationId: installationId)
+        } catch {
+            registry.cancelProfileRemoval(installationId: installationId)
+            throw error
         }
-        try KeychainStore.deleteAll(for: installationId)
     }
 
     func activeInstallationId() -> String? {
