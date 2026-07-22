@@ -100,6 +100,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     fun bootstrap() {
         if (bootstrapped) return
         bootstrapped = true
+        // bootstrap 在每个应用进程中只执行一次，因此自动检查不会因界面重组或导航重复触发。
+        checkForUpdate()
         _profiles.value = settings.profiles()
         val pending = setupTransaction.recover()
         val active = settings.activeProfile()?.takeIf { it.mode != "public" || identity.hasCredential(it.installationId) }

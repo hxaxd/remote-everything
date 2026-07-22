@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import Security
 
+@MainActor
 @Observable
 final class AppViewModel {
     var profiles: [ConnectionConfig] = []
@@ -13,17 +14,19 @@ final class AppViewModel {
     var setupTransaction: SetupTransaction?
     let profileStore: ProfileStore
     let identityStore: AppIdentityStore
+    let updater: AppUpdater
 
     init() {
         self.profileStore = ProfileStore()
         self.identityStore = AppIdentityStore()
+        self.updater = AppUpdater()
     }
 
     enum AppRoute: Hashable {
         case catalog
         case connections
         case settings
-        case remote(appId: String, openUrl: String)
+        case remote(appId: String, appName: String, openUrl: String)
         case setupWizard
     }
 
@@ -38,8 +41,8 @@ final class AppViewModel {
         activeProfile = profile
     }
 
-    func removeProfile(_ installationId: String) throws {
-        try profileStore.remove(installationId: installationId)
+    func removeProfile(_ installationId: String) async throws {
+        try await profileStore.remove(installationId: installationId)
         if activeProfile?.installationId == installationId {
             activeProfile = nil
         }

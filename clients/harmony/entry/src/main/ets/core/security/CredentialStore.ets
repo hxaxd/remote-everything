@@ -5,7 +5,8 @@ import { cert } from '@kit.DeviceCertificateKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { asset } from '@kit.AssetStoreKit';
 
-type CredentialState = 'pending' | 'active';
+type CredentialState = 'pending' | 'active' | 'rollback';
+type PromotionMarker = 'previous' | 'new' | 'installed' | 'committed';
 
 export interface ClientIdentity {
   certPath: string;
@@ -13,6 +14,16 @@ export interface ClientIdentity {
   password: string;
   privateKeyPath: string;
   certificateChainPath: string;
+}
+
+export class CredentialPromotion {
+  readonly installationId: string;
+  readonly hadPreviousCredential: boolean;
+
+  constructor(installationId: string, hadPreviousCredential: boolean) {
+    this.installationId = installationId;
+    this.hadPreviousCredential = hadPreviousCredential;
+  }
 }
 
 /**
@@ -95,8 +106,11 @@ export class CredentialStore {
     }
   }
 
-  static async promoteCredential(installationId: string): Promise<void> {
+  static async promoteCredential(installationId: string): Promise<CredentialPromotion> {
     CredentialStore.requireConfigured();
+    if (CredentialStore.credentialPromotion(installationId) !== null) {
+      throw new Error('设备身份存在尚未恢复的提升事务');
+    }
     const pendingPath = CredentialStore.p12Path(installationId, 'pending');
     const password = await CredentialStore.loadSecret(
       CredentialStore.passwordAlias(installationId, 'pending')
@@ -106,17 +120,137 @@ export class CredentialStore {
     }
 
     const activePath = CredentialStore.p12Path(installationId, 'active');
-    const replacementPath = `${activePath}.new`;
-    CredentialStore.deleteFile(replacementPath);
-    fileIo.copyFileSync(pendingPath, replacementPath);
-    await CredentialStore.storeSecret(
-      CredentialStore.passwordAlias(installationId, 'active'),
-      password
+    const activePassword = await CredentialStore.loadSecret(
+      CredentialStore.passwordAlias(installationId, 'active')
     );
-    CredentialStore.deleteFile(activePath);
-    fileIo.renameSync(replacementPath, activePath);
+    const activeFileExists = CredentialStore.fileExists(activePath);
+    if (activeFileExists !== (activePassword !== null)) {
+      throw new Error('已有设备身份不完整，拒绝覆盖');
+    }
 
-    await CredentialStore.discardStagedCredential(installationId);
+    const promotion = new CredentialPromotion(installationId, activeFileExists);
+    await CredentialStore.prepareCredentialRollback(promotion, activePassword);
+    CredentialStore.writePromotionMarker(
+      installationId,
+      promotion.hadPreviousCredential ? 'previous' : 'new'
+    );
+
+    try {
+      await CredentialStore.installPendingCredential(installationId, password);
+      CredentialStore.writePromotionMarker(installationId, 'installed');
+      return promotion;
+    } catch (error) {
+      try {
+        await CredentialStore.restoreCredentialPromotion(promotion);
+        await CredentialStore.discardCredentialRollback(promotion.installationId);
+        CredentialStore.deletePromotionMarkers(promotion.installationId);
+      } catch {
+        throw new Error('设备身份提升失败，且旧身份恢复失败');
+      }
+      throw error as Error;
+    }
+  }
+
+  static async rollbackCredentialPromotion(promotion: CredentialPromotion): Promise<void> {
+    CredentialStore.requireConfigured();
+    await CredentialStore.restoreCredentialPromotion(promotion);
+    await CredentialStore.discardCredentialRollback(promotion.installationId);
+    CredentialStore.deletePromotionMarkers(promotion.installationId);
+  }
+
+  static async markCredentialPromotionCommitted(promotion: CredentialPromotion): Promise<void> {
+    CredentialStore.requireConfigured();
+    const stored = CredentialStore.credentialPromotion(promotion.installationId);
+    if (stored === null || stored.hadPreviousCredential !== promotion.hadPreviousCredential ||
+        !CredentialStore.hasPromotionMarker(promotion.installationId, 'installed')) {
+      throw new Error('设备身份提升事务不完整');
+    }
+    CredentialStore.writePromotionMarker(promotion.installationId, 'committed');
+  }
+
+  static async reconcileCredentialPromotion(
+    installationId: string,
+    profileCommitted: boolean
+  ): Promise<void> {
+    CredentialStore.requireConfigured();
+    const promotion = CredentialStore.credentialPromotion(installationId);
+    if (promotion === null) {
+      return;
+    }
+
+    const committed = profileCommitted ||
+      CredentialStore.hasPromotionMarker(installationId, 'committed');
+    if (!committed) {
+      await CredentialStore.restoreCredentialPromotion(promotion);
+      await CredentialStore.discardCredentialRollback(installationId);
+      CredentialStore.deletePromotionMarkers(installationId);
+      return;
+    }
+
+    // The profile commit is the cross-store source of truth. If the process
+    // stopped between the active password and PKCS#12 replacement, replaying
+    // from pending makes the pair coherent before the journal is cleared.
+    const pendingPassword = await CredentialStore.loadSecret(
+      CredentialStore.passwordAlias(installationId, 'pending')
+    );
+    if (pendingPassword !== null &&
+        CredentialStore.fileExists(CredentialStore.p12Path(installationId, 'pending'))) {
+      await CredentialStore.installPendingCredential(installationId, pendingPassword);
+    } else if (await CredentialStore.hasCompleteCredential(installationId, 'active')) {
+      // Cleanup may have removed pending just before the process stopped. Rebuild
+      // it from the already committed active pair so bootstrap can retry the
+      // activation flow and reload the profile after unlocking the journal.
+      const activePassword = await CredentialStore.loadSecret(
+        CredentialStore.passwordAlias(installationId, 'active')
+      );
+      if (activePassword === null) {
+        throw new Error('已提交连接的设备身份无法恢复');
+      }
+      const pendingPath = CredentialStore.p12Path(installationId, 'pending');
+      CredentialStore.deleteFile(pendingPath);
+      fileIo.copyFileSync(
+        CredentialStore.p12Path(installationId, 'active'),
+        pendingPath
+      );
+      CredentialStore.syncFile(pendingPath);
+      await CredentialStore.storeSecret(
+        CredentialStore.passwordAlias(installationId, 'pending'),
+        activePassword
+      );
+    } else {
+      throw new Error('已提交连接的设备身份无法恢复');
+    }
+    await CredentialStore.discardCredentialRollback(installationId);
+    CredentialStore.deletePromotionMarkers(installationId);
+  }
+
+  static async completeCredentialPromotion(promotion: CredentialPromotion): Promise<void> {
+    CredentialStore.requireConfigured();
+    if (!CredentialStore.hasPromotionMarker(promotion.installationId, 'committed')) {
+      throw new Error('设备身份提升尚未与连接提交同步');
+    }
+    let cleanupError: Error | null = null;
+    try {
+      CredentialStore.deleteCredentialFilesStrict(promotion.installationId, 'pending');
+      await CredentialStore.deleteSecretStrict(
+        CredentialStore.passwordAlias(promotion.installationId, 'pending')
+      );
+    } catch (error) {
+      cleanupError = error as Error;
+    }
+    try {
+      await CredentialStore.discardCredentialRollback(promotion.installationId);
+    } catch (error) {
+      if (cleanupError === null) {
+        cleanupError = error as Error;
+      }
+    }
+    if (cleanupError === null) {
+      CredentialStore.deletePromotionMarkers(promotion.installationId);
+    }
+    if (cleanupError !== null) {
+      throw cleanupError;
+    }
   }
 
   static async stagedClientIdentity(installationId: string): Promise<ClientIdentity> {
@@ -124,6 +258,9 @@ export class CredentialStore {
   }
 
   static async activeClientIdentity(installationId: string): Promise<ClientIdentity> {
+    if (CredentialStore.credentialPromotion(installationId) !== null) {
+      throw new Error('设备身份提升事务尚未恢复');
+    }
     return await CredentialStore.loadClientIdentity(installationId, 'active');
   }
 
@@ -183,24 +320,192 @@ export class CredentialStore {
 
   static async hasCredential(installationId: string): Promise<boolean> {
     CredentialStore.requireConfigured();
-    return CredentialStore.fileExists(CredentialStore.p12Path(installationId, 'active')) &&
-      await CredentialStore.loadSecret(
-        CredentialStore.passwordAlias(installationId, 'active')
-      ) !== null;
+    if (CredentialStore.credentialPromotion(installationId) !== null) {
+      return false;
+    }
+    return await CredentialStore.hasCompleteCredential(installationId, 'active');
   }
 
   static async discardStagedCredential(installationId: string): Promise<void> {
     CredentialStore.requireConfigured();
-    CredentialStore.deleteCredentialFiles(installationId, 'pending');
-    await CredentialStore.deleteSecret(CredentialStore.passwordAlias(installationId, 'pending'));
+    if (CredentialStore.credentialPromotion(installationId) !== null) {
+      throw new Error('设备身份提升事务尚未恢复');
+    }
+    CredentialStore.deleteCredentialFilesStrict(installationId, 'pending');
+    await CredentialStore.deleteSecretStrict(
+      CredentialStore.passwordAlias(installationId, 'pending')
+    );
   }
 
   static async deleteAll(installationId: string): Promise<void> {
     CredentialStore.requireConfigured();
-    CredentialStore.deleteCredentialFiles(installationId, 'pending');
-    CredentialStore.deleteCredentialFiles(installationId, 'active');
-    await CredentialStore.deleteSecret(CredentialStore.passwordAlias(installationId, 'pending'));
-    await CredentialStore.deleteSecret(CredentialStore.passwordAlias(installationId, 'active'));
+    CredentialStore.deleteCredentialFilesStrict(installationId, 'pending');
+    CredentialStore.deleteCredentialFilesStrict(installationId, 'active');
+    CredentialStore.deleteCredentialFilesStrict(installationId, 'rollback');
+    CredentialStore.deletePromotionMarkers(installationId);
+    await CredentialStore.deleteSecretStrict(CredentialStore.passwordAlias(installationId, 'pending'));
+    await CredentialStore.deleteSecretStrict(CredentialStore.passwordAlias(installationId, 'active'));
+    await CredentialStore.deleteSecretStrict(CredentialStore.passwordAlias(installationId, 'rollback'));
+  }
+
+  private static async prepareCredentialRollback(
+    promotion: CredentialPromotion,
+    activePassword: string | null
+  ): Promise<void> {
+    await CredentialStore.discardCredentialRollback(promotion.installationId);
+    if (!promotion.hadPreviousCredential || activePassword === null) {
+      return;
+    }
+
+    const rollbackPath = CredentialStore.p12Path(promotion.installationId, 'rollback');
+    try {
+      fileIo.copyFileSync(
+        CredentialStore.p12Path(promotion.installationId, 'active'),
+        rollbackPath
+      );
+      CredentialStore.syncFile(rollbackPath);
+      await CredentialStore.storeSecret(
+        CredentialStore.passwordAlias(promotion.installationId, 'rollback'),
+        activePassword
+      );
+    } catch (error) {
+      CredentialStore.deleteFile(rollbackPath);
+      await CredentialStore.deleteSecret(
+        CredentialStore.passwordAlias(promotion.installationId, 'rollback')
+      );
+      throw error as Error;
+    }
+  }
+
+  private static async restoreCredentialPromotion(
+    promotion: CredentialPromotion
+  ): Promise<void> {
+    const activePath = CredentialStore.p12Path(promotion.installationId, 'active');
+    if (!promotion.hadPreviousCredential) {
+      CredentialStore.deleteCredentialFilesStrict(promotion.installationId, 'active');
+      await CredentialStore.deleteSecretStrict(
+        CredentialStore.passwordAlias(promotion.installationId, 'active')
+      );
+      return;
+    }
+
+    const rollbackPath = CredentialStore.p12Path(promotion.installationId, 'rollback');
+    const rollbackPassword = await CredentialStore.loadSecret(
+      CredentialStore.passwordAlias(promotion.installationId, 'rollback')
+    );
+    if (!CredentialStore.fileExists(rollbackPath) || rollbackPassword === null) {
+      throw new Error('旧设备身份备份不完整');
+    }
+
+    const replacementPath = `${activePath}.restore`;
+    CredentialStore.deleteFile(replacementPath);
+    fileIo.copyFileSync(rollbackPath, replacementPath);
+    CredentialStore.syncFile(replacementPath);
+    try {
+      await CredentialStore.storeSecret(
+        CredentialStore.passwordAlias(promotion.installationId, 'active'),
+        rollbackPassword
+      );
+      CredentialStore.deleteFile(activePath);
+      fileIo.renameSync(replacementPath, activePath);
+      CredentialStore.syncFile(activePath);
+      CredentialStore.deleteWebCredentialFiles(promotion.installationId, 'active');
+    } catch (error) {
+      CredentialStore.deleteFile(replacementPath);
+      throw error as Error;
+    }
+  }
+
+  private static async discardCredentialRollback(installationId: string): Promise<void> {
+    CredentialStore.deleteCredentialFilesStrict(installationId, 'rollback');
+    await CredentialStore.deleteSecretStrict(
+      CredentialStore.passwordAlias(installationId, 'rollback')
+    );
+  }
+
+  private static async installPendingCredential(
+    installationId: string,
+    password: string
+  ): Promise<void> {
+    const pendingPath = CredentialStore.p12Path(installationId, 'pending');
+    if (!CredentialStore.fileExists(pendingPath)) {
+      throw new Error('待激活设备身份文件已丢失');
+    }
+    const activePath = CredentialStore.p12Path(installationId, 'active');
+    const replacementPath = `${activePath}.new`;
+    CredentialStore.deleteFile(replacementPath);
+    fileIo.copyFileSync(pendingPath, replacementPath);
+    CredentialStore.syncFile(replacementPath);
+    try {
+      await CredentialStore.storeSecret(
+        CredentialStore.passwordAlias(installationId, 'active'),
+        password
+      );
+      CredentialStore.deleteFile(activePath);
+      fileIo.renameSync(replacementPath, activePath);
+      CredentialStore.syncFile(activePath);
+      CredentialStore.deleteWebCredentialFiles(installationId, 'active');
+    } catch (error) {
+      CredentialStore.deleteFile(replacementPath);
+      throw error as Error;
+    }
+  }
+
+  private static async hasCompleteCredential(
+    installationId: string,
+    state: CredentialState
+  ): Promise<boolean> {
+    return CredentialStore.fileExists(CredentialStore.p12Path(installationId, state)) &&
+      await CredentialStore.loadSecret(
+        CredentialStore.passwordAlias(installationId, state)
+      ) !== null;
+  }
+
+  private static credentialPromotion(installationId: string): CredentialPromotion | null {
+    const previous = CredentialStore.hasPromotionMarker(installationId, 'previous');
+    const created = CredentialStore.hasPromotionMarker(installationId, 'new');
+    if (previous && created) {
+      throw new Error('设备身份提升日志损坏');
+    }
+    if (!previous && !created) {
+      return null;
+    }
+    return new CredentialPromotion(installationId, previous);
+  }
+
+  private static promotionMarkerPath(
+    installationId: string,
+    marker: PromotionMarker
+  ): string {
+    return `${CredentialStore.filesDir}/credential-${installationId}-promotion-${marker}`;
+  }
+
+  private static hasPromotionMarker(installationId: string, marker: PromotionMarker): boolean {
+    return CredentialStore.fileExists(
+      CredentialStore.promotionMarkerPath(installationId, marker)
+    );
+  }
+
+  private static writePromotionMarker(installationId: string, marker: PromotionMarker): void {
+    CredentialStore.writeText(
+      CredentialStore.promotionMarkerPath(installationId, marker),
+      marker
+    );
+  }
+
+  private static deletePromotionMarkers(installationId: string): void {
+    CredentialStore.deleteFileStrict(
+      CredentialStore.promotionMarkerPath(installationId, 'previous')
+    );
+    CredentialStore.deleteFileStrict(
+      CredentialStore.promotionMarkerPath(installationId, 'new')
+    );
+    CredentialStore.deleteFileStrict(
+      CredentialStore.promotionMarkerPath(installationId, 'installed')
+    );
+    CredentialStore.deleteFileStrict(
+      CredentialStore.promotionMarkerPath(installationId, 'committed')
+    );
   }
 
   private static requireConfigured(): void {
@@ -231,6 +536,18 @@ export class CredentialStore {
 
   private static deleteCredentialFiles(installationId: string, state: CredentialState): void {
     CredentialStore.deleteFile(CredentialStore.p12Path(installationId, state));
+    CredentialStore.deleteWebCredentialFiles(installationId, state);
+  }
+
+  private static deleteCredentialFilesStrict(
+    installationId: string,
+    state: CredentialState
+  ): void {
+    CredentialStore.deleteFileStrict(CredentialStore.p12Path(installationId, state));
+    CredentialStore.deleteWebCredentialFiles(installationId, state);
+  }
+
+  private static deleteWebCredentialFiles(installationId: string, state: CredentialState): void {
     CredentialStore.deleteFile(CredentialStore.webPrivateKeyPath(installationId, state));
     CredentialStore.deleteFile(CredentialStore.webCertificatePath(installationId, state));
   }
@@ -263,6 +580,7 @@ export class CredentialStore {
         ? data.buffer as ArrayBuffer
         : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer;
       fileIo.writeSync(file.fd, exact);
+      fileIo.fsyncSync(file.fd);
     } finally {
       fileIo.closeSync(file);
     }
@@ -272,6 +590,16 @@ export class CredentialStore {
     const file = fileIo.openSync(path, 0o2 | 0o100 | 0o1000);
     try {
       fileIo.writeSync(file.fd, value);
+      fileIo.fsyncSync(file.fd);
+    } finally {
+      fileIo.closeSync(file);
+    }
+  }
+
+  private static syncFile(path: string): void {
+    const file = fileIo.openSync(path);
+    try {
+      fileIo.fsyncSync(file.fd);
     } finally {
       fileIo.closeSync(file);
     }
@@ -307,6 +635,16 @@ export class CredentialStore {
       }
     } catch {
       // Idempotent cleanup.
+    }
+  }
+
+  private static deleteFileStrict(path: string): void {
+    if (!CredentialStore.fileExists(path)) {
+      return;
+    }
+    fileIo.unlinkSync(path);
+    if (CredentialStore.fileExists(path)) {
+      throw new Error('设备身份事务日志清理失败');
     }
   }
 
@@ -352,5 +690,30 @@ export class CredentialStore {
     } catch {
       // Idempotent cleanup.
     }
+  }
+
+  private static async deleteSecretStrict(alias: string): Promise<void> {
+    const query: asset.AssetMap = new Map();
+    query.set(asset.Tag.ALIAS, CredentialStore.bytes(alias));
+    try {
+      await asset.remove(query);
+    } catch {
+      const remaining = await CredentialStore.querySecretStrict(alias);
+      if (remaining) {
+        throw new Error('设备身份密码清理失败');
+      }
+      return;
+    }
+    if (await CredentialStore.querySecretStrict(alias)) {
+      throw new Error('设备身份密码清理失败');
+    }
+  }
+
+  private static async querySecretStrict(alias: string): Promise<boolean> {
+    const query: asset.AssetMap = new Map();
+    query.set(asset.Tag.ALIAS, CredentialStore.bytes(alias));
+    query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ATTRIBUTES);
+    const result = await asset.query(query);
+    return result.length > 0;
   }
 }

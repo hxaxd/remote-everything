@@ -1,5 +1,6 @@
 bindAddr = "127.0.0.1"
 bindPort = {{FRPS_PORT}}
+transport.maxPoolCount = 16
 auth.method = "token"
 auth.tokenSource.type = "file"
 auth.tokenSource.file.path = "{{FRPS_TOKEN_FILE}}"

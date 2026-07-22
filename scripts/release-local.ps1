@@ -71,6 +71,73 @@ function Expected-Signer {
     $match.Groups[1].Value
 }
 
+function Harmony-Hvigor {
+    foreach ($name in @('hvigorw', 'hvigorw.bat')) {
+        $command = Get-Command $name -ErrorAction SilentlyContinue
+        if ($command) { return $command.Source }
+    }
+
+    $candidates = @()
+    if ($env:DEVECO_SDK_HOME) {
+        $studio = Split-Path ([IO.Path]::GetFullPath($env:DEVECO_SDK_HOME)) -Parent
+        $candidates += Join-Path $studio 'tools\hvigor\bin\hvigorw.bat'
+        $candidates += Join-Path $studio 'tools/hvigor/bin/hvigorw'
+    }
+    if ($IsWindows) {
+        $candidates += 'C:\Program Files\Huawei\DevEco Studio\tools\hvigor\bin\hvigorw.bat'
+    }
+    if ($IsMacOS) {
+        $candidates += '/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw'
+    }
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate -PathType Leaf)) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+    return $null
+}
+
+function Validate-Harmony {
+    $hvigor = Harmony-Hvigor
+    if (-not $hvigor) {
+        Write-Warning 'Native HarmonyOS checks skipped: DevEco Studio with Hvigor is required.'
+        return
+    }
+
+    Step 'Run HarmonyOS unit tests and unsigned type-checked build'
+    $bin = Split-Path $hvigor -Parent
+    $hvigorHome = Split-Path $bin -Parent
+    $tools = Split-Path $hvigorHome -Parent
+    $studio = Split-Path $tools -Parent
+    $node = Join-Path $tools 'node'
+    $sdk = Join-Path $studio 'sdk'
+    $oldSdk, $oldPath, $oldNodeHome = $env:DEVECO_SDK_HOME, $env:PATH, $env:NODE_HOME
+    try {
+        if (Test-Path $sdk -PathType Container) { $env:DEVECO_SDK_HOME = $sdk }
+        if (Test-Path $node -PathType Container) { $env:PATH = "$node$([IO.Path]::PathSeparator)$oldPath" }
+        Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue
+        Push-Location (Join-Path $Root 'clients\harmony')
+        try {
+            Run { & $hvigor test --mode module -p product=default -p module=entry@default -p isLocalTest=true -p unitTestMode=true --no-daemon } 'HarmonyOS unit-test task failed'
+            $result = Join-Path $Root 'clients\harmony\entry\.test\default\intermediates\test\coverage_data\test_result.txt'
+            if (-not (Test-Path $result -PathType Leaf)) { throw 'HarmonyOS unit-test result file was not produced.' }
+            $summary = Get-Content $result -Raw
+            $match = [regex]::Match($summary, 'Tests run:\s*(\d+),\s*Failure:\s*(\d+),\s*Error:\s*(\d+),\s*Pass:\s*(\d+),\s*Ignore:\s*(\d+)')
+            if (-not $match.Success) { throw 'HarmonyOS unit-test summary could not be parsed.' }
+            $run, $failure, $errors, $pass, $ignored = $match.Groups[1..5].Value | ForEach-Object { [int]$_ }
+            if ($run -le 0 -or $failure -ne 0 -or $errors -ne 0 -or $ignored -ne 0 -or $pass -ne $run) {
+                throw "HarmonyOS tests did not fully pass: run=$run failure=$failure error=$errors pass=$pass ignore=$ignored"
+            }
+            Run { & $hvigor assembleHap --mode module -p product=default -p module=entry@default --no-daemon --type-check } 'HarmonyOS type-checked build failed'
+        } finally { Pop-Location }
+    } finally {
+        $env:DEVECO_SDK_HOME = $oldSdk
+        $env:PATH = $oldPath
+        if ($null -eq $oldNodeHome) { Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue }
+        else { $env:NODE_HOME = $oldNodeHome }
+    }
+}
+
 function Validate-Repository {
     Step "Validate release metadata $Version ($BuildNumber)"
     Run { python clients/contracts/validate_contracts.py } 'Contract validation failed'
@@ -82,6 +149,10 @@ function Validate-Repository {
         'clients/harmony/entry/oh-package.json5', 'clients/harmony/entry/src/main/module.json5',
         'clients/harmony/entry/src/main/resources/base/profile/main_pages.json'
     )) { Run { python -m json.tool $file *> $null } "Invalid JSON manifest: $file" }
+    Validate-Harmony
+
+    Step 'Run adapted application compatibility tests'
+    Run { node --test apps/pi/compat.test.mjs } 'Pi compatibility tests failed'
 
     Step 'Validate repository assets and deployment scripts'
     $tracked = @(git ls-files | Where-Object { $_ -match '\.(p12|pfx|jks|keystore|key|key\.pem)$|(^|/)AGENTS\.local\.md$|(^|/)local\.properties$' })
@@ -237,7 +308,7 @@ function Upload-Release {
 
 Push-Location $Root
 try {
-    foreach($command in @('git','go','gofmt','python','java','keytool')){Need $command}
+    foreach($command in @('git','go','gofmt','python','node','java','keytool')){Need $command}
     if(-not $SkipValidation){Validate-Repository}
     if($Mode -ne 'Validate'){
         Build-Go; Build-Android; Checksums
