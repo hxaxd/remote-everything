@@ -74,6 +74,13 @@ func (process *macProcess) Started() time.Time    { return process.started }
 func (process *macProcess) PID() int              { return process.command.Process.Pid }
 func (process *macProcess) Terminate() {
 	_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGTERM)
+	go func() {
+		select {
+		case <-process.done:
+		case <-time.After(5 * time.Second):
+			_ = syscall.Kill(-process.command.Process.Pid, syscall.SIGKILL)
+		}
+	}()
 }
 
 func runGuard(parts []string) error {

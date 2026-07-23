@@ -8,7 +8,7 @@ import org.junit.Test
 class GatewaySecurityPolicyTest {
     private val id = "ab".repeat(32)
     private val publicConfig = AppConfig.create(id, "Public", "public", "https://gateway.example:5443")
-    private val lanConfig = AppConfig.create(id, "LAN", "lan", "https://192.0.2.4:5443", "cd".repeat(32), "A".repeat(43) + "=")
+    private val lanConfig = AppConfig.create(id, "LAN", "lan", "https://192.0.2.4:5443", "cd".repeat(32), "A".repeat(43) + "=", "01".repeat(32))
 
     @Test
     fun webViewKeepsOnlyExactGatewayOriginInside() {

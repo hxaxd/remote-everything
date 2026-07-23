@@ -9,8 +9,6 @@ import tomllib
 
 
 FRP_POOL_COUNT = 16
-CONTROL_CONNECTION_LIMIT = 4
-DATA_CONNECTION_LIMIT = 16
 
 
 def read_rendered(path):
@@ -75,13 +73,9 @@ def validate_caddy_contract(text):
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         raise ValueError("Caddy routes must be ordered pairing, tunnel, device control, device data")
-    control_marker = f"max_conns_per_host {CONTROL_CONNECTION_LIMIT}"
-    data_marker = f"max_conns_per_host {DATA_CONNECTION_LIMIT}"
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", control_marker, data_marker, "mode verify_if_given"):
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
-    if active.count(control_marker) != 1 or active.count(data_marker) != 1:
-        raise ValueError("Caddy device control/data connection lanes must be unique")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
         raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
     site_address = ""

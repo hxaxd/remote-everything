@@ -5,7 +5,7 @@ import { fileIo, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { webview } from '@kit.ArkWeb';
 import { ConnectionConfig, ConnectionMode } from '../../core/models/ConnectionConfig';
-import { CredentialStore } from '../../core/security/CredentialStore';
+import { CredentialStore, ClientIdentity } from '../../core/security/CredentialStore';
 import { WebIsolationPolicy } from '../../core/web/WebIsolationPolicy';
 import { ClientSettings } from '../../core/storage/ClientSettings';
 import { router } from '@kit.ArkUI';
@@ -43,6 +43,9 @@ export struct RemoteWebPage {
   private controllerAttached: boolean = false;
   private edgeTouchStartX: number = 0;
   private edgeTouchActive: boolean = false;
+  private readyIdentity: ClientIdentity | null = null;
+  private readyAuthUri: string = '';
+  private identityReady: boolean = false;
 
   private routeString(params: Record<string, Object>, name: string): string {
     const value = params[name];
@@ -61,6 +64,9 @@ export struct RemoteWebPage {
     this.failureMessage = '';
     this.downloadMessage = '';
     this.controllerAttached = false;
+    this.readyIdentity = null;
+    this.readyAuthUri = '';
+    this.identityReady = false;
     const params = router.getParams() as Record<string, Object>;
     if (params !== null) {
       const mode = this.routeString(params, 'connectionMode');
@@ -71,7 +77,8 @@ export struct RemoteWebPage {
           mode,
           this.routeString(params, 'gatewayOrigin'),
           this.routeString(params, 'gatewayFingerprint'),
-          this.routeString(params, 'gatewayPublicKeyPin')
+          this.routeString(params, 'gatewayPublicKeyPin'),
+          this.routeString(params, 'accessToken')
         );
       }
       this.appId = this.routeString(params, 'appId');
@@ -89,7 +96,44 @@ export struct RemoteWebPage {
       );
     }
     this.pageGeneration += 1;
-    this.prepareNavigation(this.pageGeneration);
+    this.beginRemoteSession(this.pageGeneration);
+  }
+
+  private async beginRemoteSession(generation: number): Promise<void> {
+    const config = this.config;
+    if (config === null || this.appId === '') {
+      this.failureMessage = '远程页面地址无效';
+      return;
+    }
+    if (config.mode === ConnectionMode.PUBLIC) {
+      // Catalog already proves the PKCS#12 works with NetworkKit. ArkWeb needs a
+      // certificate-manager authUri when possible; PEM paths remain a sync fallback.
+      try {
+        this.readyIdentity = await CredentialStore.activeClientIdentity(config.installationId);
+      } catch {
+        if (generation !== this.pageGeneration) {
+          return;
+        }
+        this.failureMessage = '设备身份不可用，请重新初始化';
+        return;
+      }
+      try {
+        this.readyAuthUri = await CredentialStore.webClientAuthUri(config.installationId);
+      } catch {
+        this.readyAuthUri = '';
+      }
+    } else {
+      this.readyIdentity = null;
+      this.readyAuthUri = '';
+    }
+    if (generation !== this.pageGeneration) {
+      return;
+    }
+    this.identityReady = true;
+    this.prepareNavigation(generation);
+    if (this.controllerAttached && this.failureMessage === '') {
+      this.startInitialNavigation();
+    }
   }
 
   aboutToDisappear(): void {
@@ -205,9 +249,14 @@ export struct RemoteWebPage {
 
   private startInitialNavigation(): void {
     const config = this.config;
-    if (config === null || !this.controllerAttached || this.failureMessage !== '') return;
+    if (config === null || !this.controllerAttached || !this.identityReady ||
+        this.failureMessage !== '') {
+      return;
+    }
     try {
-      this.controller.clearClientAuthenticationCache();
+      // Do not clearClientAuthenticationCache here: wiping it right before
+      // navigation races ArkWeb's client-cert prompt and surfaces -110
+      // ERR_SSL_CLIENT_AUTH_CERT_NEEDED when confirm is late.
       this.controller.clearSslCache();
       this.configureWebTrust(config);
       this.applyUserAgent();
@@ -302,8 +351,11 @@ export struct RemoteWebPage {
   retry(): void {
     this.failureMessage = '';
     this.webSource = '';
+    this.readyIdentity = null;
+    this.readyAuthUri = '';
+    this.identityReady = false;
     this.pageGeneration += 1;
-    this.prepareNavigation(this.pageGeneration);
+    this.beginRemoteSession(this.pageGeneration);
   }
 
   private certificateFingerprint(encoded: Uint8Array): string {
@@ -324,37 +376,68 @@ export struct RemoteWebPage {
       current.gatewayOrigin === config.gatewayOrigin && current.mode === config.mode;
   }
 
-  private async confirmClientIdentity(
+  private confirmClientIdentity(
     handler: ClientAuthenticationHandler,
     host: string,
     port: number
-  ): Promise<void> {
+  ): void {
     const config = this.config;
-    const generation = this.pageGeneration;
     if (config === null || config.mode !== ConnectionMode.PUBLIC ||
-        !config.isGatewayEndpoint(host, port)) {
+        !this.isGatewayClientAuthEndpoint(config, host, port)) {
       handler.cancel();
       return;
     }
-    try {
-      const identity = await CredentialStore.activeClientIdentity(config.installationId);
-      if (!this.isCurrentConnection(generation, config)) {
-        handler.ignore();
-        return;
-      }
-      handler.confirm(identity.privateKeyPath, identity.certificateChainPath);
-    } catch {
+    // Must confirm synchronously. Awaiting certificate-manager install here
+    // races ArkWeb and surfaces -110 ERR_SSL_CLIENT_AUTH_CERT_NEEDED.
+    const authUri = this.readyAuthUri;
+    if (authUri !== '') {
       try {
-        // Unlike cancel(), ignore() is not cached for this host and port, so a
-        // retry after credentials recover can trigger a fresh request.
-        handler.ignore();
+        handler.confirm(authUri, CredentialType.CREDENTIAL_APP);
+        return;
       } catch {
-        // The request handler can expire when the page is replaced.
-      }
-      if (this.isCurrentConnection(generation, config)) {
-        this.failureMessage = '设备身份不可用，请重新初始化';
+        try {
+          handler.confirm(authUri);
+          return;
+        } catch {
+          // Fall through to PEM paths.
+        }
       }
     }
+    const identity = this.readyIdentity;
+    if (identity !== null) {
+      try {
+        handler.confirm(identity.privateKeyPath, identity.certificateChainPath);
+        return;
+      } catch {
+        try {
+          handler.ignore();
+        } catch {
+          // Handler may already be expired.
+        }
+        this.failureMessage = '无法向网页内核提供客户端证书';
+        return;
+      }
+    }
+    try {
+      handler.ignore();
+    } catch {
+      // Handler may already be expired.
+    }
+    this.failureMessage = this.readyAuthUri === '' && this.readyIdentity === null
+      ? '客户端证书尚未就绪'
+      : `无法匹配网关客户端证书请求（${host}:${port}）`;
+  }
+
+  private isGatewayClientAuthEndpoint(
+    config: ConnectionConfig, host: string, port: number
+  ): boolean {
+    if (config.isGatewayEndpoint(host, port)) {
+      return true;
+    }
+    // Some ArkWeb builds report default HTTPS as 0/-1 instead of 443.
+    return host.toLowerCase() === config.gatewayHost.toLowerCase() &&
+      (port === config.gatewayPort ||
+        (config.gatewayPort === 443 && (port === 0 || port === -1 || port === 443)));
   }
 
   private async selectFiles(result: FileSelectorResult, maximum: number): Promise<void> {
@@ -477,9 +560,16 @@ export struct RemoteWebPage {
     const request = http.createHttp();
     try {
       const cookie = webview.WebCookieManager.fetchCookieSync(config.gatewayOrigin, true);
+      const headers: Record<string, string> = { 'Accept': '*/*', 'Cookie': cookie };
+      const authHeaders = config.authorizationHeaders();
+      const authKeys = Object.keys(authHeaders);
+      for (let i = 0; i < authKeys.length; i++) {
+        const key = authKeys[i];
+        headers[key] = authHeaders[key];
+      }
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
-        header: { 'Accept': '*/*', 'Cookie': cookie },
+        header: headers,
         connectTimeout: 10000,
         readTimeout: 60000,
         usingCache: false,
@@ -607,7 +697,11 @@ export struct RemoteWebPage {
             })
             .onErrorReceive((event) => {
               if (event.request.isMainFrame() && event.error) {
-                this.failureMessage = `${event.error.getErrorCode()}: ${event.error.getErrorInfo()}`;
+                const code = event.error.getErrorCode();
+                const info = event.error.getErrorInfo();
+                this.failureMessage = code === -110 || info.indexOf('CLIENT_AUTH') >= 0
+                  ? `${code}: 需要客户端证书（mTLS），请重试或重新初始化`
+                  : `${code}: ${info}`;
               }
             })
             .onHttpErrorReceive((event) => {

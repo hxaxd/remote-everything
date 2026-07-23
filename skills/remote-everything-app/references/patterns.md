@@ -11,7 +11,7 @@
 - 使用绝对命令和工作目录。
 - 应用不鉴权时只能依赖 Remote Everything 入口，不能额外监听局域网地址。
 
-KimiWeb、SillyTavern 和 OpenCode 属于这一类。
+KimiWeb 和 SillyTavern 属于这一类。
 
 ## CLI Agent Web 包装器
 

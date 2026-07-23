@@ -26,6 +26,9 @@ data class HttpResult(val status: Int, val body: String) {
 
 data class DownloadResult(val status: Int, val bytesWritten: Long)
 
+private const val MAX_RESPONSE_BYTES = 2L * 1024 * 1024
+private const val MAX_DOWNLOAD_BYTES = 512L * 1024 * 1024
+
 data class ClientIdentity(
     val privateKey: PrivateKey,
     val chain: Array<X509Certificate>,
@@ -59,7 +62,19 @@ object SecureHttp {
         }
         val status = connection.responseCode
         val source = if (status in 200..399) connection.inputStream else connection.errorStream
-        val response = source?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        val response = source?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+            val sb = StringBuilder()
+            val buffer = CharArray(8192)
+            var total = 0L
+            while (true) {
+                val n = reader.read(buffer)
+                if (n < 0) break
+                total += n
+                if (total > MAX_RESPONSE_BYTES) throw java.io.IOException("response exceeds limit")
+                sb.append(buffer, 0, n)
+            }
+            sb.toString()
+        }.orEmpty()
         connection.disconnect()
         return HttpResult(status, response)
     }
@@ -101,8 +116,9 @@ object SecureHttp {
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        output.write(buffer, 0, count)
                         written += count
+                        if (written > MAX_DOWNLOAD_BYTES) throw java.io.IOException("download exceeds limit")
+                        output.write(buffer, 0, count)
                     }
                 }
                 output.flush()

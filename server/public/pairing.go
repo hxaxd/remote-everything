@@ -157,6 +157,15 @@ func (service *publicService) pairHTTPHandler(writer http.ResponseWriter, reques
 		writePairJSON(writer, http.StatusNotFound, errorBody("not_found"))
 		return
 	}
+	if !service.pairLimiter.allow(clientIP(request)) {
+		writePairJSON(writer, http.StatusTooManyRequests, errorBody("rate_limited"))
+		return
+	}
+	if !service.pairLimiter.acquire() {
+		writePairJSON(writer, http.StatusServiceUnavailable, errorBody("server_busy"))
+		return
+	}
+	defer service.pairLimiter.release()
 	invitation := invitationFromRequest(request)
 	if invitation == "" {
 		time.Sleep(service.pairFailureDelay)

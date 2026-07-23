@@ -751,6 +751,11 @@ private struct WebViewContainer: UIViewRepresentable {
                 completionHandler(nil)
                 return
             }
+            if response.expectedContentLength > 0 &&
+                Int64(response.expectedContentLength) > WebHostPolicy.maxDownloadBytes {
+                completionHandler(nil)
+                return
+            }
             let directory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("RemoteEverything-\(UUID().uuidString)", isDirectory: true)
             do {
@@ -784,7 +789,17 @@ private struct WebViewContainer: UIViewRepresentable {
                 at: directory,
                 includingPropertiesForKeys: nil
             )) ?? []
-            guard let file = files.first, let presenter = presenter(), exportController == nil else {
+            guard let file = files.first else {
+                try? FileManager.default.removeItem(at: directory)
+                return
+            }
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path),
+               let size = attrs[.size] as? Int64,
+               size > WebHostPolicy.maxDownloadBytes {
+                try? FileManager.default.removeItem(at: directory)
+                return
+            }
+            guard let presenter = presenter(), exportController == nil else {
                 try? FileManager.default.removeItem(at: directory)
                 return
             }

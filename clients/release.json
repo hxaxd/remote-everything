@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "versionName": "3.4.1",
-  "buildNumber": 27,
+  "versionName": "3.5.0",
+  "buildNumber": 28,
   "protocolVersion": 2,
   "minimumPlatforms": {
     "androidSdk": 30,

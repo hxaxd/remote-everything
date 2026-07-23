@@ -41,6 +41,11 @@
       "pattern": "^[A-Za-z0-9+/]{43}=$",
       "description": "Base64-encoded SHA-256 digest of the gateway certificate SubjectPublicKeyInfo. Required for LAN mode, absent for public mode."
     },
+    "token": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "LAN access token: 64 lowercase hex characters. Required for LAN mode, absent for public mode."
+    },
     "invitation": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{43}$",
@@ -55,7 +60,7 @@
         "properties": { "mode": { "const": "lan" } }
       },
       "then": {
-        "required": ["fingerprint", "public_key_pin"],
+        "required": ["fingerprint", "public_key_pin", "token"],
         "properties": { "invitation": { "not": {} } }
       }
     },
@@ -67,7 +72,8 @@
         "required": ["invitation"],
         "properties": {
           "fingerprint": { "not": {} },
-          "public_key_pin": { "not": {} }
+          "public_key_pin": { "not": {} },
+          "token": { "not": {} }
         }
       }
     }

@@ -1,7 +1,8 @@
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { cert } from '@kit.DeviceCertificateKit';
+import { cert, certificateManager } from '@kit.DeviceCertificateKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { asset } from '@kit.AssetStoreKit';
 
@@ -36,10 +37,113 @@ export class CredentialStore {
   private static readonly MAXIMUM_P12_BYTES = 1024 * 1024;
   private static filesDir: string = '';
   private static cacheDir: string = '';
+  private static webAuthUriByInstallation: Map<string, string> = new Map();
 
   static configure(context: common.UIAbilityContext): void {
     CredentialStore.filesDir = context.filesDir;
     CredentialStore.cacheDir = context.cacheDir;
+  }
+
+  /**
+   * Installs the active PKCS#12 into the system certificate manager and returns
+   * the authUri ArkWeb expects for ClientAuthenticationHandler.confirm(authUri).
+   * PEM file paths alone are ambiguous on API 22+ and frequently yield -110.
+   */
+  static async webClientAuthUri(installationId: string): Promise<string> {
+    CredentialStore.requireConfigured();
+    if (CredentialStore.credentialPromotion(installationId) !== null) {
+      throw new Error('设备身份提升事务尚未恢复');
+    }
+    const cached = CredentialStore.webAuthUriByInstallation.get(installationId);
+    if (cached !== undefined && cached !== '') {
+      return cached;
+    }
+
+    const stored = CredentialStore.readWebAuthUri(installationId);
+    if (stored !== '') {
+      try {
+        await certificateManager.getPrivateCertificate(stored);
+        CredentialStore.webAuthUriByInstallation.set(installationId, stored);
+        return stored;
+      } catch {
+        CredentialStore.deleteFile(CredentialStore.webAuthUriPath(installationId));
+      }
+    }
+
+    const alias = CredentialStore.webCertAlias(installationId);
+    const existing = await CredentialStore.findPrivateCertificateUri(alias);
+    if (existing !== '') {
+      try {
+        await certificateManager.getPrivateCertificate(existing);
+        CredentialStore.persistWebAuthUri(installationId, existing);
+        return existing;
+      } catch {
+        try {
+          await certificateManager.uninstallPrivateCertificate(existing);
+        } catch {
+          // Continue to a fresh install.
+        }
+      }
+    }
+
+    const p12Path = CredentialStore.p12Path(installationId, 'active');
+    const password = await CredentialStore.loadSecret(
+      CredentialStore.passwordAlias(installationId, 'active')
+    );
+    if (!CredentialStore.fileExists(p12Path) || password === null) {
+      throw new Error('设备身份未找到');
+    }
+
+    // Certificate Manager rejects many go-pkcs12 Modern blobs (401). Re-encode
+    // with Harmony's cert kit and a short ASCII install password/alias that
+    // stay inside HUKS parameter limits.
+    const installPassword = CredentialStore.webInstallPassword(installationId);
+    const keystore = await CredentialStore.harmonyCompatiblePkcs12(
+      CredentialStore.readBytes(p12Path),
+      password,
+      installPassword
+    );
+    const keystoreCopy = new Uint8Array(keystore.length);
+    keystoreCopy.set(keystore);
+
+    let result: certificateManager.CMResult;
+    try {
+      result = await certificateManager.installPrivateCertificate(
+        keystoreCopy,
+        installPassword,
+        alias,
+        certificateManager.AuthStorageLevel.EL1
+      );
+    } catch (firstError) {
+      // A leftover credential under the same alias can block install; remove and retry once.
+      const leftover = await CredentialStore.findPrivateCertificateUri(alias);
+      if (leftover === '') {
+        throw new Error(CredentialStore.formatCertManagerError(
+          '安装客户端证书失败',
+          firstError
+        ));
+      }
+      try {
+        await certificateManager.uninstallPrivateCertificate(leftover);
+        result = await certificateManager.installPrivateCertificate(
+          keystoreCopy,
+          installPassword,
+          alias,
+          certificateManager.AuthStorageLevel.EL1
+        );
+      } catch (retryError) {
+        throw new Error(CredentialStore.formatCertManagerError(
+          '安装客户端证书失败',
+          retryError
+        ));
+      }
+    }
+    const uri = CredentialStore.uriFromInstallResult(result);
+    if (uri === '') {
+      throw new Error('系统证书管理器未返回客户端身份');
+    }
+    CredentialStore.persistWebAuthUri(installationId, uri);
+    return uri;
   }
 
   static async credentialPassword(installationId: string): Promise<string> {
@@ -289,10 +393,10 @@ export class CredentialStore {
 
     const privateKeyPath = CredentialStore.webPrivateKeyPath(installationId, state);
     const certificateChainPath = CredentialStore.webCertificatePath(installationId, state);
-    const privateKey = typeof parsed.privateKey === 'string'
-      ? parsed.privateKey
-      : new util.TextDecoder('utf-8').decodeToString(parsed.privateKey);
-    CredentialStore.writeText(privateKeyPath, privateKey);
+    CredentialStore.writeText(
+      privateKeyPath,
+      CredentialStore.pemPrivateKey(parsed.privateKey)
+    );
 
     let certificateChain = await CredentialStore.pemCertificate(parsed.cert);
     const otherCertificates = parsed.otherCerts ?? [];
@@ -339,6 +443,7 @@ export class CredentialStore {
 
   static async deleteAll(installationId: string): Promise<void> {
     CredentialStore.requireConfigured();
+    await CredentialStore.invalidateWebClientAuth(installationId);
     CredentialStore.deleteCredentialFilesStrict(installationId, 'pending');
     CredentialStore.deleteCredentialFilesStrict(installationId, 'active');
     CredentialStore.deleteCredentialFilesStrict(installationId, 'rollback');
@@ -402,6 +507,7 @@ export class CredentialStore {
     fileIo.copyFileSync(rollbackPath, replacementPath);
     CredentialStore.syncFile(replacementPath);
     try {
+      await CredentialStore.invalidateWebClientAuth(promotion.installationId);
       await CredentialStore.storeSecret(
         CredentialStore.passwordAlias(promotion.installationId, 'active'),
         rollbackPassword
@@ -437,6 +543,7 @@ export class CredentialStore {
     fileIo.copyFileSync(pendingPath, replacementPath);
     CredentialStore.syncFile(replacementPath);
     try {
+      await CredentialStore.invalidateWebClientAuth(installationId);
       await CredentialStore.storeSecret(
         CredentialStore.passwordAlias(installationId, 'active'),
         password
@@ -527,11 +634,11 @@ export class CredentialStore {
   }
 
   private static webPrivateKeyPath(installationId: string, state: CredentialState): string {
-    return `${CredentialStore.cacheDir}/credential-${installationId}-${state}-key.pem`;
+    return `${CredentialStore.filesDir}/credential-${installationId}-${state}-key.pem`;
   }
 
   private static webCertificatePath(installationId: string, state: CredentialState): string {
-    return `${CredentialStore.cacheDir}/credential-${installationId}-${state}-chain.pem`;
+    return `${CredentialStore.filesDir}/credential-${installationId}-${state}-chain.pem`;
   }
 
   private static deleteCredentialFiles(installationId: string, state: CredentialState): void {
@@ -552,6 +659,136 @@ export class CredentialStore {
     CredentialStore.deleteFile(CredentialStore.webCertificatePath(installationId, state));
   }
 
+  private static webCertAlias(installationId: string): string {
+    // Certificate Manager aliases are user-visible and tightly validated.
+    return `re${installationId.substring(0, 8)}`;
+  }
+
+  private static webInstallPassword(installationId: string): string {
+    // Keep well under HUKS password limits; unrelated to the NetworkKit P12 password.
+    return `re${installationId.substring(0, 14)}`;
+  }
+
+  private static webAuthUriPath(installationId: string): string {
+    return `${CredentialStore.filesDir}/credential-${installationId}-web-auth-uri`;
+  }
+
+  private static persistWebAuthUri(installationId: string, uri: string): void {
+    CredentialStore.webAuthUriByInstallation.set(installationId, uri);
+    CredentialStore.writeText(CredentialStore.webAuthUriPath(installationId), uri);
+  }
+
+  private static readWebAuthUri(installationId: string): string {
+    const path = CredentialStore.webAuthUriPath(installationId);
+    if (!CredentialStore.fileExists(path)) {
+      return '';
+    }
+    try {
+      const size = fileIo.statSync(path).size;
+      if (size <= 0 || size > 4096) {
+        return '';
+      }
+      const buffer = new ArrayBuffer(size);
+      const file = fileIo.openSync(path);
+      try {
+        const bytesRead = fileIo.readSync(file.fd, buffer);
+        return new util.TextDecoder('utf-8')
+          .decodeToString(new Uint8Array(buffer.slice(0, bytesRead)))
+          .trim();
+      } finally {
+        fileIo.closeSync(file);
+      }
+    } catch {
+      return '';
+    }
+  }
+
+  private static uriFromInstallResult(result: certificateManager.CMResult): string {
+    if (result.uri !== undefined && result.uri !== '') {
+      return result.uri;
+    }
+    if (result.credential !== undefined && result.credential.keyUri !== '') {
+      return result.credential.keyUri;
+    }
+    return '';
+  }
+
+  private static async findPrivateCertificateUri(alias: string): Promise<string> {
+    try {
+      const listed = await certificateManager.getPrivateCertificates();
+      const credentials = listed.credentialList ?? [];
+      for (let index = 0; index < credentials.length; index++) {
+        if (credentials[index].alias === alias && credentials[index].keyUri !== '') {
+          return credentials[index].keyUri;
+        }
+      }
+    } catch {
+      // Missing private certificates is fine; install will create one.
+    }
+    return '';
+  }
+
+  private static async invalidateWebClientAuth(installationId: string): Promise<void> {
+    const alias = CredentialStore.webCertAlias(installationId);
+    let uri = CredentialStore.webAuthUriByInstallation.get(installationId) ?? '';
+    if (uri === '') {
+      uri = CredentialStore.readWebAuthUri(installationId);
+    }
+    if (uri === '') {
+      uri = await CredentialStore.findPrivateCertificateUri(alias);
+    }
+    CredentialStore.webAuthUriByInstallation.delete(installationId);
+    CredentialStore.deleteFile(CredentialStore.webAuthUriPath(installationId));
+    if (uri === '') {
+      return;
+    }
+    try {
+      await certificateManager.uninstallPrivateCertificate(uri);
+    } catch {
+      // Idempotent: the credential may already have been removed by the user.
+    }
+  }
+
+  private static async harmonyCompatiblePkcs12(
+    original: Uint8Array,
+    sourcePassword: string,
+    installPassword: string
+  ): Promise<Uint8Array> {
+    let parsed: cert.Pkcs12Data;
+    try {
+      parsed = await cert.parsePkcs12(original, sourcePassword);
+    } catch (error) {
+      throw new Error(CredentialStore.formatCertManagerError('解析设备 PKCS#12 失败', error));
+    }
+    if (parsed.privateKey === undefined || parsed.cert === undefined) {
+      throw new Error('设备 PKCS#12 缺少私钥或证书');
+    }
+    try {
+      return await cert.createPkcs12(parsed, {
+        password: installPassword,
+        encryptCert: false,
+        macSaltLen: 16,
+        macIterations: 2048,
+        macDigestAlgorithm: cert.Pkcs12MacDigestAlgorithm.SHA256
+      });
+    } catch (error) {
+      throw new Error(CredentialStore.formatCertManagerError('重建 PKCS#12 失败', error));
+    }
+  }
+
+  private static formatCertManagerError(prefix: string, error: Object): string {
+    const business = error as BusinessError;
+    const code = business.code;
+    const message = business.message;
+    if (typeof code === 'number' && typeof message === 'string' && message !== '') {
+      return `${prefix}（${code}: ${message}）`;
+    }
+    if (error instanceof Error && error.message !== '') {
+      return `${prefix}（${error.message}）`;
+    }
+    return prefix;
+  }
+
   private static async sha256Hex(data: Uint8Array): Promise<string> {
     const md = cryptoFramework.createMd('SHA256');
     await md.update({ data: data });
@@ -565,12 +802,32 @@ export class CredentialStore {
 
   private static async pemCertificate(certificate: cert.X509Cert): Promise<string> {
     const encoded = await certificate.getEncoded();
-    const base64 = new util.Base64Helper().encodeToStringSync(encoded.data);
+    return CredentialStore.pemBlock('CERTIFICATE', encoded.data);
+  }
+
+  private static pemPrivateKey(value: string | Uint8Array): string {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.indexOf('BEGIN') >= 0) {
+        return trimmed.endsWith('\n') ? trimmed : `${trimmed}\n`;
+      }
+      // Unexpected non-PEM string: treat as base64 body.
+      return CredentialStore.pemBlockFromBase64('PRIVATE KEY', trimmed);
+    }
+    return CredentialStore.pemBlock('PRIVATE KEY', value);
+  }
+
+  private static pemBlock(label: string, data: Uint8Array): string {
+    const base64 = new util.Base64Helper().encodeToStringSync(data);
+    return CredentialStore.pemBlockFromBase64(label, base64);
+  }
+
+  private static pemBlockFromBase64(label: string, base64: string): string {
     const lines: string[] = [];
     for (let index = 0; index < base64.length; index += 64) {
       lines.push(base64.substring(index, Math.min(index + 64, base64.length)));
     }
-    return `-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----\n`;
+    return `-----BEGIN ${label}-----\n${lines.join('\n')}\n-----END ${label}-----\n`;
   }
 
   private static writeBytes(path: string, data: Uint8Array): void {
@@ -713,7 +970,13 @@ export class CredentialStore {
     const query: asset.AssetMap = new Map();
     query.set(asset.Tag.ALIAS, CredentialStore.bytes(alias));
     query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ATTRIBUTES);
-    const result = await asset.query(query);
-    return result.length > 0;
+    try {
+      const result = await asset.query(query);
+      return result.length > 0;
+    } catch {
+      // Missing aliases are the success case for deleteSecretStrict's
+      // post-remove check; Asset Store reports that as NotFound.
+      return false;
+    }
   }
 }

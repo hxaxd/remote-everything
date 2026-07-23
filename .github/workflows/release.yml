@@ -164,6 +164,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
       - name: Accept SDK licenses
         run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
       - name: Restore release signing key

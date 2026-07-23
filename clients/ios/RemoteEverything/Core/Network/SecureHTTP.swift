@@ -106,6 +106,8 @@ private final class GatewaySessionDelegate: NSObject, URLSessionTaskDelegate {
 enum SecureHTTP {
 
     private static let timeout: TimeInterval = 12
+    private static let maxResponseBytes: Int64 = 2 * 1024 * 1024
+    private static let maxDownloadBytes: Int64 = 512 * 1024 * 1024
 
     /// Perform an HTTP request to the gateway with appropriate TLS configuration.
     /// - For LAN mode: pins the server certificate to the expected fingerprint.
@@ -151,6 +153,9 @@ enum SecureHTTP {
         let (data, response) = try await session.data(for: urlRequest)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw RemoteAPI.APIError.invalidFields("响应不是 HTTP 响应")
+        }
+        if Int64(data.count) > maxResponseBytes {
+            throw RemoteAPI.APIError.invalidFields("响应超过大小上限")
         }
 
         return HTTPResult(status: httpResponse.statusCode, body: data)
