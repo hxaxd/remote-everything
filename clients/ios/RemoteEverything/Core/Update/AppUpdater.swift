@@ -132,11 +132,11 @@ final class AppUpdater {
     private static let latestReleaseApi = "https://api.github.com/repos/hxaxd/remote-everything/releases/latest"
 
     var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.4.1"
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "3.5.0"
     }
 
     var currentBuild: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "27"
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "28"
     }
 
     func checkForUpdatesIfNeeded() async {

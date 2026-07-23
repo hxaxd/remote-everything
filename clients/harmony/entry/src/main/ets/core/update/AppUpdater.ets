@@ -134,8 +134,8 @@ export class AppUpdater {
       this.currentVersion = info.versionName;
       this.currentVersionCode = info.versionCode;
     } catch {
-      this.currentVersion = '3.4.1';
-      this.currentVersionCode = 27;
+      this.currentVersion = '3.5.0';
+      this.currentVersionCode = 28;
     }
   }
 
