@@ -122,6 +122,7 @@ class RenderTests(unittest.TestCase):
             {**caddy, "device_ca_file": "relative.pem"},
             {**caddy, "status_upstream": "192.0.2.1:5003"},
             {**caddy, "device_issuer_dn": "CN={env.BAD}"},
+            {**caddy, "device_issuer_dn": "CN=x` || true || `y"},
         ):
             result, _, _ = self.render("caddy", invalid)
             self.assertNotEqual(result.returncode, 0)

@@ -39,6 +39,17 @@ func initializeTestNode(t *testing.T) (*Node, InitResult) {
 	return node, result
 }
 
+func testFreePort(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+	listener.Close()
+	return port
+}
+
 func TestInitializeAllocatesStableAvailableLoopbackAddress(t *testing.T) {
 	listener, _ := net.Listen("tcp4", "127.0.0.1:58627")
 	if listener != nil {
@@ -204,10 +215,41 @@ func TestGatewayMessageEscapesApplicationMetadata(t *testing.T) {
 	}
 }
 
+func TestDisabledApplicationNotProxied(t *testing.T) {
+	executable, _ := os.Executable()
+	port := testFreePort(t)
+	listener, err := net.Listen("tcp4", "127.0.0.1:"+port)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	node, _ := initializeTestNode(t)
+	app := AppDefinition{
+		ID: "disabled", Name: "Disabled", Icon: "D", Accent: "#2563eb",
+		ProxyURL: "http://127.0.0.1:" + port, Command: executable,
+		Arguments: []string{}, StopArgs: []string{},
+	}
+	if err := node.saveRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{app}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(node.enabledPath(app.ID)); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Cookie", "RemoteEverythingApp=disabled")
+	recorder := httptest.NewRecorder()
+	node.gatewayHandler(recorder, request)
+	if probeOpen("127.0.0.1:" + port) && !strings.Contains(recorder.Body.String(), "尚未选择远程应用") {
+		t.Fatalf("disabled application with occupied port was proxied: %s", recorder.Body.String())
+	}
+}
+
 func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	var received http.Header
+	var receivedHost string
 	application := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		received = request.Header.Clone()
+		receivedHost = request.Host
 		_, _ = io.WriteString(writer, "ok")
 	}))
 	defer application.Close()
@@ -221,7 +263,11 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	if err := node.saveRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{app}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(node.enabledPath(app.ID), []byte("enabled\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Host = "gateway.example"
 	request.Header.Set("Cookie", "RemoteEverythingApp=fixture")
 	request.Header.Set("Authorization", "secret")
 	request.Header.Set("X-Remote-Everything-Client-Fingerprint", strings.Repeat("ab", 32))
@@ -238,6 +284,9 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	}
 	if received.Get("Authorization") != "secret" {
 		t.Fatal("application authorization header lost")
+	}
+	if receivedHost != "gateway.example" {
+		t.Fatalf("upstream Host should preserve the entrance host, got %q", receivedHost)
 	}
 }
 

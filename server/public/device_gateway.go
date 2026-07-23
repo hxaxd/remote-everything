@@ -119,6 +119,10 @@ func (service *publicService) statusHTTPHandler(writer http.ResponseWriter, requ
 		return
 	}
 	if path == "/__remote_everything_activate" && request.Method == http.MethodPost {
+		if !service.statusLimiter.allow(clientIP(request)) {
+			gatewaycore.WriteJSON(writer, http.StatusTooManyRequests, gatewaycore.Error("rate_limited"))
+			return
+		}
 		apps, code, err := service.activateDevice(request)
 		if err != nil {
 			status := http.StatusUnauthorized

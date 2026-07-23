@@ -142,16 +142,27 @@ struct AppRoot {
       await this.reloadProfiles();
       this.currentPage = this.activeProfile === null ? RootPage.CONNECTIONS : RootPage.CATALOG;
 
-      const staged = await this.transaction.recover();
-      if (staged !== null) {
-        this.pendingConfig = staged;
+      try {
+        const staged = await this.transaction.recover();
+        if (staged !== null) {
+          this.pendingConfig = staged;
+          this.pendingPayload = null;
+          this.setupAction = SetupAction.RETRY_ACTIVATION;
+          this.setupMessageIsError = false;
+          this.setupMessage = '发现尚未完成的设备审批，将自动继续。';
+          this.connectionsCanGoBack = false;
+          this.currentPage = RootPage.CONNECTIONS;
+          this.scheduleApprovalRetry();
+        }
+      } catch {
+        // Incomplete public-setup recovery must not brick cold start; the user
+        // can re-scan. Prefer a clean connections page over a fatal loadError.
+        this.pendingConfig = null;
         this.pendingPayload = null;
-        this.setupAction = SetupAction.RETRY_ACTIVATION;
+        this.setupAction = null;
+        this.setupMessage = '';
         this.setupMessageIsError = false;
-        this.setupMessage = '发现尚未完成的设备审批，将自动继续。';
-        this.connectionsCanGoBack = false;
-        this.currentPage = RootPage.CONNECTIONS;
-        this.scheduleApprovalRetry();
+        this.currentPage = this.activeProfile === null ? RootPage.CONNECTIONS : RootPage.CATALOG;
       }
     } catch (error) {
       this.loadError = error instanceof Error ? error.message : '客户端初始化失败';
@@ -488,7 +499,7 @@ struct AppRoot {
           this.setupMessageIsError = true;
         }
       });
-    }, 2000);
+    }, 5000);
   }
 
   async cancelSetupAndLeave(): Promise<void> {

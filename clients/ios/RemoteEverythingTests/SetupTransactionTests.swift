@@ -28,7 +28,8 @@ final class SetupTransactionTests: XCTestCase {
             mode: "lan",
             origin: "https://192.168.1.5:60001",
             fingerprint: String(repeating: "cd", count: 32),
-            publicKeyPin: String(repeating: "A", count: 43) + "="
+            publicKeyPin: String(repeating: "A", count: 43) + "=",
+            accessToken: String(repeating: "01", count: 32)
         )
 
         let result = await transaction.begin(SetupPayload(profile: config, invitation: ""))
@@ -245,7 +246,8 @@ final class SetupTransactionTests: XCTestCase {
             mode: "lan",
             origin: "https://192.168.1.5:60001",
             fingerprint: String(repeating: "cd", count: 32),
-            publicKeyPin: String(repeating: "A", count: 43) + "="
+            publicKeyPin: String(repeating: "A", count: 43) + "=",
+            accessToken: String(repeating: "01", count: 32)
         )
         store.stagedProfileValue = lanConfig
         identityStore.staged = false

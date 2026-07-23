@@ -285,7 +285,12 @@ export struct SettingsPage {
                   .onClick(() => {
                     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
                     if (this.updater.state.release !== null) {
-                      this.updater.openGitHubRelease(context, this.updater.state.release);
+                      this.updater.openGitHubRelease(context, this.updater.state.release)
+                        .catch((error: Error) => {
+                          this.getUIContext().getPromptAction().showToast({
+                            message: error.message !== '' ? error.message : '无法打开 GitHub'
+                          });
+                        });
                     }
                   })
               } else {
@@ -303,7 +308,12 @@ export struct SettingsPage {
                 .backgroundColor(Color.Transparent)
                 .onClick(() => {
                   const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-                  this.updater.openGitHubProject(context);
+                  this.updater.openGitHubProject(context)
+                    .catch((error: Error) => {
+                      this.getUIContext().getPromptAction().showToast({
+                        message: error.message !== '' ? error.message : '无法打开 GitHub'
+                      });
+                    });
                 })
             }
             .width('100%')

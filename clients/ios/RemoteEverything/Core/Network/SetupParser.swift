@@ -5,6 +5,7 @@ import Foundation
 enum SetupParser {
     private static let installationIdPattern = try! Regex("^[a-f0-9]{64}$")
     private static let fingerprintPattern = try! Regex("^[a-f0-9]{64}$")
+    private static let accessTokenPattern = try! Regex("^[a-f0-9]{64}$")
     private static let invitationPattern = try! Regex("^[A-Za-z0-9_-]{43}$")
     private static let publicKeyPinPattern = try! Regex("^[A-Za-z0-9+/]{43}=$")
 
@@ -44,7 +45,7 @@ enum SetupParser {
 
         let mode = values["mode"] ?? ""
         let expectedKeys: Set<String> = mode == "lan"
-            ? ["v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin"]
+            ? ["v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin", "token"]
             : ["v", "id", "name", "mode", "origin", "invitation"]
 
         guard Set(values.keys) == expectedKeys else {
@@ -57,7 +58,8 @@ enum SetupParser {
             mode: mode,
             origin: values["origin"] ?? "",
             fingerprint: values["fingerprint"] ?? "",
-            publicKeyPin: values["public_key_pin"] ?? ""
+            publicKeyPin: values["public_key_pin"] ?? "",
+            accessToken: values["token"] ?? ""
         )
 
         if mode == "public" {
@@ -77,7 +79,8 @@ enum SetupParser {
         mode: String,
         origin: String,
         fingerprint: String = "",
-        publicKeyPin: String = ""
+        publicKeyPin: String = "",
+        accessToken: String = ""
     ) throws -> ConnectionConfig {
         guard try installationIdPattern.wholeMatch(in: installationId) != nil else {
             throw ParseError(description: "安装实例标识无效")
@@ -122,6 +125,7 @@ enum SetupParser {
             .replacingOccurrences(of: " ", with: "")
 
         let configMode: ConnectionConfig.ConnectionMode = mode == "lan" ? .lan : .public
+        let normalizedToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if configMode == .lan {
             guard try fingerprintPattern.wholeMatch(in: normalizedFingerprint) != nil else {
                 throw ParseError(description: "局域网服务证书指纹无效")
@@ -129,6 +133,11 @@ enum SetupParser {
             guard try publicKeyPinPattern.wholeMatch(in: publicKeyPin) != nil else {
                 throw ParseError(description: "局域网服务公钥摘要无效")
             }
+            guard try accessTokenPattern.wholeMatch(in: normalizedToken) != nil else {
+                throw ParseError(description: "局域网访问令牌无效")
+            }
+        } else if !normalizedToken.isEmpty {
+            throw ParseError(description: "公网连接不能包含访问令牌")
         }
 
         return ConnectionConfig(
@@ -137,7 +146,8 @@ enum SetupParser {
             mode: configMode,
             gatewayOrigin: normalizedOrigin,
             gatewayFingerprint: configMode == .lan ? normalizedFingerprint : "",
-            gatewayPublicKeyPin: configMode == .lan ? publicKeyPin : ""
+            gatewayPublicKeyPin: configMode == .lan ? publicKeyPin : "",
+            accessToken: configMode == .lan ? normalizedToken : ""
         )
     }
 

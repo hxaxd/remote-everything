@@ -10,6 +10,7 @@ export class ConnectionConfig {
   readonly gatewayOrigin: string;
   readonly gatewayFingerprint: string;
   readonly gatewayPublicKeyPin: string;
+  readonly accessToken: string;
 
   constructor(
     installationId: string,
@@ -17,7 +18,8 @@ export class ConnectionConfig {
     mode: ConnectionMode,
     gatewayOrigin: string,
     gatewayFingerprint: string,
-    gatewayPublicKeyPin: string
+    gatewayPublicKeyPin: string,
+    accessToken: string = ''
   ) {
     this.installationId = installationId;
     this.name = name;
@@ -25,6 +27,7 @@ export class ConnectionConfig {
     this.gatewayOrigin = gatewayOrigin;
     this.gatewayFingerprint = gatewayFingerprint;
     this.gatewayPublicKeyPin = gatewayPublicKeyPin;
+    this.accessToken = accessToken;
   }
 
   get gatewayHost(): string {
@@ -45,6 +48,13 @@ export class ConnectionConfig {
 
   appOpenUrl(id: string): string {
     return `${this.gatewayOrigin}/__remote_everything/open/${id}`;
+  }
+
+  authorizationHeaders(): Record<string, string> {
+    if (this.mode === ConnectionMode.LAN && this.accessToken.length > 0) {
+      return { 'Authorization': `Bearer ${this.accessToken}` };
+    }
+    return {};
   }
 
   isGatewayEndpoint(host: string | null, port: number): boolean {

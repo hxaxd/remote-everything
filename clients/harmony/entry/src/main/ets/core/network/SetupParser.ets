@@ -9,6 +9,7 @@ import { HttpsUrl } from './HttpsUrl';
 export class SetupParser {
   private static readonly INSTALLATION_ID_PATTERN = /^[a-f0-9]{64}$/;
   private static readonly FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+  private static readonly ACCESS_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
   private static readonly INVITATION_PATTERN = /^[A-Za-z0-9_-]{43}$/;
   private static readonly PUBLIC_KEY_PIN_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 
@@ -43,7 +44,7 @@ export class SetupParser {
 
     const mode = values.get('mode') ?? '';
     const expectedKeys = mode === 'lan'
-      ? new Set(['v', 'id', 'name', 'mode', 'origin', 'fingerprint', 'public_key_pin'])
+      ? new Set(['v', 'id', 'name', 'mode', 'origin', 'fingerprint', 'public_key_pin', 'token'])
       : new Set(['v', 'id', 'name', 'mode', 'origin', 'invitation']);
 
     if (seenKeys.size !== expectedKeys.size ||
@@ -57,7 +58,8 @@ export class SetupParser {
       mode,
       values.get('origin') ?? '',
       values.get('fingerprint') ?? '',
-      values.get('public_key_pin') ?? ''
+      values.get('public_key_pin') ?? '',
+      values.get('token') ?? ''
     );
 
     if (mode === 'public') {
@@ -77,7 +79,8 @@ export class SetupParser {
     mode: string,
     origin: string,
     fingerprint: string = '',
-    publicKeyPin: string = ''
+    publicKeyPin: string = '',
+    accessToken: string = ''
   ): ConnectionConfig {
     if (!SetupParser.INSTALLATION_ID_PATTERN.test(installationId)) {
       throw new Error('安装实例标识无效');
@@ -114,6 +117,7 @@ export class SetupParser {
       .toLowerCase()
       .replace(/:/g, '')
       .replace(/\s/g, '');
+    const normalizedToken = accessToken.trim().toLowerCase();
 
     const configMode: ConnectionMode = mode === 'lan' ? ConnectionMode.LAN : ConnectionMode.PUBLIC;
     if (configMode === ConnectionMode.LAN) {
@@ -123,13 +127,19 @@ export class SetupParser {
       if (!SetupParser.PUBLIC_KEY_PIN_PATTERN.test(publicKeyPin)) {
         throw new Error('局域网服务公钥摘要无效');
       }
+      if (!SetupParser.ACCESS_TOKEN_PATTERN.test(normalizedToken)) {
+        throw new Error('局域网访问令牌无效');
+      }
+    } else if (normalizedToken.length > 0) {
+      throw new Error('公网连接不能包含访问令牌');
     }
 
     return new ConnectionConfig(
       installationId, normalized, configMode,
       normalizedOrigin,
       configMode === ConnectionMode.LAN ? normalizedFingerprint : '',
-      configMode === ConnectionMode.LAN ? publicKeyPin : ''
+      configMode === ConnectionMode.LAN ? publicKeyPin : '',
+      configMode === ConnectionMode.LAN ? normalizedToken : ''
     );
   }
 

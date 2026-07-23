@@ -25,7 +25,7 @@ export default function gatewaySecurityPolicyTest() {
         INSTALLATION_ID, 'LAN PC', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
       expect(GatewaySecurityPolicy.allowsClientCertificate(
         config, true, '192.168.1.5', 60001

@@ -16,7 +16,14 @@ func (node *Node) selectedApplication(request *http.Request) (AppDefinition, err
 	if err != nil || !validID.MatchString(cookie.Value) {
 		return AppDefinition{}, os.ErrNotExist
 	}
-	return node.findApp(cookie.Value)
+	app, err := node.findApp(cookie.Value)
+	if err != nil {
+		return AppDefinition{}, err
+	}
+	if !node.isEnabled(app.ID) && probeOpen(probeAddress(app)) {
+		return AppDefinition{}, os.ErrNotExist
+	}
+	return app, nil
 }
 
 func removeRoutingCookie(request *http.Request) {
@@ -55,7 +62,16 @@ func (node *Node) gatewayHandler(writer http.ResponseWriter, request *http.Reque
 	target, _ := url.Parse(app.ProxyURL)
 	removeRoutingCookie(request)
 	proxysecurity.StripInternalHeaders(request.Header)
-	proxy := httputil.NewSingleHostReverseProxy(target)
+	// Preserve the entrance Host across the node→app hop. Gateway already keeps the
+	// public/LAN Host; NewSingleHostReverseProxy would rewrite it to 127.0.0.1:port and
+	// break apps (e.g. KimiWeb) that compare Origin against Host for DNS rebinding.
+	inboundHost := request.Host
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
+			proxyRequest.SetURL(target)
+			proxyRequest.Out.Host = inboundHost
+		},
+	}
 	proxy.ErrorHandler = func(responseWriter http.ResponseWriter, _ *http.Request, _ error) {
 		gatewayMessage(responseWriter, http.StatusBadGateway, app.Name+" 尚未运行", "请返回应用目录启动它，然后重新进入。")
 	}

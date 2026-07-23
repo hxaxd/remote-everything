@@ -120,7 +120,11 @@ func (service *publicService) writeDeviceRecord(record deviceRecord) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.Write(service.deviceRecordPath(record.CertificateFingerprint), append(contents, '\n'), 0o600)
+	path := service.deviceRecordPath(record.CertificateFingerprint)
+	if err := atomicfile.Write(path, append(contents, '\n'), 0o600); err != nil {
+		return err
+	}
+	return atomicfile.MatchDirectoryOwner(path)
 }
 
 func (service *publicService) loadDeviceRecords() ([]deviceRecord, error) {
@@ -136,7 +140,8 @@ func (service *publicService) loadDeviceRecords() ([]deviceRecord, error) {
 		fingerprint := strings.TrimSuffix(entry.Name(), ".json")
 		record, err := service.loadDeviceRecord(fingerprint)
 		if err != nil {
-			return nil, err
+			auditLine("corrupt device record skipped", "fingerprint", fingerprint, "error", err.Error())
+			continue
 		}
 		if record.Status == "pending" {
 			expires, _ := parseTimestamp(record.PendingExpiresAt)
