@@ -23,9 +23,9 @@ class DeploymentContractTests(unittest.TestCase):
         server = (ASSETS / "frps.toml.tmpl").read_text(encoding="utf-8").replace("{{FRPS_PORT}}", "5003").replace("{{FRPS_TOKEN_FILE}}", "/token").replace("{{FRPS_LOG}}", "/frps.log")
         validator.validate_frp_contract(client, server)
         with self.assertRaises(ValueError):
-            validator.validate_frp_contract(client.replace("transport.poolCount = 16", "transport.poolCount = 15"), server)
+            validator.validate_frp_contract(client.replace("transport.poolCount = 32", "transport.poolCount = 15"), server)
         with self.assertRaises(ValueError):
-            validator.validate_frp_contract(client, server.replace("transport.maxPoolCount = 16", "transport.maxPoolCount = 15"))
+            validator.validate_frp_contract(client, server.replace("transport.maxPoolCount = 32", "transport.maxPoolCount = 15"))
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client, server + "\ntransport.tls.force = true\n")
         with self.assertRaises(ValueError):
