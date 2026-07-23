@@ -8,7 +8,7 @@ import subprocess
 import tomllib
 
 
-FRP_POOL_COUNT = 16
+FRP_POOL_COUNT = 32
 
 
 def read_rendered(path):
