@@ -239,7 +239,7 @@ func TestDisabledApplicationNotProxied(t *testing.T) {
 	request.Header.Set("Cookie", "RemoteEverythingApp=disabled")
 	recorder := httptest.NewRecorder()
 	node.gatewayHandler(recorder, request)
-	if probeOpen("127.0.0.1:" + port) && !strings.Contains(recorder.Body.String(), "尚未选择远程应用") {
+	if probeOpen("127.0.0.1:"+port) && !strings.Contains(recorder.Body.String(), "尚未选择远程应用") {
 		t.Fatalf("disabled application with occupied port was proxied: %s", recorder.Body.String())
 	}
 }
