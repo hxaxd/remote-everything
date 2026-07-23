@@ -280,7 +280,7 @@ class RemoteActivity : ComponentActivity() {
                 runOnUiThread {
                     if (generation != pageGeneration || browser !== webView) return@runOnUiThread
                     browser.onResume()
-                    browser.loadUrl(openUrl)
+                    browser.loadUrl(openUrl, config.authorizationHeaders())
                 }
             }
         } catch (error: Throwable) {

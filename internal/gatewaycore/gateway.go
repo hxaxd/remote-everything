@@ -2,6 +2,7 @@ package gatewaycore
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -106,8 +107,12 @@ func New(nodeURL, controlToken string) (*Gateway, error) {
 	control.RawPath = ""
 	control.RawQuery = ""
 	proxy := &httputil.ReverseProxy{Rewrite: func(request *httputil.ProxyRequest) {
+		// Preserve the public entrance Host. SetURL rewrites it to the loopback
+		// node address; apps such as KimiWeb reject WebSocket upgrades when Origin
+		// is the public origin but Host is 127.0.0.1 (DNS-rebinding check).
+		inboundHost := request.In.Host
 		request.SetURL(target)
-		request.Out.Host = request.In.Host
+		request.Out.Host = inboundHost
 		request.SetXForwarded()
 		proxysecurity.StripInternalHeaders(request.Out.Header)
 	}}
@@ -119,7 +124,7 @@ func New(nodeURL, controlToken string) (*Gateway, error) {
 		WriteJSON(writer, http.StatusBadGateway, Error("computer_offline"))
 	}
 	return &Gateway{
-		token: token, controlURL: control.String(), client: &http.Client{Timeout: 7 * time.Second}, application: proxy,
+		token: token, controlURL: control.String(), client: &http.Client{}, application: proxy,
 	}, nil
 }
 
@@ -128,7 +133,13 @@ func (gateway *Gateway) invoke(action, id string) json.RawMessage {
 	if err != nil {
 		return nil
 	}
-	request, err := http.NewRequest(http.MethodPost, gateway.controlURL, bytes.NewReader(payload))
+	timeout := 7 * time.Second
+	if action == "stop" {
+		timeout = 20 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway.controlURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil
 	}
@@ -204,7 +215,7 @@ func (gateway *Gateway) List() json.RawMessage {
 }
 
 func requestPath(request *http.Request) string {
-	path := request.URL.EscapedPath()
+	path := request.URL.Path
 	if path == "" {
 		return "/"
 	}
@@ -215,6 +226,8 @@ func writeRaw(writer http.ResponseWriter, body json.RawMessage) {
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	writer.Header().Set("Cache-Control", "no-store, max-age=0")
+	writer.Header().Set("Pragma", "no-cache")
+	writer.Header().Set("X-Content-Type-Options", "nosniff")
 	writer.WriteHeader(http.StatusOK)
 	_, _ = writer.Write(body)
 }

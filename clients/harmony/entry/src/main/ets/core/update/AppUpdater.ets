@@ -180,14 +180,23 @@ export class AppUpdater {
 
   private async openUrl(context: common.UIAbilityContext, url: string): Promise<void> {
     const parsed = new uri.URI(url);
-    if (parsed.scheme !== 'https' || parsed.host !== 'github.com' || parsed.userInfo !== '') {
+    const userInfo = parsed.userInfo;
+    if (parsed.scheme !== 'https' || parsed.host !== 'github.com' ||
+        (userInfo !== undefined && userInfo !== null && userInfo !== '')) {
       throw new Error('项目地址无效');
     }
-    await context.startAbility({
-      action: 'ohos.want.action.viewData',
-      uri: url,
-      entities: ['entity.system.browsable']
-    });
+    try {
+      await context.startAbility({
+        action: 'ohos.want.action.viewData',
+        uri: url,
+        entities: ['entity.system.browsable']
+      });
+    } catch (error) {
+      const detail = error instanceof Error && error.message !== ''
+        ? error.message
+        : '系统没有可用的浏览器';
+      throw new Error(`无法打开 GitHub：${detail}`);
+    }
   }
 
   private async downloadText(url: string, apiRequest: boolean): Promise<string> {
@@ -206,13 +215,29 @@ export class AppUpdater {
         method: http.RequestMethod.GET,
         header: headers,
         connectTimeout: 10000,
-        readTimeout: 30000
+        readTimeout: 30000,
+        expectDataType: http.HttpDataType.STRING,
+        usingCache: false
       });
 
       if (response.responseCode !== 200) {
+        if (response.responseCode === 403) {
+          throw new Error('拒绝访问');
+        }
+        throw new Error(`无法访问（HTTP ${response.responseCode}）`);
+      }
+      if (typeof response.result !== 'string' || response.result === '') {
         throw new Error('发布信息无效');
       }
-      return response.result as string ?? '';
+      return response.result;
+    } catch (error) {
+      if (error instanceof Error &&
+          (error.message === '拒绝访问' ||
+            error.message.startsWith('无法访问') ||
+            error.message === '发布信息无效')) {
+        throw error;
+      }
+      throw new Error('无法连接');
     } finally {
       httpRequest.destroy();
     }

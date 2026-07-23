@@ -492,3 +492,23 @@ func TestExplicitRevokeOverridesPartialRenewalRollback(t *testing.T) {
 		t.Fatalf("explicit revoke did not replace renewal rollback intent: %+v %v %s", current, err, output.String())
 	}
 }
+
+func TestPairRateLimitBlocksExcessRequests(t *testing.T) {
+	service := setupPublicTest(t)
+	for i := 0; i < pairRateMaxPerIP; i++ {
+		request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Invitation "+strings.Repeat("z", 43))
+		recorder := httptest.NewRecorder()
+		service.pairHTTPHandler(recorder, request)
+		if recorder.Code == http.StatusTooManyRequests {
+			t.Fatalf("rate limiter engaged too early at request %d", i+1)
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Invitation "+strings.Repeat("z", 43))
+	recorder := httptest.NewRecorder()
+	service.pairHTTPHandler(recorder, request)
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("rate limiter failed to block excess request: %d", recorder.Code)
+	}
+}

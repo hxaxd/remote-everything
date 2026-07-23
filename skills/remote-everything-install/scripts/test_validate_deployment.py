@@ -47,11 +47,7 @@ class DeploymentContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\tdisable_http_challenge\n", ""))
         with self.assertRaises(ValueError):
-            validator.validate_caddy_contract(caddy.replace("\tencode zstd gzip\n", ""))
-        with self.assertRaises(ValueError):
-            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 4\n", ""))
-        with self.assertRaises(ValueError):
-            validator.validate_caddy_contract(caddy.replace("\t\t\t\tmax_conns_per_host 16\n", ""))
+            validator.validate_caddy_contract(caddy.replace("\t" + 'encode @compressible zstd gzip\n', ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\theader_up X-Remote-Everything-Client-Fingerprint", "\t\t\theader_up -X-Remote-Everything-Client-Fingerprint\n\t\t\theader_up X-Remote-Everything-Client-Fingerprint"))
         ip_caddy = caddy.replace("remote.example.com", "192.0.2.1")

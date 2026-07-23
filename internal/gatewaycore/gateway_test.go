@@ -89,6 +89,9 @@ func TestCatalogActionAndOpenContract(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"computer_connected":true`) {
 			t.Fatalf("unexpected API response: %d %s", response.Code, response.Body.String())
 		}
+		if response.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("writeRaw missing nosniff on %s: %#v", request.URL.Path, response.Header())
+		}
 	}
 
 	response := httptest.NewRecorder()
@@ -103,9 +106,11 @@ func TestCatalogActionAndOpenContract(t *testing.T) {
 }
 
 func TestProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
+	var capturedHost string
 	gateway, _ := newTestGateway(t, func(writer http.ResponseWriter, request *http.Request) {
-		if request.Host != "gateway.example" || request.URL.Path != "/room/ws" || request.URL.RawQuery != "a=1" {
-			t.Errorf("request target changed: host=%q path=%q query=%q", request.Host, request.URL.Path, request.URL.RawQuery)
+		capturedHost = request.Host
+		if request.URL.Path != "/room/ws" || request.URL.RawQuery != "a=1" {
+			t.Errorf("request target changed: path=%q query=%q", request.URL.Path, request.URL.RawQuery)
 		}
 		if request.Header.Get("Cookie") != "session=value" || request.Header.Get("Upgrade") != "websocket" {
 			t.Errorf("cookie or upgrade header lost")
@@ -135,6 +140,9 @@ func TestProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("unexpected proxy response: %d %s", response.Code, response.Body.String())
 	}
+	if capturedHost != "gateway.example" {
+		t.Errorf("upstream Host should preserve the public entrance host, got %q", capturedHost)
+	}
 	cookies := response.Header().Values("Set-Cookie")
 	if len(cookies) != 1 || !strings.HasPrefix(cookies[0], "session=value") {
 		t.Fatalf("application could overwrite routing cookie or its own cookie was lost: %#v", cookies)
@@ -149,5 +157,16 @@ func TestLocalControlRouteCannotReachNode(t *testing.T) {
 	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/__local_remote_control", nil))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("local control route returned %d", response.Code)
+	}
+}
+
+func TestEncodedControlRouteCannotReachNode(t *testing.T) {
+	gateway, _ := newTestGateway(t, func(writer http.ResponseWriter, request *http.Request) {
+		t.Fatalf("encoded control path reached node: %s", request.URL.Path)
+	})
+	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/%5f%5flocal_remote_control", nil))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("encoded local control route returned %d", response.Code)
 	}
 }

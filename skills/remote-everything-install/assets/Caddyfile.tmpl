@@ -6,7 +6,8 @@
 
 {{PUBLIC_HOST}} {
 	log
-	encode zstd gzip
+	@compressible not path /__remote_everything_pair /__remote_everything*
+	encode @compressible zstd gzip
 
 	tls {
 		issuer acme {
@@ -36,9 +37,6 @@
 	handle @device_control {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
-			transport http {
-				max_conns_per_host 4
-			}
 		}
 	}
 
@@ -46,9 +44,6 @@
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
 			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
-			transport http {
-				max_conns_per_host 16
-			}
 		}
 	}
 

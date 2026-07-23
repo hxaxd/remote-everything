@@ -141,7 +141,7 @@ final class CatalogViewModel {
                 url: config.appActionUrl(id: appId, action: action),
                 method: "POST",
                 identity: identity,
-                headers: [:],
+                headers: config.authorizationHeaders(),
                 body: nil
             )
             if body.status != 200 { throw RemoteAPI.APIError.httpStatus(body.status) }
@@ -196,7 +196,7 @@ final class CatalogViewModel {
             url: config.appsUrl,
             method: "GET",
             identity: identity,
-            headers: ["Accept": "application/json"],
+            headers: ["Accept": "application/json"].merging(config.authorizationHeaders()) { _, new in new },
             body: nil
         )
         if result.status == 401 || result.status == 403 {

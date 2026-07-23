@@ -27,7 +27,7 @@
 | `skills/` | 安装、更新、巡检、设备和应用操作流程 |
 | `.github/workflows/` | 可选持续集成与发布定义 |
 
-架构、安全边界和目录约定见 [AGENTS.md](AGENTS.md)。移动客户端横向实现见 [plan.md](plan.md)。本地实例事实属于 `AGENTS.local.md`，不得提交。
+架构、安全边界和目录约定见 [AGENTS.md](AGENTS.md)。本地实例事实属于 `AGENTS.local.md`，不得提交。
 
 ### 开发环境
 
@@ -64,7 +64,7 @@ python -m unittest \
   skills/remote-everything-install/scripts/test_inspect_443.py
 ```
 
-节点测试还需要在目标操作系统运行 `nodes/<platform>/tests/`。iOS 使用 XcodeGen 生成工程后执行 `xcodebuild test` 与静态分析；HarmonyOS 使用 DevEco Studio 配置 HarmonyOS 6.1.1(24) SDK，完成 Hvigor type check、测试和 HAP 构建。仓库中的工作流是可选远端入口，不替代本地门禁；`plan.md` 中的真机与安全探针仍是发布阻塞条件。
+节点测试还需要在目标操作系统运行 `nodes/<platform>/tests/`。iOS 使用 XcodeGen 生成工程后执行 `xcodebuild test` 与静态分析；HarmonyOS 使用 DevEco Studio 配置 HarmonyOS 6.1.1(24) SDK，完成 Hvigor type check、测试和 HAP 构建。仓库中的工作流是可选远端入口，不替代本地门禁。
 
 ### 设计与安全要求
 

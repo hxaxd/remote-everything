@@ -32,7 +32,7 @@ func normalizeOrigin(value string) (string, error) {
 	return "https://" + parsed.Host, nil
 }
 
-func Build(mode, installationID, name, origin, secret, keyPin string) (string, error) {
+func Build(mode, installationID, name, origin, secret, keyPin, token string) (string, error) {
 	if !hex64.MatchString(installationID) {
 		return "", errors.New("invalid installation id")
 	}
@@ -53,14 +53,15 @@ func Build(mode, installationID, name, origin, secret, keyPin string) (string, e
 	}
 	switch mode {
 	case "lan":
-		if !hex64.MatchString(secret) || !publicKeyPin.MatchString(keyPin) {
-			return "", errors.New("invalid LAN certificate fingerprint")
+		if !hex64.MatchString(secret) || !publicKeyPin.MatchString(keyPin) || !hex64.MatchString(token) {
+			return "", errors.New("invalid LAN setup parameters")
 		}
 		values.Set("fingerprint", secret)
 		values.Set("public_key_pin", keyPin)
+		values.Set("token", token)
 	case "public":
-		if !invitation.MatchString(secret) || keyPin != "" {
-			return "", errors.New("invalid public invitation")
+		if !invitation.MatchString(secret) || keyPin != "" || token != "" {
+			return "", errors.New("invalid public setup parameters")
 		}
 		values.Set("invitation", secret)
 	default:

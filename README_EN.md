@@ -17,7 +17,7 @@
 
 ## Overview
 
-KimiWeb, SillyTavern, CloudCLI, OpenCode, Pi Chat, and the small tools you build live on your computers, but you do not have to stay in front of them.
+KimiWeb, SillyTavern, CloudCLI, Pi Chat, and the small tools you build live on your computers, but you do not have to stay in front of them.
 
 Remote Everything runs a lightweight node on each computer and presents explicitly registered local Web apps in native Android, iOS, and HarmonyOS clients. It does not modify those apps, move their data to a third-party cloud, or require a new account system: connect directly on the same network, or remotely through your own server or existing overlay network.
 
@@ -31,7 +31,7 @@ Remote Everything runs a lightweight node on each computer and presents explicit
 - 🔐 **Device-level trust**: public devices require a single-use invitation, certificate request, full-fingerprint confirmation, and mTLS activation.
 - 🌐 **LAN and remote access**: connect directly over LAN or an existing overlay; public mode reuses port 443 on your server through Caddy and FRP.
 - 🧭 **Multiple computers**: every computer has an independent installation ID; clients store and switch between Profiles without coupling their failures.
-- 🧩 **Apps fit naturally**: KimiWeb, SillyTavern, CloudCLI, OpenCode, and Pi Chat are adapted; other local Web apps use the same strict definition.
+- 🧩 **Apps fit naturally**: KimiWeb, SillyTavern, CloudCLI, and Pi Chat are adapted; other local Web apps use the same strict definition.
 - 🗂️ **Isolated sessions**: Android and iOS keep persistent data isolated per installation and app; HarmonyOS clears incognito data when switching apps so sessions cannot leak across them.
 - 🔄 **Trusted updates**: clients show their version and project link; Android verifies release digests, package identity, and signing, while iOS and HarmonyOS use their official distribution channels.
 - 🤖 **Agent-driven operations**: executable Skills cover installation, app onboarding, device pairing, inspection, upgrades, and removal.
@@ -43,7 +43,7 @@ Remote Everything runs a lightweight node on each computer and presents explicit
 | Mobile clients | Android · iOS · HarmonyOS |
 | Computer nodes | Windows · Linux · macOS |
 | Access modes | LAN / overlay network · Linux public gateway |
-| Adapted apps | KimiWeb · SillyTavern · CloudCLI · OpenCode · Pi Chat |
+| Adapted apps | KimiWeb · SillyTavern · CloudCLI · Pi Chat |
 | Multiple computers | One independent instance per computer, multiple client Profiles |
 
 ## How it works
@@ -62,7 +62,6 @@ Android / iOS / HarmonyOS
           ├── KimiWeb
           ├── SillyTavern
           ├── CloudCLI
-          ├── OpenCode
           ├── Pi Chat
           └── other loopback Web apps
 ```
@@ -115,7 +114,7 @@ Do not open a public Issue for a vulnerability. Follow the private process in th
 - Continue a KimiWeb session from a home or office computer while commuting.
 - Use local SillyTavern from a mobile device with an isolated persistent session.
 - Check CloudCLI sessions and other self-hosted tools from anywhere.
-- Continue coding sessions in OpenCode or Pi Chat from a mobile device.
+- Continue coding sessions in Pi Chat from a mobile device.
 - Manage computers running different operating systems without exposing every application's raw port.
 
 ## Contributing
@@ -130,8 +129,6 @@ skills/    executable operational workflows
 ```
 
 - [Contributing Guide](CONTRIBUTING.md)
-- [Local release guide](docs/RELEASING.md)
-- [Cross-platform client implementation plan](plan.md)
 - [Support](SUPPORT.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Security Policy](SECURITY.md)

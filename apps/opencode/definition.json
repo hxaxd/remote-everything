@@ -1,1 +1,0 @@
-{"id":"opencode","name":"OpenCode","description":"远程使用 OpenCode","icon":"OC","accent":"#f97316","launch_fragment":"","proxy_url":"http://127.0.0.1:{{PORT}}","command":"{{OPENCODE_BINARY}}","arguments":["web","--port","{{PORT}}","--hostname","127.0.0.1"],"stop_command":"","stop_arguments":[],"workdir":"{{OPENCODE_DIR}}"}

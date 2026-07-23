@@ -122,7 +122,7 @@ fun SetupWizardScreen(
                 is SetupState.AwaitingApproval -> WizardBody(
                     icon = Icons.Filled.HourglassTop,
                     title = "等待人工批准",
-                    detail = "设备申请已提交。请在电脑端 Agent 中核对设备名与完整指纹后批准;应用会自动重试,无需任何操作。",
+                    detail = "设备申请已提交。请在电脑端核对设备名与完整指纹后批准。",
                     running = true,
                 )
                 is SetupState.Ready -> WizardBody(
@@ -140,7 +140,18 @@ fun SetupWizardScreen(
                         error = true,
                     )
                     Spacer(Modifier.height(28.dp))
-                    Button(onClick = { session.retrySetup() }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                    Button(
+                        onClick = {
+                            when (current.action) {
+                                SetupAction.RESTART_SETUP -> {
+                                    session.cancelSetup()
+                                    onCancel()
+                                }
+                                else -> session.retrySetup()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
                         Text(
                             when (current.action) {
                                 SetupAction.RETRY_PAIRING -> "重试配对"

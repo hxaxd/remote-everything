@@ -111,7 +111,11 @@ func (service *publicService) writeInvitation(record invitationRecord) error {
 	if err != nil {
 		return err
 	}
-	return atomicfile.Write(service.invitationPath(record.TokenHash), append(contents, '\n'), 0o600)
+	path := service.invitationPath(record.TokenHash)
+	if err := atomicfile.Write(path, append(contents, '\n'), 0o600); err != nil {
+		return err
+	}
+	return atomicfile.MatchDirectoryOwner(path)
 }
 
 func (service *publicService) issueInvitation(ttl time.Duration, name, origin, qrFile string, output io.Writer) error {
@@ -135,7 +139,7 @@ func (service *publicService) issueInvitationReplacing(ttl time.Duration, name, 
 		Schema: recordSchema, TokenHash: invitationHash(token),
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := setupcodec.Build("public", service.config.InstallationID, name, origin, token, "")
+	setupURI, err := setupcodec.Build("public", service.config.InstallationID, name, origin, token, "", "")
 	if err != nil {
 		return err
 	}
@@ -172,6 +176,10 @@ func (service *publicService) restoreReplacedDevice(record invitationRecord) err
 	if replaced.Status != "revoked" || replaced.ReplacedByFingerprint != record.CertificateFingerprint {
 		return nil
 	}
+	replacement, err := service.loadDeviceRecord(record.CertificateFingerprint)
+	if err == nil && replacement.Status == "approved" && replacement.ActivatedAt != "" {
+		return nil
+	}
 	replaced.Status = "approved"
 	replaced.RevokedAt = ""
 	replaced.ReplacedByFingerprint = ""
@@ -192,7 +200,8 @@ func (service *publicService) cleanupExpiredState() error {
 		path := filepath.Join(service.paths.invitesDir, entry.Name())
 		var record invitationRecord
 		if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil {
-			return errors.New("invalid invitation state")
+			auditLine("corrupt invitation skipped", "path", entry.Name())
+			continue
 		}
 		expires, _ := parseTimestamp(record.ExpiresAt)
 		if !now.Before(expires) {
@@ -239,7 +248,8 @@ func (service *publicService) invitationList(output io.Writer) error {
 		path := filepath.Join(service.paths.invitesDir, entry.Name())
 		var record invitationRecord
 		if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil {
-			return errors.New("invalid invitation state")
+			auditLine("corrupt invitation skipped", "path", entry.Name())
+			continue
 		}
 		status := "available"
 		if record.UsedAt != "" {

@@ -2,6 +2,8 @@ import Foundation
 import WebKit
 
 enum WebHostPolicy {
+    static let maxDownloadBytes: Int64 = 512 * 1024 * 1024
+
     static func mayOpenExternally(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
         return ["https", "http", "mailto", "tel"].contains(scheme)

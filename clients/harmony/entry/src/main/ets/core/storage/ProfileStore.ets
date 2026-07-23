@@ -14,6 +14,7 @@ interface StoredProfile {
   gatewayOrigin: string;
   gatewayFingerprint: string;
   gatewayPublicKeyPin: string;
+  accessToken?: string;
 }
 
 export class ProfileStore implements SetupProfileStore {
@@ -110,7 +111,8 @@ export class ProfileStore implements SetupProfileStore {
       mode: profile.mode,
       gatewayOrigin: profile.gatewayOrigin,
       gatewayFingerprint: profile.gatewayFingerprint,
-      gatewayPublicKeyPin: profile.gatewayPublicKeyPin
+      gatewayPublicKeyPin: profile.gatewayPublicKeyPin,
+      accessToken: profile.accessToken
     };
     store.putSync(ProfileStore.STAGED_PROFILE_KEY, JSON.stringify(value));
     await store.flush();
@@ -234,7 +236,8 @@ export class ProfileStore implements SetupProfileStore {
       left.name === right.name && left.mode === right.mode &&
       left.gatewayOrigin === right.gatewayOrigin &&
       left.gatewayFingerprint === right.gatewayFingerprint &&
-      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin;
+      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin &&
+      left.accessToken === right.accessToken;
   }
 
   private static writeTextDurably(path: string, value: string): void {
@@ -289,7 +292,8 @@ export class ProfileStore implements SetupProfileStore {
       mode: profile.mode,
       gatewayOrigin: profile.gatewayOrigin,
       gatewayFingerprint: profile.gatewayFingerprint,
-      gatewayPublicKeyPin: profile.gatewayPublicKeyPin
+      gatewayPublicKeyPin: profile.gatewayPublicKeyPin,
+      accessToken: profile.accessToken
     })));
   }
 
@@ -322,13 +326,15 @@ export class ProfileStore implements SetupProfileStore {
       if (mode === null) {
         throw new Error('连接模式无效');
       }
+      const accessToken = typeof value.accessToken === 'string' ? value.accessToken : '';
       return new ConnectionConfig(
         value.installationId,
         value.name,
         mode,
         value.gatewayOrigin,
         value.gatewayFingerprint,
-        value.gatewayPublicKeyPin
+        value.gatewayPublicKeyPin,
+        accessToken
       );
     });
   }
