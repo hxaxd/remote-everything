@@ -12,6 +12,7 @@ data class ConnectionConfig(
     val gatewayOrigin: String,
     val gatewayFingerprint: String,
     val gatewayPublicKeyPin: String,
+    val accessToken: String = "",
 ) {
     private val originUri: URI = URI(gatewayOrigin)
     val gatewayHost: String = requireNotNull(originUri.host)
@@ -23,6 +24,9 @@ data class ConnectionConfig(
 
     fun appActionUrl(id: String, action: String): String = "$appsUrl/$id/$action"
     fun appOpenUrl(id: String): String = "$gatewayOrigin/__remote_everything/open/$id"
+
+    fun authorizationHeaders(): Map<String, String> =
+        if (mode == "lan" && accessToken.isNotEmpty()) mapOf("Authorization" to "Bearer $accessToken") else emptyMap()
 
     fun isGatewayEndpoint(host: String?, port: Int): Boolean =
         host.equals(gatewayHost, ignoreCase = true) && port == gatewayPort
@@ -46,6 +50,7 @@ data class SetupPayload(
 object AppConfig {
     private val installationIdPattern = Regex("^[a-f0-9]{64}$")
     private val fingerprintPattern = Regex("^[a-f0-9]{64}$")
+    private val accessTokenPattern = Regex("^[a-f0-9]{64}$")
     private val invitationPattern = Regex("^[A-Za-z0-9_-]{43}$")
     private val publicKeyPinPattern = Regex("^[A-Za-z0-9+/]{43}=$")
 
@@ -56,6 +61,7 @@ object AppConfig {
         originInput: String,
         fingerprintInput: String = "",
         publicKeyPinInput: String = "",
+        accessTokenInput: String = "",
     ): ConnectionConfig {
         require(installationIdPattern.matches(installationId)) { "安装实例标识无效" }
         val normalizedName = name.trim()
@@ -77,9 +83,13 @@ object AppConfig {
         val origin = "https://$authorityHost$port"
         val fingerprint = fingerprintInput.lowercase().replace(":", "").replace(Regex("\\s"), "")
         val publicKeyPin = publicKeyPinInput.trim()
+        val accessToken = accessTokenInput.trim().lowercase()
         if (mode == "lan") {
             require(fingerprintPattern.matches(fingerprint)) { "局域网服务证书指纹无效" }
             require(publicKeyPinPattern.matches(publicKeyPin)) { "局域网服务公钥摘要无效" }
+            require(accessTokenPattern.matches(accessToken)) { "局域网访问令牌无效" }
+        } else {
+            require(accessToken.isEmpty()) { "公网连接不能包含访问令牌" }
         }
         return ConnectionConfig(
             installationId,
@@ -88,6 +98,7 @@ object AppConfig {
             origin,
             if (mode == "lan") fingerprint else "",
             if (mode == "lan") publicKeyPin else "",
+            if (mode == "lan") accessToken else "",
         )
     }
 
@@ -105,7 +116,7 @@ object AppConfig {
         require(values["v"] == "2") { "初始化链接版本不受支持" }
         val mode = requireNotNull(values["mode"]) { "初始化链接缺少连接模式" }
         val expected = if (mode == "lan") {
-            setOf("v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin")
+            setOf("v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin", "token")
         } else {
             setOf("v", "id", "name", "mode", "origin", "invitation")
         }
@@ -117,6 +128,7 @@ object AppConfig {
             requireNotNull(values["origin"]),
             values["fingerprint"].orEmpty(),
             values["public_key_pin"].orEmpty(),
+            values["token"].orEmpty(),
         )
         val invitation = values["invitation"].orEmpty()
         if (mode == "public") require(invitationPattern.matches(invitation)) { "公网邀请无效" }

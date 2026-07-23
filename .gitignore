@@ -8,7 +8,7 @@
 remote-everything.properties
 AGENTS.local.md
 local.properties
-/.runtime/
+/.runtime*/*
 /.local-quarantine/
 
 # Python

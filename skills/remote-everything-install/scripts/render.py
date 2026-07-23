@@ -252,6 +252,8 @@ def caddy_token(value, name):
     value = text(value, name)
     if "{" in value or "}" in value:
         fail(f"{name} cannot contain Caddy placeholders")
+    if "`" in value:
+        fail(f"{name} cannot contain backticks")
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 

@@ -17,7 +17,7 @@
 
 ## 项目介绍
 
-KimiWeb、SillyTavern、CloudCLI、OpenCode、Pi Chat 和你自己写的小工具都运行在电脑上，但你不必一直坐在电脑前。
+KimiWeb、SillyTavern、CloudCLI、Pi Chat 和你自己写的小工具都运行在电脑上，但你不必一直坐在电脑前。
 
 Remote Everything 在电脑上运行一个轻量节点，把明确登记的本地 Web 应用送到 Android、iOS 或 HarmonyOS 客户端。它不改造原应用、不把数据搬到第三方云端，也不要求维护一套账号系统：同网直接连接，异地则经过你自己的服务器或已有组网。
 
@@ -30,10 +30,8 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 - 🖥️ **三平台电脑节点**：Windows、Linux、macOS 均在用户登录会话中运行，并在退出时回收受管应用进程树。
 - 🔐 **设备级信任**：公网设备必须经过单次邀请、证书申请、完整指纹人工确认和 mTLS 激活。
 - 🌐 **同网与异地**：LAN 或已有组网直接访问；公网模式复用服务器 443，由 Caddy 与 FRP 提供受控入口。
-- 🧭 **多电脑切换**：每台电脑是独立 installation ID，客户端用多个 Profile 管理和切换，互不影响。
-- 🧩 **应用即接即用**：已适配 KimiWeb、SillyTavern、CloudCLI、OpenCode 与 Pi Chat，其他本地 Web 应用也可按统一定义接入。
-- 🗂️ **登录态严格隔离**：Android 与 iOS 为每个“安装实例 × 应用”提供独立持久资料；HarmonyOS 在应用切换时清空无痕资料，避免跨应用复用登录态。
-- 🔄 **可信更新**：客户端显示版本与项目入口；Android 校验发布摘要、包身份和签名，iOS 与 HarmonyOS 使用各自官方分发渠道。
+- 🧭 **多电脑切换**：每台电脑是独立 ID，客户端用多个 Profile 管理和切换，互不影响。
+- 🧩 **应用即接即用**：已适配 Kimi Code、SillyTavern、CloudCLI 与 Pi，其他本地 Web 应用也可按统一定义接入。
 - 🤖 **Agent 驱动运维**：安装、接入应用、配对设备、巡检、升级和卸载都有可执行 Skill，不依赖手写部署笔记。
 
 ## 支持范围
@@ -43,7 +41,7 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 | 移动客户端 | Android · iOS · HarmonyOS |
 | 电脑节点 | Windows · Linux · macOS |
 | 访问形态 | LAN / 远程组网 · Linux 公网网关 |
-| 已适配应用 | KimiWeb · SillyTavern · CloudCLI · OpenCode · Pi Chat |
+| 已适配应用 | KimiWeb · SillyTavern · CloudCLI · Pi Chat |
 | 多电脑 | 每台电脑独立实例，客户端多 Profile 切换 |
 
 ## 工作原理
@@ -62,12 +60,9 @@ Android / iOS / HarmonyOS
           ├── KimiWeb
           ├── SillyTavern
           ├── CloudCLI
-          ├── OpenCode
           ├── Pi Chat
           └── 其他 loopback Web 应用
 ```
-
-一台电脑对应一个 Node、一个 Gateway、一个 `installationId` 和客户端中的一个 Profile。公网形态下，多台电脑的 Gateway 可以共享同一个 Caddy 443 入口，但身份、端口、设备记录与运行状态始终独立。
 
 ## 快速开始
 
@@ -115,7 +110,7 @@ Android 可安装当前 [Release](https://github.com/hxaxd/remote-everything/rel
 - 通勤途中继续处理家里或工位电脑上的 KimiWeb 会话；
 - 在移动设备上使用本机 SillyTavern，同时保留独立登录态；
 - 随时查看 CloudCLI 会话和其他自托管工具；
-- 在 OpenCode 或 Pi Chat 中继续电脑上的编程会话；
+- 在 Pi Chat 中继续电脑上的编程会话；
 - 用一个客户端管理多台不同系统的电脑，而不暴露每个应用的原始端口。
 
 ## 参与项目
@@ -130,8 +125,6 @@ skills/    可执行运维流程
 ```
 
 - [贡献指南](CONTRIBUTING.md)
-- [本地发行说明](docs/RELEASING.md)
-- [跨端客户端实施计划](plan.md)
 - [支持说明](SUPPORT.md)
 - [行为准则](CODE_OF_CONDUCT.md)
 - [安全策略](SECURITY.md)
@@ -141,31 +134,19 @@ skills/    可执行运维流程
 <details>
 <summary><strong>需要公网 IP 或域名吗？</strong></summary>
 
-不需要。同网使用 LAN 入口；异地可以复用已有组网，也可以使用自己的 Linux 公网服务器。公网服务器通常使用域名，也支持满足证书要求的其他 HTTPS 入口。
-</details>
-
-<details>
-<summary><strong>移动设备上需要装几个客户端？</strong></summary>
-
-每台移动设备安装一个与其系统对应的通用客户端。一个客户端可以保存多台电脑的 Profile，并访问每台电脑登记的全部应用。
-</details>
-
-<details>
-<summary><strong>电脑关机后需要重新配对吗？</strong></summary>
-
-不需要。目录会显示电脑离线，节点恢复后客户端自动重新连接。只有凭据被吊销、证书续期或实例被重建时才需要对应操作。
+不需要。同网使用 LAN 入口；异地可以复用已有组网，也可以使用自己的 Linux 公网服务器。
 </details>
 
 <details>
 <summary><strong>数据会经过项目维护者的服务器吗？</strong></summary>
 
-不会。流量只在你的移动设备、电脑、局域网/组网和你自己的公网服务器之间传递。
+不会。流量只在你的移动设备、电脑、局域网/组网和可能存在的你自己的公网服务器之间传递。
 </details>
 
 <details>
 <summary><strong>收费吗？</strong></summary>
 
-项目按 Apache-2.0 开源免费。你只需要承担自己选择的服务器或网络服务成本。
+项目按 Apache-2.0 开源免费。
 </details>
 
 ## License

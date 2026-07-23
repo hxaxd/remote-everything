@@ -48,6 +48,7 @@ type lanState struct {
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	CertificateFile        string `json:"certificate_file"`
 	PrivateKeyFile         string `json:"private_key_file"`
+	AccessToken            string `json:"access_token,omitempty"`
 }
 
 type lanInitResult struct {
@@ -59,6 +60,15 @@ type lanInitResult struct {
 	PublicKeyPin           string `json:"public_key_pin"`
 	SetupURI               string `json:"setup_uri,omitempty"`
 	QRFile                 string `json:"qr_file,omitempty"`
+	AccessToken            string `json:"-"`
+}
+
+func randomHex(size int) (string, error) {
+	value := make([]byte, size)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value), nil
 }
 
 func lanPublicKeyPin(certificate *x509.Certificate) string {
@@ -212,7 +222,7 @@ func loadLANState(root string) (lanState, error) {
 	expectedOrigin := "https://" + net.JoinHostPort(state.Host, port)
 	expectedCertificate := "lan-server-" + state.CertificateFingerprint + ".crt.pem"
 	expectedKey := "lan-server-" + state.CertificateFingerprint + ".key.pem"
-	if err != nil || portErr != nil || portNumber < 1024 || portNumber > 65535 || host != "0.0.0.0" || state.Schema != lanStateSchema || !validSHA256.MatchString(state.InstallationID) || state.Host == "" || !validSHA256.MatchString(state.CertificateFingerprint) || state.GatewayOrigin != expectedOrigin || !validLANCertificateFile.MatchString(state.CertificateFile) || !validLANKeyFile.MatchString(state.PrivateKeyFile) || state.CertificateFile != expectedCertificate || state.PrivateKeyFile != expectedKey {
+	if err != nil || portErr != nil || portNumber < 1024 || portNumber > 65535 || host != "0.0.0.0" || state.Schema != lanStateSchema || !validSHA256.MatchString(state.InstallationID) || state.Host == "" || !validSHA256.MatchString(state.CertificateFingerprint) || state.GatewayOrigin != expectedOrigin || !validLANCertificateFile.MatchString(state.CertificateFile) || !validLANKeyFile.MatchString(state.PrivateKeyFile) || state.CertificateFile != expectedCertificate || state.PrivateKeyFile != expectedKey || !validSHA256.MatchString(state.AccessToken) {
 		return lanState{}, errors.New("invalid LAN state")
 	}
 	return state, nil
@@ -250,7 +260,7 @@ func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, e
 	return certificate, nil
 }
 
-func reconcileLANState(root, host, installationID, fingerprint, certificateFile, keyFile string) (lanState, error) {
+func reconcileLANState(root, host, installationID, fingerprint, certificateFile, keyFile, accessToken string) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
 		listenAddress, allocateErr := allocateLANAddress()
@@ -261,7 +271,7 @@ func reconcileLANState(root, host, installationID, fingerprint, certificateFile,
 		state = lanState{
 			Schema: lanStateSchema, InstallationID: installationID, ListenAddress: listenAddress, Host: host,
 			GatewayOrigin: "https://" + net.JoinHostPort(host, port), CertificateFingerprint: fingerprint,
-			CertificateFile: certificateFile, PrivateKeyFile: keyFile,
+			CertificateFile: certificateFile, PrivateKeyFile: keyFile, AccessToken: accessToken,
 		}
 		contents, marshalErr := json.Marshal(state)
 		if marshalErr != nil {
@@ -310,13 +320,26 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 	var certificate *x509.Certificate
 	var certificateFile, keyFile string
 	createdCertificate := false
+	accessToken := ""
 	if stateErr == nil {
 		if existing.InstallationID != nodeState.InstallationID || existing.Host != host {
 			return lanInitResult{}, errors.New("existing LAN state does not match node or host")
 		}
 		certificate, err = loadLANCertificate(root, host, existing)
 		certificateFile, keyFile = existing.CertificateFile, existing.PrivateKeyFile
+		accessToken = existing.AccessToken
+		if accessToken == "" {
+			accessToken, err = randomHex(32)
+			if err != nil {
+				return lanInitResult{}, err
+			}
+		}
 	} else if errors.Is(stateErr, os.ErrNotExist) {
+		var tokenErr error
+		accessToken, tokenErr = randomHex(32)
+		if tokenErr != nil {
+			return lanInitResult{}, tokenErr
+		}
 		var certificatePEM, keyPEM []byte
 		certificate, certificatePEM, keyPEM, err = generateLANCertificate(host, validDays)
 		if err == nil {
@@ -331,7 +354,7 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 	}
 	fingerprintBytes := sha256.Sum256(certificate.Raw)
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
-	state, err := reconcileLANState(root, host, nodeState.InstallationID, fingerprint, certificateFile, keyFile)
+	state, err := reconcileLANState(root, host, nodeState.InstallationID, fingerprint, certificateFile, keyFile, accessToken)
 	if err != nil {
 		if createdCertificate {
 			_ = os.Remove(filepath.Join(root, certificateFile))
@@ -342,7 +365,7 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress,
 		GatewayOrigin: state.GatewayOrigin, CertificateFingerprint: state.CertificateFingerprint,
-		PublicKeyPin: lanPublicKeyPin(certificate),
+		PublicKeyPin: lanPublicKeyPin(certificate), AccessToken: state.AccessToken,
 	}, nil
 }
 
@@ -366,7 +389,7 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	fingerprintBytes := sha256.Sum256(certificate.Raw)
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
 	keyPin := lanPublicKeyPin(certificate)
-	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.GatewayOrigin, fingerprint, keyPin)
+	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.GatewayOrigin, fingerprint, keyPin, state.AccessToken)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -416,7 +439,7 @@ func runLANInit(parts []string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	setupURI, err := setupcodec.Build("lan", result.InstallationID, *name, result.GatewayOrigin, result.CertificateFingerprint, result.PublicKeyPin)
+	setupURI, err := setupcodec.Build("lan", result.InstallationID, *name, result.GatewayOrigin, result.CertificateFingerprint, result.PublicKeyPin, result.AccessToken)
 	if err != nil {
 		return err
 	}

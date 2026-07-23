@@ -11,6 +11,7 @@ class AppConfigTest {
 
     @Test
     fun parsesStrictLanSetup() {
+        val token = "01".repeat(32)
         val setup = AppConfig.parseSetup(
             setupUri(
                 "v" to "2",
@@ -20,10 +21,12 @@ class AppConfigTest {
                 "origin" to "https://192.168.1.5:60001",
                 "fingerprint" to "cd".repeat(32),
                 "public_key_pin" to "A".repeat(43) + "=",
+                "token" to token,
             ),
         )
         assertEquals(id, setup.profile.installationId)
         assertEquals("https://192.168.1.5:60001", setup.profile.gatewayOrigin)
+        assertEquals(token, setup.profile.accessToken)
         assertEquals("", setup.invitation)
     }
 
@@ -54,10 +57,21 @@ class AppConfigTest {
             "origin" to "http://127.0.0.1:58626",
             "fingerprint" to "cd".repeat(32),
             "public_key_pin" to "A".repeat(43) + "=",
+            "token" to "01".repeat(32),
         )
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base) }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base.replace("http%3A", "https%3A") + "&mode=lan") }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base.replace("http%3A", "https%3A") + "&extra=x") }
+        val missingToken = setupUri(
+            "v" to "2",
+            "id" to id,
+            "name" to "PC",
+            "mode" to "lan",
+            "origin" to "https://192.168.1.5:60001",
+            "fingerprint" to "cd".repeat(32),
+            "public_key_pin" to "A".repeat(43) + "=",
+        )
+        assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(missingToken) }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.create(id, "PC", "public", "https://remote.example.com:0") }
     }
 

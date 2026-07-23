@@ -13,8 +13,13 @@ type publicService struct {
 	gateway          *gatewaycore.Gateway
 	pairLock         sync.Mutex
 	pairFailureDelay time.Duration
+	pairLimiter      *rateLimiter
+	statusLimiter    *rateLimiter
 }
 
 func newPublicService(paths publicPaths, config publicState) *publicService {
-	return &publicService{paths: paths, config: config, pairFailureDelay: 350 * time.Millisecond}
+	return &publicService{
+		paths: paths, config: config, pairFailureDelay: 350 * time.Millisecond,
+		pairLimiter: newPairRateLimiter(), statusLimiter: newStatusRateLimiter(),
+	}
 }

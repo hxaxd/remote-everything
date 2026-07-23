@@ -8,6 +8,7 @@ struct ConnectionConfig: Codable, Hashable, Identifiable {
     let gatewayOrigin: String
     let gatewayFingerprint: String
     let gatewayPublicKeyPin: String
+    let accessToken: String
 
     var id: String { installationId }
 
@@ -34,6 +35,13 @@ struct ConnectionConfig: Codable, Hashable, Identifiable {
 
     func appOpenUrl(id: String) -> String {
         "\(gatewayOrigin)/__remote_everything/open/\(id)"
+    }
+
+    func authorizationHeaders() -> [String: String] {
+        if mode == .lan && !accessToken.isEmpty {
+            return ["Authorization": "Bearer \(accessToken)"]
+        }
+        return [:]
     }
 
     func isGatewayEndpoint(host: String?, port: Int) -> Bool {

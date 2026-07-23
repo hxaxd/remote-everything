@@ -195,6 +195,10 @@ class SetupTransaction(
             }
             return SetupState.Failed(config, "审批响应无效", SetupAction.RETRY_ACTIVATION)
         }
+        if (response.status == 429) {
+            // Rate-limited while waiting for human approval — keep waiting; the UI backs off.
+            return SetupState.AwaitingApproval(config, pendingExpiresAt)
+        }
         if (response.status == 503) {
             return SetupState.Failed(config, "节点暂时不可用，设备身份已保留", SetupAction.RETRY_ACTIVATION)
         }

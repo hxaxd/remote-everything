@@ -114,7 +114,7 @@ export struct CatalogPage {
         config.appsUrl,
         'GET',
         identity,
-        {},
+        config.authorizationHeaders(),
         null
       );
       if (!this.isCurrentGeneration(generation) || requestId !== this.requestOwner) return;
@@ -185,7 +185,7 @@ export struct CatalogPage {
         config.appActionUrl(appId, action),
         'POST',
         identity,
-        {},
+        config.authorizationHeaders(),
         null
       );
       if (!this.isCurrentGeneration(generation)) return;
@@ -232,6 +232,7 @@ export struct CatalogPage {
         gatewayOrigin: this.activeConfig.gatewayOrigin,
         gatewayFingerprint: this.activeConfig.gatewayFingerprint,
         gatewayPublicKeyPin: this.activeConfig.gatewayPublicKeyPin,
+        accessToken: this.activeConfig.accessToken,
         appId: app.id,
         appName: app.name,
         openUrl: app.openUrl

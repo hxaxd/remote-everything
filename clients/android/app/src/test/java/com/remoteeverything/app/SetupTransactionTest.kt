@@ -12,7 +12,7 @@ import org.junit.Test
 
 class SetupTransactionTest {
     private val installationId = "ab".repeat(32)
-    private val lanConfig = AppConfig.create(installationId, "LAN", "lan", "https://192.0.2.1:60000", "cd".repeat(32), "A".repeat(43) + "=")
+    private val lanConfig = AppConfig.create(installationId, "LAN", "lan", "https://192.0.2.1:60000", "cd".repeat(32), "A".repeat(43) + "=", "01".repeat(32))
     private val publicConfig = AppConfig.create(installationId, "Public", "public", "https://remote.example.com")
     private val setup = SetupPayload(publicConfig, "A".repeat(43))
 

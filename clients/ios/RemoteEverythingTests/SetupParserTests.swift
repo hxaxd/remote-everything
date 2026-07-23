@@ -13,6 +13,7 @@ final class SetupParserTests: XCTestCase {
             "origin": "https://192.168.1.5:60001",
             "fingerprint": String(repeating: "cd", count: 32),
             "public_key_pin": String(repeating: "A", count: 43) + "=",
+            "token": String(repeating: "01", count: 32),
         ])
         let setup = try SetupParser.parse(uri)
         XCTAssertEqual(setup.profile.installationId, installationId)
@@ -44,6 +45,7 @@ final class SetupParserTests: XCTestCase {
             "origin": "http://127.0.0.1:58626",
             "fingerprint": String(repeating: "cd", count: 32),
             "public_key_pin": String(repeating: "A", count: 43) + "=",
+            "token": String(repeating: "01", count: 32),
         ])
         XCTAssertThrowsError(try SetupParser.parse(base))
 

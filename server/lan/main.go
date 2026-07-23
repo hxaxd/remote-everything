@@ -92,6 +92,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	serveHandler := lanAccessHandler(lan.AccessToken, handler)
 	certificate, err := tls.LoadX509KeyPair(filepath.Join(root, lan.CertificateFile), filepath.Join(root, lan.PrivateKeyFile))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "LAN TLS material unavailable")
@@ -99,7 +100,7 @@ func main() {
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	server := &http.Server{
-		Addr: lan.ListenAddress, Handler: handler, TLSConfig: tlsConfig,
+		Addr: lan.ListenAddress, Handler: serveHandler, TLSConfig: tlsConfig,
 		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
 	}
 	if err := server.ListenAndServeTLS("", ""); err != nil {

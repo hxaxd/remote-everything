@@ -55,7 +55,7 @@ object RemoteApi {
     }
 
     fun catalog(config: ConnectionConfig, identity: ClientIdentity?): CatalogSnapshot {
-        val response = SecureHttp.request(config, config.appsUrl, "GET", identity)
+        val response = SecureHttp.request(config, config.appsUrl, "GET", identity, config.authorizationHeaders())
         if (response.status == 401 || response.status == 403) throw DeviceAuthorizationException()
         require(response.status == 200) { "服务返回 ${response.status}" }
         return decodeCatalog(config, response.json())
@@ -113,7 +113,7 @@ object RemoteApi {
 
     fun control(config: ConnectionConfig, identity: ClientIdentity?, appId: String, action: String): Boolean {
         require(action == "start" || action == "stop")
-        val response = SecureHttp.request(config, config.appActionUrl(appId, action), "POST", identity)
+        val response = SecureHttp.request(config, config.appActionUrl(appId, action), "POST", identity, config.authorizationHeaders())
         if (response.status != 200) return false
         return decodeAction(config, action, response.json())
     }

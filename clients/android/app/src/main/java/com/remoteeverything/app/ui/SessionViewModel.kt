@@ -280,7 +280,10 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             }
             com.remoteeverything.app.SetupAction.RETRY_ACTIVATION ->
                 runSetup(state.config, SetupState.Activating(state.config)) { callback -> setupTransaction.retryActivation(state.config, callback) }
-            com.remoteeverything.app.SetupAction.RESTART_SETUP -> cancelSetup()
+            com.remoteeverything.app.SetupAction.RESTART_SETUP -> {
+                // UI handles navigation back to the connections screen; keep cancel idempotent.
+                cancelSetup()
+            }
         }
     }
 
@@ -383,20 +386,82 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 is SetupState.Ready -> completeSetup(result.config)
                 is SetupState.AwaitingApproval -> {
                     _setupState.value = result
-                    // 与旧行为一致:等待批准期间每 2 秒自动重试激活
-                    delay(2_000)
-                    if (isActive && _setupState.value === result) {
-                        runSetup(result.config, SetupState.Activating(result.config, result.pendingExpiresAt)) { callback ->
-                            setupTransaction.retryActivation(result.config, callback)
-                        }
-                    }
+                    pollActivationWhileAwaiting(result)
                 }
                 else -> _setupState.value = result
             }
         }
     }
 
+    /**
+     * Keep the waiting-approval UI stable while silently re-checking activation.
+     * Suppress Activating intermediate states and back off on HTTP 429 rate limits.
+     */
+    private fun pollActivationWhileAwaiting(waiting: SetupState.AwaitingApproval) {
+        setupJob = viewModelScope.launch {
+            var delayMs = APPROVAL_POLL_INITIAL_MS
+            while (isActive) {
+                delay(delayMs)
+                val current = _setupState.value
+                if (current !is SetupState.AwaitingApproval ||
+                    current.config.installationId != waiting.config.installationId
+                ) {
+                    return@launch
+                }
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        setupTransaction.retryActivation(current.config) { state ->
+                            // Stay on AwaitingApproval visually; ignore Activating flicker.
+                            if (state !is SetupState.Activating) {
+                                _setupState.value = state
+                            }
+                        }
+                    }.getOrElse { error ->
+                        val cause = generateSequence(error) { it.cause }.last()
+                        SetupState.Failed(
+                            current.config,
+                            cause.message ?: "初始化失败",
+                            com.remoteeverything.app.SetupAction.RETRY_ACTIVATION,
+                        )
+                    }
+                }
+                if (!isActive) return@launch
+                when (result) {
+                    is SetupState.Ready -> {
+                        completeSetup(result.config)
+                        return@launch
+                    }
+                    is SetupState.AwaitingApproval -> {
+                        _setupState.value = result
+                        delayMs = APPROVAL_POLL_INITIAL_MS
+                    }
+                    is SetupState.Failed -> {
+                        if (isActivationRateLimited(result.message)) {
+                            // Stay on waiting UI; slow down to avoid burning the rate budget.
+                            _setupState.value = current
+                            delayMs = (delayMs * 2).coerceAtMost(APPROVAL_POLL_MAX_MS)
+                        } else {
+                            _setupState.value = result
+                            return@launch
+                        }
+                    }
+                    else -> {
+                        _setupState.value = result
+                        return@launch
+                    }
+                }
+            }
+        }
+    }
+
+    private fun isActivationRateLimited(message: String): Boolean {
+        val normalized = message.lowercase()
+        return normalized.contains("429") || normalized.contains("rate_limited") || normalized.contains("rate limited")
+    }
+
     private companion object {
         const val CATALOG_OFFLINE_GRACE_MS = 30_000L
+        const val APPROVAL_POLL_INITIAL_MS = 5_000L
+        const val APPROVAL_POLL_MAX_MS = 60_000L
     }
 }

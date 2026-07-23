@@ -333,7 +333,8 @@ class RestartableProfileStore implements SetupProfileStore {
     return left.installationId === right.installationId && left.name === right.name &&
       left.mode === right.mode && left.gatewayOrigin === right.gatewayOrigin &&
       left.gatewayFingerprint === right.gatewayFingerprint &&
-      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin;
+      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin &&
+      left.accessToken === right.accessToken;
   }
 }
 
@@ -512,7 +513,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'Test LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
 
       const result = await transaction.begin(new SetupPayload(config, ''));
@@ -556,7 +557,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
 
       const resultPromise = transaction.begin(new SetupPayload(config, ''));
@@ -584,7 +585,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
 
       const resultPromise = transaction.begin(new SetupPayload(config, ''));
@@ -801,7 +802,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
       const transaction = new SetupTransaction(
         store, new FakeIdentityStore(), 'device', new FakeTransport()
@@ -1200,7 +1201,7 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '='
+        'A'.repeat(43) + '=', '01'.repeat(32)
       );
       store.staged = lanConfig;
       identityStore.staged = false;

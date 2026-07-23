@@ -116,7 +116,7 @@ export class SetupState {
 
 export class ProductionSetupTransport implements SetupTransport {
   async verifyCatalog(config: ConnectionConfig): Promise<void> {
-    const response = await this.request(config, config.appsUrl, 'GET', null, {}, null);
+    const response = await this.request(config, config.appsUrl, 'GET', null, config.authorizationHeaders(), null);
     if (response.status !== 200) {
       throw new Error(`目录服务返回 ${response.status}`);
     }

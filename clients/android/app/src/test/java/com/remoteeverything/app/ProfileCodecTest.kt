@@ -13,7 +13,7 @@ class ProfileCodecTest {
     @Test
     fun multipleProfilesRoundTripWithoutLosingIdentity() {
         val values = listOf(
-            AppConfig.create(id, "LAN", "lan", "https://192.0.2.10:4443", fingerprint, publicKeyPin),
+            AppConfig.create(id, "LAN", "lan", "https://192.0.2.10:4443", fingerprint, publicKeyPin, "01".repeat(32)),
             AppConfig.create("ef".repeat(32), "Public", "public", "https://remote.example.com", ""),
         )
         assertEquals(values, ProfileCodec.decodeAll(ProfileCodec.encodeAll(values)))
@@ -21,7 +21,7 @@ class ProfileCodecTest {
 
     @Test
     fun unknownOrMissingFieldsAreRejected() {
-        val encoded = ProfileCodec.encode(AppConfig.create(id, "LAN", "lan", "https://192.0.2.10:4443", fingerprint, publicKeyPin))
+        val encoded = ProfileCodec.encode(AppConfig.create(id, "LAN", "lan", "https://192.0.2.10:4443", fingerprint, publicKeyPin, "01".repeat(32)))
         encoded.put("legacy", true)
         assertThrows(IllegalArgumentException::class.java) { ProfileCodec.decode(encoded) }
         val missing = JSONObject(encoded.toString()).apply { remove("origin"); remove("legacy") }

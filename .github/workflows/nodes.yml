@@ -4,7 +4,23 @@ on:
   workflow_call:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'AGENTS.local.md'
+      - '.github/CODEOWNERS'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'review-evidence/**'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'LICENSE'
+      - 'AGENTS.local.md'
+      - '.github/CODEOWNERS'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/PULL_REQUEST_TEMPLATE.md'
+      - 'review-evidence/**'
 
 jobs:
   windows:
