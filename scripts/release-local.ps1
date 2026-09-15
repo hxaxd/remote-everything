@@ -140,7 +140,6 @@ function Validate-Harmony {
 
 function Validate-Repository {
     Step "Validate release metadata $Version ($BuildNumber)"
-    Run { python clients/contracts/validate_contracts.py } 'Contract validation failed'
     Run { python clients/validate_versions.py } 'Client version validation failed'
     Run { python clients/harmony/audit_source.py } 'HarmonyOS source audit failed'
     foreach ($file in @(

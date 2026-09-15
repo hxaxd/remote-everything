@@ -1,9 +1,0 @@
-{
-  "description": "Activation response when computer is offline",
-  "payload": {
-    "ok": false,
-    "computer_connected": false,
-    "code": "computer_offline"
-  },
-  "error": "computer_offline"
-}

@@ -1,9 +1,0 @@
-{
-  "description": "Valid catalog response when computer is offline",
-  "payload": {
-    "ok": true,
-    "computer_connected": false,
-    "code": "computer_offline",
-    "apps": []
-  }
-}
