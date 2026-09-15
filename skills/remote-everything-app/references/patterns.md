@@ -11,7 +11,7 @@
 - 使用绝对命令和工作目录。
 - 应用不鉴权时只能依赖 Remote Everything 入口，不能额外监听局域网地址。
 
-KimiWeb 和 SillyTavern 属于这一类。
+DSH 和 SillyTavern 属于这一类。
 
 ## CLI Agent Web 包装器
 
@@ -23,7 +23,7 @@ Web UI 需要启动 CLI Agent 子进程时，额外验证：
 - 停止应用时整棵进程树必须释放。
 - 除首页外，还要验证会话 API、静态资源以及 SSE 或 WebSocket 实时链路；端口探活不能代替功能探活。
 
-CloudCLI 和 Pi Chat 属于这一类。
+当前没有现存条目，按上述检查项适配，验证通过后再入库。
 
 ## 交付检查
 
