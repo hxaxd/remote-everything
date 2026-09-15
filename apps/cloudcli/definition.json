@@ -1,1 +1,0 @@
-{"id":"cloudcli","name":"CloudCLI","description":"Claude Code 网页控制台","icon":"CC","accent":"#0891b2","launch_fragment":"","proxy_url":"http://127.0.0.1:{{PORT}}","command":"{{CMD_BINARY}}","arguments":["/d","/s","/c","{{CLOUDCLI_LAUNCHER}}","{{PORT}}"],"stop_command":"","stop_arguments":[],"workdir":"{{CLOUDCLI_DIR}}"}

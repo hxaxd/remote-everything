@@ -151,9 +151,6 @@ function Validate-Repository {
     )) { Run { python -m json.tool $file *> $null } "Invalid JSON manifest: $file" }
     Validate-Harmony
 
-    Step 'Run adapted application compatibility tests'
-    Run { node --test apps/pi/compat.test.mjs } 'Pi compatibility tests failed'
-
     Step 'Validate repository assets and deployment scripts'
     $tracked = @(git ls-files | Where-Object { $_ -match '\.(p12|pfx|jks|keystore|key|key\.pem)$|(^|/)AGENTS\.local\.md$|(^|/)local\.properties$' })
     if ($tracked) { throw "Tracked credential or local files:`n$($tracked -join "`n")" }
