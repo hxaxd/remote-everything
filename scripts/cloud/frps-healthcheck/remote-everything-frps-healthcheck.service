@@ -1,0 +1,9 @@
+[Unit]
+Description=Remote Everything frps health check {{INSTALLATION_ID}}
+After=remote-everything-{{INSTALLATION_ID}}-frps.service
+
+[Service]
+Type=oneshot
+# 模板文件：由同目录 install.sh 渲染安装，{{HEALTHCHECK_SCRIPT}} 替换为脚本实际路径。
+# 标准流程（skills/remote-everything-install）中不要手工拷贝本文件。
+ExecStart={{HEALTHCHECK_SCRIPT}}
