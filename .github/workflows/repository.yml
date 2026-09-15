@@ -72,7 +72,9 @@ jobs:
           "$(go env GOPATH)/bin/staticcheck" ./...
           "$(go env GOPATH)/bin/govulncheck" ./...
           credential_pattern='BEGIN ([A-Z ]+ )?PRIVATE KEY|REMOTE_EVERYTHING_PAIRING_''PASSWORD|(pass''word|to''ken|se''cret)[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_+/-]{24,}'
-          if git grep -niE -- "$credential_pattern" -- ':!**/*_test.go' ':!clients/android/app/src/test/**'; then
+          # clients/contracts/fixtures 是被 validate_contracts.py 消费的合成契约样例
+          # （abab…/cdcd… 占位材料），与 *_test.go 一样不属于真实凭据
+          if git grep -niE -- "$credential_pattern" -- ':!**/*_test.go' ':!clients/android/app/src/test/**' ':!clients/contracts/fixtures/**'; then
             echo "::error::possible credential material in repository"
             exit 1
           fi
