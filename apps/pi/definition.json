@@ -1,1 +1,0 @@
-{"id":"pi","name":"Pi Chat","description":"远程使用 Pi Coding Agent","icon":"π","accent":"#6EA8DB","launch_fragment":"","proxy_url":"http://127.0.0.1:{{PORT}}","command":"{{NODE_BINARY}}","arguments":["{{PI_LAUNCHER}}","{{WGNR_PI_SERVER}}","{{PORT}}","{{PI_WORKDIR}}","{{PI_HOME}}","{{PI_BINARY}}"],"stop_command":"","stop_arguments":[],"workdir":"{{PI_WORKDIR}}"}
