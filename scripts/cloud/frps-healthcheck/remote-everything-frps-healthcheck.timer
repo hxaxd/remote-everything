@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Remote Everything frps health check every 5 minutes
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
