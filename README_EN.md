@@ -17,7 +17,7 @@
 
 ## Introduction
 
-KimiWeb, SillyTavern, CloudCLI, Pi Chat, and the small tools you write all run on your computer—but you do not have to stay in front of it.
+DSH (DeepSeek Harness), SillyTavern, and the small tools you write all run on your computer—but you do not have to stay in front of it.
 
 Remote Everything runs a lightweight node on the computer and delivers explicitly registered local Web apps to Android, iOS, or HarmonyOS clients. It does not modify the original apps, move data to a third-party cloud, or require you to maintain an account system: connect directly on the same network, or remotely through your own server or existing overlay network.
 
@@ -31,7 +31,7 @@ Remote Everything runs a lightweight node on the computer and delivers explicitl
 - 🔐 **Device-level trust**: public devices require a single-use invitation, certificate request, full-fingerprint human confirmation, and mTLS activation.
 - 🌐 **LAN and remote**: access over LAN or an existing overlay; public mode reuses server port 443, with Caddy and FRP as the controlled entry.
 - 🧭 **Switch among computers**: each computer has an independent ID; the client manages and switches Profiles without coupling them.
-- 🧩 **Apps ready to plug in**: Kimi Code, SillyTavern, CloudCLI, and Pi are adapted; other local Web apps can use the same definition.
+- 🧩 **Apps ready to plug in**: DSH (DeepSeek Harness) and SillyTavern are adapted; other local Web apps can use the same definition.
 - 🤖 **Agent-driven operations**: installation, app onboarding, device pairing, inspection, upgrades, and removal all have executable Skills—no handwritten deploy notes required.
 
 ## Supported scope
@@ -41,7 +41,7 @@ Remote Everything runs a lightweight node on the computer and delivers explicitl
 | Mobile clients | Android · iOS · HarmonyOS |
 | Computer nodes | Windows · Linux · macOS |
 | Access modes | LAN / overlay network · Linux public gateway |
-| Adapted apps | KimiWeb · SillyTavern · CloudCLI · Pi Chat |
+| Adapted apps | DSH (DeepSeek Harness) · SillyTavern |
 | Multiple computers | Independent instance per computer; multi-Profile switching on the client |
 
 ## How it works
@@ -57,10 +57,8 @@ Android / iOS / HarmonyOS
           ▼
  Windows / Linux / macOS Node
           │
-          ├── KimiWeb
+          ├── DSH (DeepSeek Harness)
           ├── SillyTavern
-          ├── CloudCLI
-          ├── Pi Chat
           └── other loopback Web apps
 ```
 
@@ -107,10 +105,8 @@ Do not open a public Issue for a security vulnerability; report privately via th
 
 ## Good fit
 
-- Continue a home or office KimiWeb session while commuting;
+- Check and operate the DSH (DeepSeek Harness) console on a home or office computer while commuting;
 - Use local SillyTavern on a mobile device with an isolated login state;
-- Check CloudCLI sessions and other self-hosted tools anytime;
-- Continue a coding session in Pi Chat from the computer;
 - Manage computers on different OSes with one client without exposing each app's raw port.
 
 ## Contributing

@@ -17,7 +17,7 @@
 
 ## 项目介绍
 
-KimiWeb、SillyTavern、CloudCLI、Pi Chat 和你自己写的小工具都运行在电脑上，但你不必一直坐在电脑前。
+DSH（DeepSeek Harness）、SillyTavern（酒馆）和你自己写的小工具都运行在电脑上，但你不必一直坐在电脑前。
 
 Remote Everything 在电脑上运行一个轻量节点，把明确登记的本地 Web 应用送到 Android、iOS 或 HarmonyOS 客户端。它不改造原应用、不把数据搬到第三方云端，也不要求维护一套账号系统：同网直接连接，异地则经过你自己的服务器或已有组网。
 
@@ -31,7 +31,7 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 - 🔐 **设备级信任**：公网设备必须经过单次邀请、证书申请、完整指纹人工确认和 mTLS 激活。
 - 🌐 **同网与异地**：LAN 或已有组网直接访问；公网模式复用服务器 443，由 Caddy 与 FRP 提供受控入口。
 - 🧭 **多电脑切换**：每台电脑是独立 ID，客户端用多个 Profile 管理和切换，互不影响。
-- 🧩 **应用即接即用**：已适配 Kimi Code、SillyTavern、CloudCLI 与 Pi，其他本地 Web 应用也可按统一定义接入。
+- 🧩 **应用即接即用**：已适配 DSH（DeepSeek Harness）与 SillyTavern（酒馆），其他本地 Web 应用也可按统一定义接入。
 - 🤖 **Agent 驱动运维**：安装、接入应用、配对设备、巡检、升级和卸载都有可执行 Skill，不依赖手写部署笔记。
 
 ## 支持范围
@@ -41,7 +41,7 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 | 移动客户端 | Android · iOS · HarmonyOS |
 | 电脑节点 | Windows · Linux · macOS |
 | 访问形态 | LAN / 远程组网 · Linux 公网网关 |
-| 已适配应用 | KimiWeb · SillyTavern · CloudCLI · Pi Chat |
+| 已适配应用 | DSH（DeepSeek Harness）· SillyTavern（酒馆） |
 | 多电脑 | 每台电脑独立实例，客户端多 Profile 切换 |
 
 ## 工作原理
@@ -57,10 +57,8 @@ Android / iOS / HarmonyOS
           ▼
  Windows / Linux / macOS Node
           │
-          ├── KimiWeb
-          ├── SillyTavern
-          ├── CloudCLI
-          ├── Pi Chat
+          ├── DSH（DeepSeek Harness）
+          ├── SillyTavern（酒馆）
           └── 其他 loopback Web 应用
 ```
 
@@ -107,10 +105,8 @@ Android 可安装当前 [Release](https://github.com/hxaxd/remote-everything/rel
 
 ## 适合的场景
 
-- 通勤途中继续处理家里或工位电脑上的 KimiWeb 会话；
-- 在移动设备上使用本机 SillyTavern，同时保留独立登录态；
-- 随时查看 CloudCLI 会话和其他自托管工具；
-- 在 Pi Chat 中继续电脑上的编程会话；
+- 通勤途中随时查看和操作家里或工位电脑上的 DSH（DeepSeek Harness）控制台；
+- 在移动设备上使用本机 SillyTavern（酒馆），同时保留独立登录态；
 - 用一个客户端管理多台不同系统的电脑，而不暴露每个应用的原始端口。
 
 ## 参与项目
