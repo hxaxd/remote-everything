@@ -29,7 +29,6 @@ export default function setupParserTest() {
     });
 
     it('lan_token_is_required_and_public_must_omit_it', DEFAULT, () => {
-      // Contract fixture: clients/contracts/fixtures/invalid/setup-uri-lan-missing-token.json
       const missingToken = buildURI({
         'v': '2',
         'id': INSTALLATION_ID,
@@ -64,7 +63,6 @@ export default function setupParserTest() {
     });
 
     it('parses_contract_valid_lan_fixture_token', DEFAULT, () => {
-      // clients/contracts/fixtures/valid/setup-uri-lan.json
       const expectedToken =
         'abababababababababababababababababababababababababababababababab';
       const uri =

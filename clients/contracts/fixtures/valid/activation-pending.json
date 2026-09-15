@@ -1,8 +1,0 @@
-{
-  "description": "Valid activation response — awaiting manual approval",
-  "payload": {
-    "ok": false,
-    "computer_connected": true,
-    "code": "approval_pending"
-  }
-}

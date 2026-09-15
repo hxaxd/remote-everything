@@ -26,24 +26,20 @@ permissions:
   contents: read
 
 jobs:
-  contracts:
-    name: Contracts and versions
+  versions:
+    name: Client version alignment
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install contract validator
-        run: python -m pip install "jsonschema==4.25.1"
-      - name: Validate schemas and fixtures
-        run: python clients/contracts/validate_contracts.py
       - name: Verify three-client version alignment
         run: python clients/validate_versions.py
 
   android:
     name: Android test, lint, and debug build
-    needs: contracts
+    needs: versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +65,7 @@ jobs:
 
   ios:
     name: iOS build, test, and analyze
-    needs: contracts
+    needs: versions
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,7 +114,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
   harmony:
     name: HarmonyOS source and project gate
-    needs: contracts
+    needs: versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

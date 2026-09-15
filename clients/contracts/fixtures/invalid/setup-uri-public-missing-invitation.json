@@ -1,5 +1,0 @@
-{
-  "description": "Public mode setup URI without invitation must be rejected",
-  "uri": "remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab&name=PC&mode=public&origin=https%3A%2F%2Fremote.example.com",
-  "error": "missing_invitation"
-}
