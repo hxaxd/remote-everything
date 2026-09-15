@@ -39,8 +39,12 @@ enum WebHostPolicy {
     static func safeFilename(_ proposed: String) -> String {
         let forbidden = CharacterSet(charactersIn: "\\/:*?\"<>|").union(.controlCharacters)
         let parts = proposed.components(separatedBy: forbidden)
+        // 先看去掉非法字符后是否还剩有效内容；仅由非法字符（如 NUL）组成的名字
+        // 直接连接只会得到 "_"，必须按空名处理回退为 download。
+        let stripped = parts.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        if stripped.isEmpty { return "download" }
         let value = parts.joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.isEmpty || value == "." || value == ".." { return "download" }
+        if value == "." || value == ".." { return "download" }
         return String(value.prefix(120))
     }
 
