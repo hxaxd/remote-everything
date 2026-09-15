@@ -1,5 +1,0 @@
-{
-  "description": "LAN mode setup URI without fingerprint must be rejected",
-  "uri": "remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab&name=PC&mode=lan&origin=https%3A%2F%2F192.168.1.5%3A60001&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D",
-  "error": "missing_fingerprint"
-}

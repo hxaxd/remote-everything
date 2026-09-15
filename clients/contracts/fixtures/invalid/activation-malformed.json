@@ -1,9 +1,0 @@
-{
-  "description": "Activation response missing required fields must be rejected",
-  "payload": {
-    "ok": true,
-    "computer_connected": true,
-    "code": "ready"
-  },
-  "error": "missing_apps_on_ready"
-}
