@@ -3,19 +3,17 @@ package nodecore
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"sync"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/nodeadapter"
 )
 
@@ -95,56 +93,12 @@ func randomHex(size int) (string, error) {
 	return hex.EncodeToString(value), nil
 }
 
-func validLoopbackAddress(address string) bool {
-	host, portText, err := net.SplitHostPort(address)
-	if err != nil || host != "127.0.0.1" {
-		return false
-	}
-	port, err := strconv.Atoi(portText)
-	return err == nil && port >= 1024 && port <= 65535
-}
-
-func allocateLoopback(preferred int) (string, error) {
-	addresses := []string{net.JoinHostPort("127.0.0.1", strconv.Itoa(preferred)), "127.0.0.1:0"}
-	for _, address := range addresses {
-		listener, err := net.Listen("tcp4", address)
-		if err != nil {
-			continue
-		}
-		allocated := listener.Addr().String()
-		if closeErr := listener.Close(); closeErr != nil {
-			return "", closeErr
-		}
-		if validLoopbackAddress(allocated) {
-			return allocated, nil
-		}
-	}
-	return "", errors.New("no loopback port available")
-}
-
-func decodeSingleJSON(path string, output any) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(output); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return errors.New("trailing JSON content")
-	}
-	return nil
-}
-
 func loadStateFile(path string) (State, error) {
 	var state State
-	if err := decodeSingleJSON(path, &state); err != nil {
+	if err := jsonfile.Read(path, &state); err != nil {
 		return State{}, err
 	}
-	if !validToken.MatchString(state.NodeID) || !validLoopbackAddress(state.ListenAddress) {
+	if !validToken.MatchString(state.NodeID) || !netaddr.ValidLoopback(state.ListenAddress) {
 		return State{}, errors.New("invalid node state")
 	}
 	seen := map[string]bool{}
@@ -175,14 +129,6 @@ func (node *Node) currentState() (State, error) {
 	return loadStateFile(node.stateFile)
 }
 
-func saveState(path string, state State) error {
-	contents, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	return atomicfile.Write(path, append(contents, '\n'), 0o600)
-}
-
 // Initialize creates a new node with a random NodeID and allocated loopback
 // address. No bindings are created — use AddBinding for that.
 func Initialize(root string) (BindingResult, error) {
@@ -203,12 +149,12 @@ func Initialize(root string) (BindingResult, error) {
 		if randomErr != nil {
 			return BindingResult{}, randomErr
 		}
-		listenAddress, allocateErr := allocateLoopback(58627)
+		listenAddress, allocateErr := netaddr.Reserve("127.0.0.1", 58627)
 		if allocateErr != nil {
 			return BindingResult{}, allocateErr
 		}
 		state = State{NodeID: nodeID, ListenAddress: listenAddress, Bindings: []GatewayBinding{}}
-		if err := saveState(node.stateFile, state); err != nil {
+		if err := jsonfile.Write(node.stateFile, state, 0o600); err != nil {
 			return BindingResult{}, err
 		}
 	} else if err != nil {
@@ -256,7 +202,7 @@ func AddBinding(root, bootstrapRoot string) (BindingResult, error) {
 	}
 	binding := GatewayBinding{
 		InstallationID:   bundle.InstallationID,
-		ControlTokenFile: filepath.Join(bindingDir, "control-token"),
+		ControlTokenFile: filepath.Join(bindingDir, deploymentbootstrap.ControlTokenName),
 	}
 	if err := writeBootstrapFile(binding.ControlTokenFile, []byte(bundle.ControlToken+"\n"), 0o600); err != nil {
 		return BindingResult{}, err
@@ -272,7 +218,7 @@ func AddBinding(root, bootstrapRoot string) (BindingResult, error) {
 	if !found {
 		state.Bindings = append(state.Bindings, binding)
 	}
-	if err := saveState(node.stateFile, state); err != nil {
+	if err := jsonfile.Write(node.stateFile, state, 0o600); err != nil {
 		return BindingResult{}, err
 	}
 	return BindingResult{
@@ -308,7 +254,7 @@ func RemoveBinding(root, installationID string) error {
 		return nil
 	}
 	state.Bindings = filtered
-	if err := saveState(node.stateFile, state); err != nil {
+	if err := jsonfile.Write(node.stateFile, state, 0o600); err != nil {
 		return err
 	}
 	bindingDir := filepath.Join(node.bindingsRoot, installationID)
@@ -342,7 +288,7 @@ func RepairPorts(root string) (BindingResult, error) {
 	}
 	reserved := make(map[string]bool)
 	var registry Registry
-	if err := decodeSingleJSON(node.appsFile, &registry); err != nil && !os.IsNotExist(err) {
+	if err := jsonfile.Read(node.appsFile, &registry); err != nil && !os.IsNotExist(err) {
 		return BindingResult{}, err
 	}
 	for _, app := range registry.Apps {
@@ -353,7 +299,7 @@ func RepairPorts(root string) (BindingResult, error) {
 	chosen := ""
 	preferred := 58627
 	for attempts := 0; attempts < 3 && chosen == ""; attempts++ {
-		candidate, err := allocateLoopback(preferred)
+		candidate, err := netaddr.Reserve("127.0.0.1", preferred)
 		if err != nil {
 			return BindingResult{}, err
 		}
@@ -366,7 +312,7 @@ func RepairPorts(root string) (BindingResult, error) {
 		return BindingResult{}, errors.New("no loopback port available outside registered applications")
 	}
 	state.ListenAddress = chosen
-	if err := saveState(node.stateFile, state); err != nil {
+	if err := jsonfile.Write(node.stateFile, state, 0o600); err != nil {
 		return BindingResult{}, err
 	}
 	return BindingResult{OK: true, State: node.root, NodeID: state.NodeID, ListenAddress: state.ListenAddress}, nil

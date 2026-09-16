@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
 	"io"
 	"os"
 	"path/filepath"
@@ -90,7 +91,7 @@ func validateInvitation(record invitationRecord) error {
 func (service *publicService) loadInvitation(token string) (invitationRecord, error) {
 	hash := invitationHash(token)
 	var record invitationRecord
-	if err := decodePublicJSON(service.invitationPath(hash), &record); err != nil {
+	if err := jsonfile.Read(service.invitationPath(hash), &record); err != nil {
 		return invitationRecord{}, err
 	}
 	if err := validateInvitation(record); err != nil || record.TokenHash != hash {
@@ -199,7 +200,7 @@ func (service *publicService) cleanupExpiredState() error {
 		}
 		path := filepath.Join(service.paths.invitesDir, entry.Name())
 		var record invitationRecord
-		if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil {
+		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
 			auditLine("corrupt invitation skipped", "path", entry.Name())
 			continue
 		}
@@ -247,7 +248,7 @@ func (service *publicService) invitationList(output io.Writer) error {
 		}
 		path := filepath.Join(service.paths.invitesDir, entry.Name())
 		var record invitationRecord
-		if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil {
+		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
 			auditLine("corrupt invitation skipped", "path", entry.Name())
 			continue
 		}
@@ -271,7 +272,7 @@ func (service *publicService) invitationCancel(hash string, output io.Writer) er
 	}
 	path := service.invitationPath(hash)
 	var record invitationRecord
-	if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil || record.TokenHash != hash {
+	if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil || record.TokenHash != hash {
 		return errors.New("invitation not found")
 	}
 	if record.CertificateFingerprint != "" {
@@ -308,7 +309,7 @@ func (service *publicService) invitationTransaction(fingerprint string) (invitat
 		}
 		path := filepath.Join(service.paths.invitesDir, entry.Name())
 		var record invitationRecord
-		if err := decodePublicJSON(path, &record); err != nil || validateInvitation(record) != nil {
+		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
 			return invitationRecord{}, "", errors.New("invalid invitation state")
 		}
 		if record.CertificateFingerprint == fingerprint {

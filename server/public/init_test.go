@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/nodecore"
 )
 
@@ -107,7 +109,7 @@ func TestInitializePublicState(t *testing.T) {
 	addresses := []string{first.StatusListen, first.PairingListen, first.FRPSListen, first.NodeTunnelListen}
 	seen := map[string]bool{}
 	for _, address := range addresses {
-		if !validPublicLoopback(address) || seen[address] {
+		if !netaddr.ValidLoopback(address) || seen[address] {
 			t.Fatalf("invalid or duplicate address: %q", address)
 		}
 		seen[address] = true
@@ -116,7 +118,7 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{paths.stateFile, paths.controlTokenFile, paths.issuerKeyFile, paths.issuerCertFile} {
+	for _, path := range []string{paths.stateFile, gatewaycore.ControlTokenPath(root), paths.issuerKeyFile, paths.issuerCertFile} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing state file %s: %v", path, err)
 		}
@@ -136,7 +138,7 @@ func TestInitializePublicState(t *testing.T) {
 	}
 	seen = map[string]bool{}
 	for _, address := range []string{repaired.StatusListen, repaired.PairingListen, repaired.FRPSListen, repaired.NodeTunnelListen} {
-		if !validPublicLoopback(address) || seen[address] {
+		if !netaddr.ValidLoopback(address) || seen[address] {
 			t.Fatalf("invalid repaired address: %q", address)
 		}
 		seen[address] = true

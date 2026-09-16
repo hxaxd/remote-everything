@@ -82,12 +82,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "LAN binding is missing from the node state; run init")
 		os.Exit(1)
 	}
-	token, err := os.ReadFile(lanControlTokenFile(lanGatewayRoot(root)))
+	token, err := gatewaycore.ReadControlToken(lanGatewayRoot(root))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "control token unavailable")
 		os.Exit(1)
 	}
-	handler, err := gatewaycore.New("http://"+node.ListenAddress, string(token))
+	handler, err := gatewaycore.New("http://"+node.ListenAddress, token)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
