@@ -8,6 +8,7 @@
 remote-everything.properties
 AGENTS.local.md
 local.properties
+.trae/
 /.runtime*/*
 /.local-quarantine/
 
