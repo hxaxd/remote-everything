@@ -49,8 +49,8 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(nodeToken)) != bundle.ControlToken {
 		t.Fatalf("node did not import gateway control token: %v", err)
 	}
-	// The node is bound by identity alone: the tunnel material stays with the
-	// gateway that owns the tunnel, and none of it travels in the node bundle.
+	// The node is bound by identity alone: it holds its own binding and nothing
+	// of the material the tunnel agent on its machine runs on.
 	bindingEntries, err := os.ReadDir(filepath.Join(nodeRoot, "bindings", first.InstallationID))
 	if err != nil {
 		t.Fatal(err)
@@ -58,17 +58,34 @@ func TestInitializePublicState(t *testing.T) {
 	if len(bindingEntries) != 1 || bindingEntries[0].Name() != "control-token" {
 		t.Fatalf("node binding holds %v, want only control-token", bindingEntries)
 	}
-	for _, path := range []string{first.TunnelCAFile, first.FRPSTokenFile, first.TunnelClientCert, first.TunnelClientKey} {
+	// The gateway keeps what the tunnel server and the 443 entrance on its own
+	// machine read; the tunnel agent's material travels in the handover bundle.
+	for _, path := range []string{first.TunnelCAFile, first.FRPSTokenFile} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("gateway does not hold its own tunnel material %s: %v", path, err)
 		}
-		if _, err := os.Stat(filepath.Join(bundleRoot, filepath.Base(path))); !os.IsNotExist(err) {
-			t.Fatalf("tunnel material %s travelled in the node bundle: %v", filepath.Base(path), err)
-		}
 	}
-	clientCertificate, err := os.ReadFile(first.TunnelClientCert)
+	if _, err := os.Stat(filepath.Join(root, "tunnel-client.crt.pem")); !os.IsNotExist(err) {
+		t.Fatalf("the gateway state root holds the tunnel agent's identity: %v", err)
+	}
+	if first.TunnelMaterialDir != filepath.Join(bundleRoot, "frpc") {
+		t.Fatalf("tunnel material directory is %q", first.TunnelMaterialDir)
+	}
+	delivered := filepath.Join(bundleRoot, "frpc", "tunnel-client.crt.pem")
+	clientCertificate, err := os.ReadFile(delivered)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(first.TunnelClientFingerprint) != 64 {
+		t.Fatalf("init did not report the issued client identity: %+v", first)
+	}
+	for _, name := range []string{"frps-token", "tunnel-client.key.pem"} {
+		if _, err := os.Stat(filepath.Join(first.TunnelMaterialDir, name)); err != nil {
+			t.Fatalf("handover bundle is missing %s: %v", name, err)
+		}
+	}
+	if entries := entryNames(t, bundleRoot); len(entries) != 3 {
+		t.Fatalf("handover bundle holds %v, want the identity bundle and the material", entries)
 	}
 	tunnelCA, err := os.ReadFile(first.TunnelCAFile)
 	if err != nil {
@@ -78,24 +95,27 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil || second.InstallationID != first.InstallationID || second.StatusListen != first.StatusListen || second.NodeTunnelListen != first.NodeTunnelListen {
 		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}
-	reissued, err := os.ReadFile(second.TunnelClientCert)
+	reissued, err := os.ReadFile(delivered)
 	if err != nil || !bytes.Equal(reissued, clientCertificate) {
 		t.Fatalf("re-running init replaced the identity a running tunnel agent authenticates with: %v", err)
 	}
 	var renewalOutput bytes.Buffer
-	if err := renewTunnelIdentity(root, &renewalOutput); err != nil {
+	if err := renewTunnelIdentity(root, bundleRoot, &renewalOutput); err != nil {
 		t.Fatal(err)
 	}
 	var renewal tunnelRenewResult
 	if err := json.Unmarshal(renewalOutput.Bytes(), &renewal); err != nil {
 		t.Fatal(err)
 	}
-	if !renewal.OK || renewal.InstallationID != first.InstallationID || renewal.TunnelClientCert != first.TunnelClientCert || renewal.TunnelClientFingerprint == "" {
+	if !renewal.OK || renewal.InstallationID != first.InstallationID || renewal.NodeBootstrap != filepath.Clean(bundleRoot) || renewal.TunnelMaterialDir != first.TunnelMaterialDir || len(renewal.TunnelClientFingerprint) != 64 {
 		t.Fatalf("unexpected tunnel renewal result: %+v", renewal)
 	}
-	renewedCertificate, err := os.ReadFile(renewal.TunnelClientCert)
+	renewedCertificate, err := os.ReadFile(delivered)
 	if err != nil || bytes.Equal(renewedCertificate, clientCertificate) {
 		t.Fatalf("renewal did not rotate the tunnel client identity: %v", err)
+	}
+	if renewedCertificate == nil {
+		t.Fatal("renewal left no certificate")
 	}
 	unchangedCA, err := os.ReadFile(renewal.TunnelCAFile)
 	if err != nil || !bytes.Equal(unchangedCA, tunnelCA) {
@@ -143,6 +163,19 @@ func TestInitializePublicState(t *testing.T) {
 		}
 		seen[address] = true
 	}
+}
+
+func entryNames(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
 }
 
 func TestLoadIssuerRejectsTamperedSelfSignature(t *testing.T) {

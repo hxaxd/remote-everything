@@ -24,30 +24,30 @@ import (
 )
 
 type publicInitResult struct {
-	OK               bool   `json:"ok"`
-	State            string `json:"state"`
-	InstallationID   string `json:"installation_id"`
-	ControlTokenFile string `json:"control_token_file"`
-	DeviceCAFile     string `json:"device_ca_file"`
-	StatusListen     string `json:"status_listen"`
-	PairingListen    string `json:"pairing_listen"`
-	FRPSListen       string `json:"frps_listen"`
-	NodeTunnelListen string `json:"node_tunnel_listen"`
-	NodeBootstrap    string `json:"node_bootstrap"`
-	FRPSTokenFile    string `json:"frps_token_file"`
-	TunnelCAFile     string `json:"tunnel_ca_file"`
-	TunnelClientCert string `json:"tunnel_client_certificate_file"`
-	TunnelClientKey  string `json:"tunnel_client_key_file"`
-	DeviceIssuerDN   string `json:"device_issuer_dn"`
-	TunnelIssuerDN   string `json:"tunnel_issuer_dn"`
+	OK                      bool   `json:"ok"`
+	State                   string `json:"state"`
+	InstallationID          string `json:"installation_id"`
+	ControlTokenFile        string `json:"control_token_file"`
+	DeviceCAFile            string `json:"device_ca_file"`
+	StatusListen            string `json:"status_listen"`
+	PairingListen           string `json:"pairing_listen"`
+	FRPSListen              string `json:"frps_listen"`
+	NodeTunnelListen        string `json:"node_tunnel_listen"`
+	NodeBootstrap           string `json:"node_bootstrap"`
+	FRPSTokenFile           string `json:"frps_token_file"`
+	TunnelCAFile            string `json:"tunnel_ca_file"`
+	TunnelMaterialDir       string `json:"tunnel_material_directory"`
+	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
+	DeviceIssuerDN          string `json:"device_issuer_dn"`
+	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
 
 type tunnelRenewResult struct {
 	OK                      bool   `json:"ok"`
 	InstallationID          string `json:"installation_id"`
+	NodeBootstrap           string `json:"node_bootstrap"`
 	TunnelCAFile            string `json:"tunnel_ca_file"`
-	TunnelClientCert        string `json:"tunnel_client_certificate_file"`
-	TunnelClientKey         string `json:"tunnel_client_key_file"`
+	TunnelMaterialDir       string `json:"tunnel_material_directory"`
 	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
 	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
@@ -185,12 +185,12 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	tunnelIdentity, err := deploymentbootstrap.EnsureTunnelClientIdentity(paths.root, material)
-	if err != nil {
-		return publicInitResult{}, err
-	}
 	identity := gatewaycore.Identity{InstallationID: state.InstallationID, ControlToken: controlToken}
 	if err := identity.WriteBundle(nodeBootstrap); err != nil {
+		return publicInitResult{}, err
+	}
+	tunnel, err := deploymentbootstrap.EnsureTunnelMaterial(nodeBootstrap, material)
+	if err != nil {
 		return publicInitResult{}, err
 	}
 	return publicInitResult{
@@ -199,7 +199,7 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
 		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
 		NodeBootstrap: filepath.Clean(nodeBootstrap), FRPSTokenFile: material.FRPSTokenFile, TunnelCAFile: material.CACertFile,
-		TunnelClientCert: tunnelIdentity.CertificateFile, TunnelClientKey: tunnelIdentity.KeyFile,
+		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
 		DeviceIssuerDN: deviceIssuer.Subject.String(), TunnelIssuerDN: material.CACertificate.Subject.String(),
 	}, nil
 }
@@ -219,10 +219,12 @@ func runPublicInit(parts []string, output io.Writer) error {
 	return json.NewEncoder(output).Encode(result)
 }
 
-// renewTunnelIdentity rotates the tunnel client identity the gateway issues.
-// The node takes no part in it: the identity the gateway is bound by does not
-// change, so renewal is entirely a gateway-side operation.
-func renewTunnelIdentity(root string, output io.Writer) error {
+// renewTunnelIdentity issues a new client identity for the tunnel into the
+// handover bundle the operator already carries to the node machine. The node
+// takes no part in it: neither the identity the gateway is bound by nor the
+// tunnel CA changes, so only the tunnel agent has to be pointed at the newly
+// delivered files and restarted.
+func renewTunnelIdentity(root, nodeBootstrap string, output io.Writer) error {
 	paths, err := newPublicPaths(root)
 	if err != nil {
 		return err
@@ -239,15 +241,15 @@ func renewTunnelIdentity(root string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	identity, err := deploymentbootstrap.RenewTunnelClientIdentity(paths.root, material)
+	tunnel, err := deploymentbootstrap.RenewTunnelMaterial(nodeBootstrap, material)
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(tunnelRenewResult{
 		OK: true, InstallationID: state.InstallationID,
-		TunnelCAFile: material.CACertFile, TunnelIssuerDN: material.CACertificate.Subject.String(),
-		TunnelClientCert: identity.CertificateFile, TunnelClientKey: identity.KeyFile,
-		TunnelClientFingerprint: identity.Fingerprint,
+		NodeBootstrap: filepath.Clean(nodeBootstrap), TunnelCAFile: material.CACertFile,
+		TunnelIssuerDN:    material.CACertificate.Subject.String(),
+		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
 	})
 }
 

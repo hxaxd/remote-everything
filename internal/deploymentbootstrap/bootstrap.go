@@ -32,6 +32,9 @@ const (
 	TunnelCAKeyName      = "tunnel-ca.key.pem"
 	TunnelClientCertName = "tunnel-client.crt.pem"
 	TunnelClientKeyName  = "tunnel-client.key.pem"
+	// TunnelMaterialDir is the directory inside the handover bundle that holds
+	// what the tunnel agent on the node machine reads.
+	TunnelMaterialDir = "frpc"
 )
 
 var hex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -46,9 +49,10 @@ type Manifest struct {
 	ControlToken   string `json:"control_token_file"`
 }
 
-// GatewayMaterial is the tunnel material a gateway owns: the token it
-// authenticates to the tunnel server with and the tunnel CA it issues client
-// identities from. None of it is delivered to a node.
+// GatewayMaterial is the tunnel material a gateway owns on its own machine: the
+// token the tunnel server authenticates clients with and the tunnel CA it issues
+// client identities from. None of it is delivered to a node; the tunnel CA private
+// key never leaves the gateway.
 type GatewayMaterial struct {
 	InstallationID string
 	ControlToken   string
@@ -60,9 +64,13 @@ type GatewayMaterial struct {
 	CAKeyFile      string
 }
 
-// TunnelClientIdentity is the certificate and key the tunnel's local agent
-// authenticates with. It lives on the gateway side; the node never reads it.
-type TunnelClientIdentity struct {
+// TunnelMaterial is the pile the tunnel agent on the node machine runs on: the
+// token it authenticates to the tunnel server with and the client identity it
+// presents. The gateway issues it and hands it over in the bundle; the node
+// itself never reads it.
+type TunnelMaterial struct {
+	Directory       string
+	TokenFile       string
 	CertificateFile string
 	KeyFile         string
 	Fingerprint     string
@@ -242,14 +250,32 @@ func EnsureGatewayMaterial(root, installationID, controlToken string) (GatewayMa
 	return material, nil
 }
 
-func tunnelIdentityRoot(root string, material GatewayMaterial) (string, error) {
-	if !filepath.IsAbs(root) {
-		return "", errors.New("tunnel identity output path must be absolute")
+// tunnelMaterialDirectory returns the directory inside the handover bundle that
+// the tunnel agent's material travels in, creating it.
+func tunnelMaterialDirectory(bootstrapDir string, material GatewayMaterial) (string, error) {
+	if !filepath.IsAbs(bootstrapDir) {
+		return "", errors.New("bootstrap path must be absolute")
+	}
+	if !hex64.MatchString(material.InstallationID) || !hex64.MatchString(material.FRPSToken) {
+		return "", errors.New("invalid tunnel material identity")
 	}
 	if material.CACertificate == nil || material.CAKey == nil {
 		return "", errors.New("tunnel CA is required to issue a client identity")
 	}
-	return filepath.Clean(root), nil
+	directory := filepath.Join(filepath.Clean(bootstrapDir), TunnelMaterialDir)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	return directory, nil
+}
+
+func tunnelMaterialPaths(directory string) TunnelMaterial {
+	return TunnelMaterial{
+		Directory:       directory,
+		TokenFile:       filepath.Join(directory, FRPSTokenName),
+		CertificateFile: filepath.Join(directory, TunnelClientCertName),
+		KeyFile:         filepath.Join(directory, TunnelClientKeyName),
+	}
 }
 
 // validTunnelClient reports whether a certificate is a current client identity
@@ -266,64 +292,65 @@ func validTunnelClient(certificate *x509.Certificate, material GatewayMaterial, 
 	return err == nil
 }
 
-// EnsureTunnelClientIdentity returns the gateway's tunnel client identity,
-// issuing one only when the gateway does not have it yet. It never rotates an
-// identity that already exists: a tunnel agent already running has to keep
-// authenticating with the files it was started with.
-func EnsureTunnelClientIdentity(root string, material GatewayMaterial) (TunnelClientIdentity, error) {
-	root, err := tunnelIdentityRoot(root, material)
+// EnsureTunnelMaterial writes the tunnel agent's material into the handover
+// bundle, issuing a client identity only when there is none yet. It never
+// rotates an identity that already exists: a tunnel agent already running has to
+// keep authenticating with the files it was started with.
+func EnsureTunnelMaterial(bootstrapDir string, material GatewayMaterial) (TunnelMaterial, error) {
+	directory, err := tunnelMaterialDirectory(bootstrapDir, material)
 	if err != nil {
-		return TunnelClientIdentity{}, err
+		return TunnelMaterial{}, err
 	}
-	identity := TunnelClientIdentity{
-		CertificateFile: filepath.Join(root, TunnelClientCertName),
-		KeyFile:         filepath.Join(root, TunnelClientKeyName),
+	delivered := tunnelMaterialPaths(directory)
+	if err := atomicfile.Write(delivered.TokenFile, []byte(material.FRPSToken+"\n"), 0o600); err != nil {
+		return TunnelMaterial{}, err
 	}
-	certPEM, certErr := os.ReadFile(identity.CertificateFile)
-	keyPEM, keyErr := os.ReadFile(identity.KeyFile)
+	certPEM, certErr := os.ReadFile(delivered.CertificateFile)
+	keyPEM, keyErr := os.ReadFile(delivered.KeyFile)
 	if certErr == nil || keyErr == nil {
 		if certErr != nil || keyErr != nil {
-			return TunnelClientIdentity{}, errors.New("incomplete tunnel client identity")
+			return TunnelMaterial{}, errors.New("incomplete tunnel client identity")
 		}
 		certificate, err := parseCertificate(certPEM)
 		if err != nil {
-			return TunnelClientIdentity{}, err
+			return TunnelMaterial{}, err
 		}
 		key, err := parsePrivateKey(keyPEM)
 		if err != nil {
-			return TunnelClientIdentity{}, err
+			return TunnelMaterial{}, err
 		}
 		if !publicKeysMatch(certificate, key) || !validTunnelClient(certificate, material, time.Now()) {
-			return TunnelClientIdentity{}, errors.New("tunnel client identity does not match the tunnel CA")
+			return TunnelMaterial{}, errors.New("tunnel client identity does not match the tunnel CA")
 		}
-		identity.Fingerprint = fingerprint(certificate.Raw)
-		return identity, nil
+		delivered.Fingerprint = fingerprint(certificate.Raw)
+		return delivered, nil
 	}
 	if !errors.Is(certErr, os.ErrNotExist) || !errors.Is(keyErr, os.ErrNotExist) {
-		return TunnelClientIdentity{}, errors.New("cannot read tunnel client identity")
+		return TunnelMaterial{}, errors.New("cannot read tunnel client identity")
 	}
-	return RenewTunnelClientIdentity(root, material)
+	return RenewTunnelMaterial(bootstrapDir, material)
 }
 
-// RenewTunnelClientIdentity issues a fresh tunnel client identity from the same
-// tunnel CA, replacing both files. The CA is unchanged, so the identity being
-// replaced stays valid until the tunnel agent is pointed at the new files and
-// restarted.
-func RenewTunnelClientIdentity(root string, material GatewayMaterial) (TunnelClientIdentity, error) {
-	root, err := tunnelIdentityRoot(root, material)
+// RenewTunnelMaterial issues a fresh client identity from the same tunnel CA,
+// replacing both files in the handover bundle. The CA is unchanged, so the
+// identity being replaced stays valid until the agent on the node machine is
+// pointed at the newly delivered files and restarted.
+func RenewTunnelMaterial(bootstrapDir string, material GatewayMaterial) (TunnelMaterial, error) {
+	directory, err := tunnelMaterialDirectory(bootstrapDir, material)
 	if err != nil {
-		return TunnelClientIdentity{}, err
+		return TunnelMaterial{}, err
 	}
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		return TunnelClientIdentity{}, err
+	delivered := tunnelMaterialPaths(directory)
+	if err := atomicfile.Write(delivered.TokenFile, []byte(material.FRPSToken+"\n"), 0o600); err != nil {
+		return TunnelMaterial{}, err
 	}
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return TunnelClientIdentity{}, err
+		return TunnelMaterial{}, err
 	}
 	serial, err := serialNumber()
 	if err != nil {
-		return TunnelClientIdentity{}, err
+		return TunnelMaterial{}, err
 	}
 	now := time.Now().UTC()
 	template := &x509.Certificate{
@@ -335,20 +362,16 @@ func RenewTunnelClientIdentity(root string, material GatewayMaterial) (TunnelCli
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, material.CACertificate, &clientKey.PublicKey, material.CAKey)
 	if err != nil {
-		return TunnelClientIdentity{}, err
+		return TunnelMaterial{}, err
 	}
-	identity := TunnelClientIdentity{
-		CertificateFile: filepath.Join(root, TunnelClientCertName),
-		KeyFile:         filepath.Join(root, TunnelClientKeyName),
-		Fingerprint:     fingerprint(der),
+	delivered.Fingerprint = fingerprint(der)
+	if err := atomicfile.Write(delivered.CertificateFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		return TunnelMaterial{}, err
 	}
-	if err := atomicfile.Write(identity.CertificateFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
-		return TunnelClientIdentity{}, err
+	if err := writePrivateKey(delivered.KeyFile, clientKey); err != nil {
+		return TunnelMaterial{}, err
 	}
-	if err := writePrivateKey(identity.KeyFile, clientKey); err != nil {
-		return TunnelClientIdentity{}, err
-	}
-	return identity, nil
+	return delivered, nil
 }
 
 // WriteNodeBundle writes the identity bundle an operator carries to a node.

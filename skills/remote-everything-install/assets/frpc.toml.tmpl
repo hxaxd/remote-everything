@@ -17,6 +17,6 @@ log.level = "info"
 [[proxies]]
 name = "node-{{INSTALLATION_ID}}"
 type = "tcp"
-localIP = "127.0.0.1"
+localIP = "{{NODE_HOST}}"
 localPort = {{NODE_PORT}}
 remotePort = {{NODE_TUNNEL_PORT}}

@@ -7,7 +7,7 @@ description: 只读检查 Remote Everything。用于巡检、排障、确认拓�
 
 1. 验证 `runtime.json`，核对二进制摘要、完整参数、PID/启动时间、管理器、定义、日志与集成所有者。
 2. 从组件状态读取实际监听地址；核对进程身份和端口，不猜固定端口。
-3. LAN 核验证书有效期、SAN、指纹及移动客户端入口；public 核对 443 路由、FRPC/FRPS、隧道客户端证书有效期、设备 CA、叶指纹头和设备记录，并核对 frps 健康检查 timer `enabled/active`、单元 ExecStart 指向的脚本真实存在且不含未渲染占位符、最近一次 service 运行结果与 `frps-health.log` 无持续 FAIL。任何运行证书剩余不超过 30 天时明确返回续期需求。
+3. LAN 核验证书有效期、SAN、指纹及移动客户端入口；public 核对 443 路由、FRPC/FRPS、隧道客户端证书有效期（材料在节点机器的 `state/frpc/<installation_id>/`，与网关交付目录里的那一份必须一致）、设备 CA、叶指纹头和设备记录，并核对 frps 健康检查 timer `enabled/active`、单元 ExecStart 指向的脚本真实存在且不含未渲染占位符、最近一次 service 运行结果与 `frps-health.log` 无持续 FAIL。任何运行证书剩余不超过 30 天时明确返回续期需求。
 4. 从入口依次验证目录、控制、Cookie、WebSocket、节点探活和应用代理，定位最早失败层。
 5. 返回预期、实际、证据和故障层；不改状态。
 
