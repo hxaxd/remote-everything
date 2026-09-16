@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
 type testPlatform struct{ commandErr error }
@@ -62,7 +63,7 @@ func TestInitializeAllocatesStableAvailableLoopbackAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !validLoopbackAddress(first.ListenAddress) || (listener != nil && first.ListenAddress == "127.0.0.1:58627") || len(first.NodeID) != 64 {
+	if !netaddr.ValidLoopback(first.ListenAddress) || (listener != nil && first.ListenAddress == "127.0.0.1:58627") || len(first.NodeID) != 64 {
 		t.Fatalf("unexpected init result: %+v", first)
 	}
 	second, err := Initialize(root)
@@ -81,7 +82,7 @@ func TestRepairPortsPreservesNodeIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repaired.NodeID != first.NodeID || !validLoopbackAddress(repaired.ListenAddress) {
+	if repaired.NodeID != first.NodeID || !netaddr.ValidLoopback(repaired.ListenAddress) {
 		t.Fatalf("unexpected repaired state: %+v", repaired)
 	}
 }
@@ -467,6 +468,9 @@ func TestAddBindingRegistersIdentityOnly(t *testing.T) {
 	}
 	if len(state.Bindings) != 1 || state.Bindings[0].InstallationID != installationID {
 		t.Fatalf("binding not in state: %+v", state.Bindings)
+	}
+	if state.Bindings[0].ControlTokenFile != filepath.Join(bindingDir, "control-token") {
+		t.Fatalf("binding points at %q", state.Bindings[0].ControlTokenFile)
 	}
 }
 

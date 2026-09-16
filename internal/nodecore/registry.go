@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hxaxd/remote-everything/internal/atomicfile"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
 )
 
 const registrySchema = 1
@@ -157,7 +157,7 @@ func (node *Node) validateRegistry(value Registry) error {
 
 func (node *Node) loadRegistry() (Registry, error) {
 	var value Registry
-	if err := decodeSingleJSON(node.appsFile, &value); err != nil {
+	if err := jsonfile.Read(node.appsFile, &value); err != nil {
 		return Registry{}, err
 	}
 	if err := node.validateRegistry(value); err != nil {
@@ -171,11 +171,7 @@ func (node *Node) saveRegistry(value Registry) error {
 		return err
 	}
 	sort.Slice(value.Apps, func(i, j int) bool { return value.Apps[i].ID < value.Apps[j].ID })
-	contents, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	return atomicfile.Write(node.appsFile, append(contents, '\n'), 0o600)
+	return jsonfile.Write(node.appsFile, value, 0o600)
 }
 
 func (node *Node) readAppDefinition(path string) (AppDefinition, error) {
@@ -184,7 +180,7 @@ func (node *Node) readAppDefinition(path string) (AppDefinition, error) {
 		return AppDefinition{}, errors.New("invalid application definition")
 	}
 	var app AppDefinition
-	if err := decodeSingleJSON(path, &app); err != nil {
+	if err := jsonfile.Read(path, &app); err != nil {
 		return AppDefinition{}, err
 	}
 	// Auto-discover adapter.js alongside definition.json

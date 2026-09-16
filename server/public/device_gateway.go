@@ -13,18 +13,6 @@ import (
 
 var statusClientFingerprint = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-func (service *publicService) readControlToken() (string, error) {
-	contents, err := os.ReadFile(service.paths.controlTokenFile)
-	if err != nil {
-		return "", err
-	}
-	token := strings.TrimSpace(string(contents))
-	if !validHex64.MatchString(token) {
-		return "", errors.New("invalid control token")
-	}
-	return token, nil
-}
-
 func requestFingerprint(request *http.Request) string {
 	return strings.ToLower(strings.TrimSpace(request.Header.Get(clientFingerprintHeader)))
 }
@@ -146,7 +134,7 @@ func (service *publicService) statusHTTPHandler(writer http.ResponseWriter, requ
 }
 
 func (service *publicService) newStatusServer() (*http.Server, error) {
-	token, err := service.readControlToken()
+	token, err := gatewaycore.ReadControlToken(service.paths.root)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +142,5 @@ func (service *publicService) newStatusServer() (*http.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &http.Server{
-		Addr: service.config.StatusListen, Handler: http.HandlerFunc(service.statusHTTPHandler),
-		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
-	}, nil
+	return gatewaycore.NewServer(service.config.StatusListen, http.HandlerFunc(service.statusHTTPHandler)), nil
 }

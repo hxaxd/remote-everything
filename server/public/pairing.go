@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
 const (
@@ -214,8 +216,5 @@ func (service *publicService) newPairingServer() (*http.Server, error) {
 	if err := service.cleanupExpiredState(); err != nil {
 		return nil, err
 	}
-	return &http.Server{
-		Addr: service.config.PairingListen, Handler: http.HandlerFunc(service.pairHTTPHandler),
-		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
-	}, nil
+	return gatewaycore.NewServer(service.config.PairingListen, http.HandlerFunc(service.pairHTTPHandler)), nil
 }
