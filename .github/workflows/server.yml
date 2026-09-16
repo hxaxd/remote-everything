@@ -61,3 +61,37 @@ jobs:
           go test -race ./internal/... ./server/public/...
           go build ./server/public
           python -c "compile(open(r'internal/devicecore/tests/pairing_pkcs12.py',encoding='utf-8').read(),r'x','exec')"
+
+      # Everything above drives the gateway through its own packages. This drives
+      # the deployment: the entrance is the only thing that verifies a device
+      # certificate, so it is the only place where "a verified certificate, not
+      # what a client claims, speaks for a device" is a fact rather than an
+      # assumption — checked here against the components a deployment runs.
+      - name: Build the components the deployment runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/materials"
+          go build -o "$RUNNER_TEMP/materials/node" ./nodes/linux
+          go build -o "$RUNNER_TEMP/materials/gateway" ./server/public
+
+          # FRP v0.70.0 and Caddy v2.11.4, the versions a deployment pins, each
+          # taken from its own release and checked against the digest that release
+          # publishes for it before anything is extracted from it.
+          release_asset() {
+            local repository=$1 tag=$2 name=$3 digest=$4 sums=$5
+            local base="https://github.com/$repository/releases/download/$tag"
+            curl --fail --location --silent --show-error --output "$name" "$base/$name"
+            curl --fail --location --silent --show-error --output release-sums.txt "$base/$sums"
+            grep --fixed-strings " $name" release-sums.txt | "$digest" --check --strict -
+          }
+          release_asset fatedier/frp v0.70.0 frp_0.70.0_linux_amd64.tar.gz sha256sum frp_sha256_checksums.txt
+          release_asset caddyserver/caddy v2.11.4 caddy_2.11.4_linux_amd64.tar.gz sha512sum caddy_2.11.4_checksums.txt
+          tar -xzf frp_0.70.0_linux_amd64.tar.gz
+          tar -xzf caddy_2.11.4_linux_amd64.tar.gz caddy
+          cp frp_0.70.0_linux_amd64/frps frp_0.70.0_linux_amd64/frpc caddy "$RUNNER_TEMP/materials/"
+          chmod +x "$RUNNER_TEMP/materials/"*
+
+      - name: Deploy the public shape
+        shell: bash
+        run: sudo --preserve-env=PATH bash server/public/tests/accept.sh "$RUNNER_TEMP/materials"
