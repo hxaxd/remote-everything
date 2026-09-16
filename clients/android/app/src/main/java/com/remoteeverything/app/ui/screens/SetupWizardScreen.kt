@@ -102,7 +102,7 @@ fun SetupWizardScreen(
                         WizardBody(
                             icon = Icons.Filled.Sync,
                             title = "正在验证连接",
-                            detail = if (current.config.mode == "public") "正在验证邀请并申请设备身份…" else "正在验证节点证书和应用目录…",
+                            detail = "正在验证邀请并申请设备身份…",
                             running = true,
                         )
                     }

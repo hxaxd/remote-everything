@@ -77,8 +77,7 @@ export struct RemoteWebPage {
           mode,
           this.routeString(params, 'gatewayOrigin'),
           this.routeString(params, 'gatewayFingerprint'),
-          this.routeString(params, 'gatewayPublicKeyPin'),
-          this.routeString(params, 'accessToken')
+          this.routeString(params, 'gatewayPublicKeyPin')
         );
       }
       this.appId = this.routeString(params, 'appId');
@@ -105,9 +104,11 @@ export struct RemoteWebPage {
       this.failureMessage = '远程页面地址无效';
       return;
     }
-    if (config.mode === ConnectionMode.PUBLIC) {
-      // Catalog already proves the PKCS#12 works with NetworkKit. ArkWeb needs a
-      // certificate-manager authUri when possible; PEM paths remain a sync fallback.
+    // Whatever the mode, the device answers with the certificate it was issued:
+    // the catalog already proved the PKCS#12 works with NetworkKit, and ArkWeb
+    // needs a certificate-manager authUri when possible; PEM paths remain a sync
+    // fallback.
+    {
       try {
         this.readyIdentity = await CredentialStore.activeClientIdentity(config.installationId);
       } catch {
@@ -382,8 +383,7 @@ export struct RemoteWebPage {
     port: number
   ): void {
     const config = this.config;
-    if (config === null || config.mode !== ConnectionMode.PUBLIC ||
-        !this.isGatewayClientAuthEndpoint(config, host, port)) {
+    if (config === null || !this.isGatewayClientAuthEndpoint(config, host, port)) {
       handler.cancel();
       return;
     }
@@ -561,12 +561,6 @@ export struct RemoteWebPage {
     try {
       const cookie = webview.WebCookieManager.fetchCookieSync(config.gatewayOrigin, true);
       const headers: Record<string, string> = { 'Accept': '*/*', 'Cookie': cookie };
-      const authHeaders = config.authorizationHeaders();
-      const authKeys = Object.keys(authHeaders);
-      for (let i = 0; i < authKeys.length; i++) {
-        const key = authKeys[i];
-        headers[key] = authHeaders[key];
-      }
       const options: http.HttpRequestOptions = {
         method: http.RequestMethod.GET,
         header: headers,
@@ -577,19 +571,18 @@ export struct RemoteWebPage {
         maxLimit: 100 * 1024 * 1024,
         maxRedirects: 0
       };
-      if (config.mode === ConnectionMode.PUBLIC) {
-        const identity = await CredentialStore.activeClientIdentity(config.installationId);
-        options.clientCert = {
-          certPath: identity.certPath,
-          certType: http.CertType.P12,
-          keyPath: identity.keyPath,
-          keyPassword: identity.password
-        };
-      } else {
+      const identity = await CredentialStore.activeClientIdentity(config.installationId);
+      options.clientCert = {
+        certPath: identity.certPath,
+        certType: http.CertType.P12,
+        keyPath: identity.keyPath,
+        keyPassword: identity.password
+      };
+      if (config.mode === ConnectionMode.LAN) {
         options.certificatePinning = {
           publicKeyHash: config.gatewayPublicKeyPin,
           hashAlgorithm: 'SHA-256'
-          };
+        };
       }
       if (!this.isCurrentConnection(generation, config)) return;
       const response = await request.request(url, options);

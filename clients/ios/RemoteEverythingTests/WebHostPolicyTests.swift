@@ -24,8 +24,7 @@ final class WebHostPolicyTests: XCTestCase {
             mode: .lan,
             gatewayOrigin: "https://gateway.example:9443",
             gatewayFingerprint: String(repeating: "b", count: 64),
-            gatewayPublicKeyPin: "pin",
-            accessToken: ""
+            gatewayPublicKeyPin: "pin"
         )
 
         XCTAssertTrue(WebHostPolicy.mayDownload(

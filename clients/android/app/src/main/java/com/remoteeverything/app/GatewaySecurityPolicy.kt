@@ -5,8 +5,10 @@ import java.security.MessageDigest
 import java.security.cert.X509Certificate
 
 object GatewaySecurityPolicy {
+    // A device is admitted by the certificate it was issued, in every mode: what
+    // differs between them is who signs the entrance, not who the client is.
     fun allowsClientCertificate(config: ConnectionConfig, identityPresent: Boolean, host: String?, port: Int): Boolean =
-        config.mode == "public" && identityPresent && config.isGatewayEndpoint(host, port)
+        identityPresent && config.isGatewayEndpoint(host, port)
 
     fun opensInsideWebView(config: ConnectionConfig, url: String): Boolean = config.isGatewayUrl(url)
 

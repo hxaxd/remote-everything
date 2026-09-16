@@ -14,7 +14,6 @@ interface StoredProfile {
   gatewayOrigin: string;
   gatewayFingerprint: string;
   gatewayPublicKeyPin: string;
-  accessToken?: string;
 }
 
 export class ProfileStore implements SetupProfileStore {
@@ -111,8 +110,7 @@ export class ProfileStore implements SetupProfileStore {
       mode: profile.mode,
       gatewayOrigin: profile.gatewayOrigin,
       gatewayFingerprint: profile.gatewayFingerprint,
-      gatewayPublicKeyPin: profile.gatewayPublicKeyPin,
-      accessToken: profile.accessToken
+      gatewayPublicKeyPin: profile.gatewayPublicKeyPin
     };
     store.putSync(ProfileStore.STAGED_PROFILE_KEY, JSON.stringify(value));
     await store.flush();
@@ -236,8 +234,7 @@ export class ProfileStore implements SetupProfileStore {
       left.name === right.name && left.mode === right.mode &&
       left.gatewayOrigin === right.gatewayOrigin &&
       left.gatewayFingerprint === right.gatewayFingerprint &&
-      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin &&
-      left.accessToken === right.accessToken;
+      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin;
   }
 
   private static writeTextDurably(path: string, value: string): void {
@@ -292,8 +289,7 @@ export class ProfileStore implements SetupProfileStore {
       mode: profile.mode,
       gatewayOrigin: profile.gatewayOrigin,
       gatewayFingerprint: profile.gatewayFingerprint,
-      gatewayPublicKeyPin: profile.gatewayPublicKeyPin,
-      accessToken: profile.accessToken
+      gatewayPublicKeyPin: profile.gatewayPublicKeyPin
     })));
   }
 
@@ -326,15 +322,13 @@ export class ProfileStore implements SetupProfileStore {
       if (mode === null) {
         throw new Error('连接模式无效');
       }
-      const accessToken = typeof value.accessToken === 'string' ? value.accessToken : '';
       return new ConnectionConfig(
         value.installationId,
         value.name,
         mode,
         value.gatewayOrigin,
         value.gatewayFingerprint,
-        value.gatewayPublicKeyPin,
-        accessToken
+        value.gatewayPublicKeyPin
       );
     });
   }

@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"crypto/rand"
@@ -50,8 +50,8 @@ type invitationListRecord struct {
 	CertificateFingerprint string `json:"certificate_fingerprint,omitempty"`
 }
 
-func (service *publicService) invitationPath(hash string) string {
-	return filepath.Join(service.paths.invitesDir, hash+".json")
+func (service *Trust) invitationPath(hash string) string {
+	return filepath.Join(service.invitesDir, hash+".json")
 }
 
 func invitationHash(token string) string {
@@ -88,7 +88,7 @@ func validateInvitation(record invitationRecord) error {
 	return nil
 }
 
-func (service *publicService) loadInvitation(token string) (invitationRecord, error) {
+func (service *Trust) loadInvitation(token string) (invitationRecord, error) {
 	hash := invitationHash(token)
 	var record invitationRecord
 	if err := jsonfile.Read(service.invitationPath(hash), &record); err != nil {
@@ -104,7 +104,7 @@ func (service *publicService) loadInvitation(token string) (invitationRecord, er
 	return record, nil
 }
 
-func (service *publicService) writeInvitation(record invitationRecord) error {
+func (service *Trust) writeInvitation(record invitationRecord) error {
 	if err := validateInvitation(record); err != nil {
 		return err
 	}
@@ -119,11 +119,30 @@ func (service *publicService) writeInvitation(record invitationRecord) error {
 	return atomicfile.MatchDirectoryOwner(path)
 }
 
-func (service *publicService) issueInvitation(ttl time.Duration, name, origin, qrFile string, output io.Writer) error {
+func (service *Trust) issueInvitation(ttl time.Duration, name, origin, qrFile string, output io.Writer) error {
 	return service.issueInvitationReplacing(ttl, name, origin, qrFile, "", output)
 }
 
-func (service *publicService) issueInvitationReplacing(ttl time.Duration, name, origin, qrFile, replaces string, output io.Writer) error {
+// setupURI renders the URI an invitation is delivered in. The gateway renders
+// it because it describes the gateway: which certificate its clients must
+// expect is a property of the entrance, not of the invitation.
+func (service *Trust) setupURI(name, origin, invitation string) (string, error) {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		origin = service.origin
+	}
+	if origin == "" {
+		return "", errors.New("the invitation needs an origin")
+	}
+	fingerprint, keyPin := "", ""
+	if service.certificate != nil {
+		fingerprint = CertificateFingerprint(service.certificate)
+		keyPin = PublicKeyPin(service.certificate)
+	}
+	return setupcodec.Build(service.mode, service.installationID, name, origin, invitation, fingerprint, keyPin)
+}
+
+func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, qrFile, replaces string, output io.Writer) error {
 	if err := service.cleanupExpiredState(); err != nil {
 		return err
 	}
@@ -140,7 +159,7 @@ func (service *publicService) issueInvitationReplacing(ttl time.Duration, name, 
 		Schema: recordSchema, TokenHash: invitationHash(token),
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := setupcodec.Build("public", service.config.InstallationID, name, origin, token, "", "")
+	setupURI, err := service.setupURI(name, origin, token)
 	if err != nil {
 		return err
 	}
@@ -151,13 +170,13 @@ func (service *publicService) issueInvitationReplacing(ttl time.Duration, name, 
 		_ = os.Remove(service.invitationPath(record.TokenHash))
 		return err
 	}
-	auditLine("device invitation issued", "expires_at", record.ExpiresAt)
+	service.audit("device invitation issued", "expires_at", record.ExpiresAt)
 	return json.NewEncoder(output).Encode(invitationResult{
-		OK: true, InstallationID: service.config.InstallationID, Invitation: token, ExpiresAt: record.ExpiresAt, SetupURI: setupURI, QRFile: qrFile,
+		OK: true, InstallationID: service.installationID, Invitation: token, ExpiresAt: record.ExpiresAt, SetupURI: setupURI, QRFile: qrFile,
 	})
 }
 
-func (service *publicService) issueRenewalInvitation(ttl time.Duration, name, origin, qrFile, fingerprint string, output io.Writer) error {
+func (service *Trust) issueRenewalInvitation(ttl time.Duration, name, origin, qrFile, fingerprint string, output io.Writer) error {
 	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || record.Status != "approved" {
@@ -166,7 +185,7 @@ func (service *publicService) issueRenewalInvitation(ttl time.Duration, name, or
 	return service.issueInvitationReplacing(ttl, name, origin, qrFile, fingerprint, output)
 }
 
-func (service *publicService) restoreReplacedDevice(record invitationRecord) error {
+func (service *Trust) restoreReplacedDevice(record invitationRecord) error {
 	if record.ReplacesFingerprint == "" || record.CertificateFingerprint == "" {
 		return nil
 	}
@@ -187,10 +206,10 @@ func (service *publicService) restoreReplacedDevice(record invitationRecord) err
 	return service.writeDeviceRecord(replaced)
 }
 
-func (service *publicService) cleanupExpiredState() error {
+func (service *Trust) cleanupExpiredState() error {
 	now := time.Now().UTC()
 	referencedPending := map[string]bool{}
-	entries, err := os.ReadDir(service.paths.invitesDir)
+	entries, err := os.ReadDir(service.invitesDir)
 	if err != nil {
 		return err
 	}
@@ -198,10 +217,10 @@ func (service *publicService) cleanupExpiredState() error {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		path := filepath.Join(service.paths.invitesDir, entry.Name())
+		path := filepath.Join(service.invitesDir, entry.Name())
 		var record invitationRecord
 		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
-			auditLine("corrupt invitation skipped", "path", entry.Name())
+			service.audit("corrupt invitation skipped", "path", entry.Name())
 			continue
 		}
 		expires, _ := parseTimestamp(record.ExpiresAt)
@@ -227,17 +246,17 @@ func (service *publicService) cleanupExpiredState() error {
 			if err := os.Remove(service.deviceRecordPath(record.CertificateFingerprint)); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			auditLine("orphan pending device removed", "fingerprint", record.CertificateFingerprint)
+			service.audit("orphan pending device removed", "fingerprint", record.CertificateFingerprint)
 		}
 	}
 	return nil
 }
 
-func (service *publicService) invitationList(output io.Writer) error {
+func (service *Trust) invitationList(output io.Writer) error {
 	if err := service.cleanupExpiredState(); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(service.paths.invitesDir)
+	entries, err := os.ReadDir(service.invitesDir)
 	if err != nil {
 		return err
 	}
@@ -246,10 +265,10 @@ func (service *publicService) invitationList(output io.Writer) error {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		path := filepath.Join(service.paths.invitesDir, entry.Name())
+		path := filepath.Join(service.invitesDir, entry.Name())
 		var record invitationRecord
 		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
-			auditLine("corrupt invitation skipped", "path", entry.Name())
+			service.audit("corrupt invitation skipped", "path", entry.Name())
 			continue
 		}
 		status := "available"
@@ -265,7 +284,7 @@ func (service *publicService) invitationList(output io.Writer) error {
 	return json.NewEncoder(output).Encode(result)
 }
 
-func (service *publicService) invitationCancel(hash string, output io.Writer) error {
+func (service *Trust) invitationCancel(hash string, output io.Writer) error {
 	hash = strings.ToLower(strings.TrimSpace(hash))
 	if !validHex64.MatchString(hash) {
 		return errors.New("invalid invitation hash")
@@ -294,12 +313,12 @@ func (service *publicService) invitationCancel(hash string, output io.Writer) er
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	auditLine("device invitation cancelled", "token_hash", hash)
+	service.audit("device invitation cancelled", "token_hash", hash)
 	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "token_hash": hash})
 }
 
-func (service *publicService) invitationTransaction(fingerprint string) (invitationRecord, string, error) {
-	entries, err := os.ReadDir(service.paths.invitesDir)
+func (service *Trust) invitationTransaction(fingerprint string) (invitationRecord, string, error) {
+	entries, err := os.ReadDir(service.invitesDir)
 	if err != nil {
 		return invitationRecord{}, "", err
 	}
@@ -307,7 +326,7 @@ func (service *publicService) invitationTransaction(fingerprint string) (invitat
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		path := filepath.Join(service.paths.invitesDir, entry.Name())
+		path := filepath.Join(service.invitesDir, entry.Name())
 		var record invitationRecord
 		if err := jsonfile.Read(path, &record); err != nil || validateInvitation(record) != nil {
 			return invitationRecord{}, "", errors.New("invalid invitation state")

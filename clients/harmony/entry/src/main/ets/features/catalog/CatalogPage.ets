@@ -54,9 +54,7 @@ export struct CatalogPage {
   async prepareAndStart(generation: number): Promise<void> {
     const config = this.activeConfig;
     try {
-      const identity = config.mode === ConnectionMode.PUBLIC
-        ? await CredentialStore.activeClientIdentity(config.installationId)
-        : null;
+      const identity = await CredentialStore.activeClientIdentity(config.installationId);
       if (!this.isCurrentGeneration(generation)) return;
       this.identity = identity;
       this.startPolling(generation);
@@ -114,7 +112,7 @@ export struct CatalogPage {
         config.appsUrl,
         'GET',
         identity,
-        config.authorizationHeaders(),
+        {},
         null
       );
       if (!this.isCurrentGeneration(generation) || requestId !== this.requestOwner) return;
@@ -185,7 +183,7 @@ export struct CatalogPage {
         config.appActionUrl(appId, action),
         'POST',
         identity,
-        config.authorizationHeaders(),
+        {},
         null
       );
       if (!this.isCurrentGeneration(generation)) return;
@@ -232,7 +230,6 @@ export struct CatalogPage {
         gatewayOrigin: this.activeConfig.gatewayOrigin,
         gatewayFingerprint: this.activeConfig.gatewayFingerprint,
         gatewayPublicKeyPin: this.activeConfig.gatewayPublicKeyPin,
-        accessToken: this.activeConfig.accessToken,
         appId: app.id,
         appName: app.name,
         openUrl: app.openUrl

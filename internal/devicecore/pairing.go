@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"crypto/ecdsa"
@@ -14,8 +14,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
 const (
@@ -71,7 +69,7 @@ func invitationFromRequest(request *http.Request) string {
 	return token
 }
 
-func (service *publicService) pairDevice(invitation string, payload pairPayload) (pairResponse, error) {
+func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairResponse, error) {
 	payload.DeviceName = strings.TrimSpace(payload.DeviceName)
 	if !validDeviceName(payload.DeviceName) {
 		return pairResponse{}, validationError("invalid_device_name")
@@ -97,7 +95,7 @@ func (service *publicService) pairDevice(invitation string, payload pairPayload)
 			CredentialFormat: "pkcs12", CredentialPKCS12: invite.CredentialPKCS12, PendingExpiresAt: invite.ExpiresAt,
 		}, nil
 	}
-	issuerKey, issuerCertificate, err := loadIssuer(service.paths)
+	issuerKey, issuerCertificate, err := loadIssuer(service.root)
 	if err != nil {
 		return pairResponse{}, err
 	}
@@ -133,7 +131,7 @@ func (service *publicService) pairDevice(invitation string, payload pairPayload)
 		_ = os.Remove(service.deviceRecordPath(fingerprint))
 		return pairResponse{}, err
 	}
-	auditLine("device paired pending activation", "fingerprint", fingerprint, "device_name", payload.DeviceName)
+	service.audit("device paired pending activation", "fingerprint", fingerprint, "device_name", payload.DeviceName)
 	return pairResponse{
 		OK: true, DeviceName: payload.DeviceName, CertificateFingerprint: fingerprint,
 		CredentialFormat: "pkcs12", CredentialPKCS12: credential, PendingExpiresAt: record.PendingExpiresAt,
@@ -154,7 +152,7 @@ func writePairJSON(writer http.ResponseWriter, status int, value any) {
 	_, _ = writer.Write(body)
 }
 
-func (service *publicService) pairHTTPHandler(writer http.ResponseWriter, request *http.Request) {
+func (service *Trust) pairHTTPHandler(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost || request.RequestURI != pairRequestPath {
 		writePairJSON(writer, http.StatusNotFound, errorBody("not_found"))
 		return
@@ -196,25 +194,9 @@ func (service *publicService) pairHTTPHandler(writer http.ResponseWriter, reques
 			writePairJSON(writer, status, errorBody(string(validation)))
 			return
 		}
-		logLine("pairing-server", "error", "pairing failed", "code", err.Error())
+		service.log("pairing-server", "error", "pairing failed", "code", err.Error())
 		writePairJSON(writer, http.StatusInternalServerError, errorBody("pairing_failed"))
 		return
 	}
 	writePairJSON(writer, http.StatusOK, result)
-}
-
-func (service *publicService) newPairingServer() (*http.Server, error) {
-	if err := os.MkdirAll(service.paths.devicesDir, 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(service.paths.invitesDir, 0o700); err != nil {
-		return nil, err
-	}
-	if _, _, err := loadIssuer(service.paths); err != nil {
-		return nil, err
-	}
-	if err := service.cleanupExpiredState(); err != nil {
-		return nil, err
-	}
-	return gatewaycore.NewServer(service.config.PairingListen, http.HandlerFunc(service.pairHTTPHandler)), nil
 }

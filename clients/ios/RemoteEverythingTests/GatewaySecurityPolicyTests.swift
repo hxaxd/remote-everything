@@ -26,19 +26,25 @@ final class GatewaySecurityPolicyTests: XCTestCase {
         XCTAssertTrue(fp.unicodeScalars.allSatisfy { allowedChars.contains($0) })
     }
 
-    func testLANModeAllowsClientCertificate() {
+    // Every paired device presents the certificate it was issued, so the client
+    // certificate is limited to the gateway endpoint rather than to one mode.
+    func testLANModeAllowsClientCertificateOnlyForGateway() {
         let config = try! SetupParser.create(
             installationId: String(repeating: "ab", count: 32),
             name: "LAN PC",
             mode: "lan",
             origin: "https://192.168.1.5:60001",
             fingerprint: String(repeating: "cd", count: 32),
-            publicKeyPin: String(repeating: "A", count: 43) + "=",
-            accessToken: String(repeating: "01", count: 32)
+            publicKeyPin: String(repeating: "A", count: 43) + "="
         )
-        // LAN mode should NOT allow client cert even if identity is present
-        XCTAssertFalse(GatewaySecurityPolicy.allowsClientCertificate(
+        XCTAssertTrue(GatewaySecurityPolicy.allowsClientCertificate(
             config: config, identityPresent: true, host: "192.168.1.5", port: 60001
+        ))
+        XCTAssertFalse(GatewaySecurityPolicy.allowsClientCertificate(
+            config: config, identityPresent: false, host: "192.168.1.5", port: 60001
+        ))
+        XCTAssertFalse(GatewaySecurityPolicy.allowsClientCertificate(
+            config: config, identityPresent: true, host: "192.168.1.5", port: 443
         ))
     }
 

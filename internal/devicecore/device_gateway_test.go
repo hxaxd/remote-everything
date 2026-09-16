@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
-func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
+func setupStatusTest(t *testing.T) (*Trust, string, *httptest.Server) {
 	t.Helper()
 	service := setupPublicTest(t)
 	token := strings.Repeat("01", 32)
@@ -42,11 +42,11 @@ func setupStatusTest(t *testing.T) (*publicService, string, *httptest.Server) {
 		}
 		_, _ = io.WriteString(writer, "proxied")
 	}))
-	service.gateway, _ = gatewaycore.New(node.URL, token)
+	service.node, _ = gatewaycore.New(node.URL, token)
 	return service, fingerprint, node
 }
 
-func statusRequest(service *publicService, method, target, fingerprint string) *httptest.ResponseRecorder {
+func statusRequest(service *Trust, method, target, fingerprint string) *httptest.ResponseRecorder {
 	request := httptest.NewRequest(method, target, nil)
 	if fingerprint != "" {
 		request.Header.Set(clientFingerprintHeader, fingerprint)

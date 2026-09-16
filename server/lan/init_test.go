@@ -48,10 +48,16 @@ func TestInitializeLAN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if initial.NodeAddress != node.ListenAddress {
+	if initial.LAN.NodeAddress != node.ListenAddress {
 		t.Fatalf("entrance did not record where its node is: %+v", initial)
 	}
-	want := []string{"control-token", "lan.json", initial.CertificateFile, initial.PrivateKeyFile}
+	if initial.InstallationID != first.InstallationID {
+		t.Fatalf("entrance state lost its identity: %+v", initial)
+	}
+	if address, err := initial.Address("lan"); err != nil || address != first.ListenAddress {
+		t.Fatalf("entrance state does not carry its listener by name: %q %v", address, err)
+	}
+	want := []string{"control-token", "lan.json", initial.LAN.CertificateFile, initial.LAN.PrivateKeyFile}
 	sort.Strings(want)
 	if entries := entryNames(t, root); !sameNames(entries, want) {
 		t.Fatalf("entrance root holds %v, want %v", entries, want)
@@ -90,14 +96,14 @@ func TestInitializeLAN(t *testing.T) {
 	if err != nil || moved.InstallationID != first.InstallationID || moved.CertificateFingerprint != first.CertificateFingerprint {
 		t.Fatalf("moving the node changed the entrance identity: %+v %v", moved, err)
 	}
-	if movedState, err := loadLANState(root); err != nil || movedState.NodeAddress != "10.0.0.1:58627" {
+	if movedState, err := loadLANState(root); err != nil || movedState.LAN.NodeAddress != "10.0.0.1:58627" {
 		t.Fatalf("entrance did not record the new node address: %+v %v", movedState, err)
 	}
 	beforeRenewal, err := loadLANState(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{beforeRenewal.CertificateFile, beforeRenewal.PrivateKeyFile} {
+	for _, name := range []string{beforeRenewal.LAN.CertificateFile, beforeRenewal.LAN.PrivateKeyFile} {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Fatalf("referenced TLS file %q is unavailable: %v", name, err)
 		}
@@ -110,29 +116,32 @@ func TestInitializeLAN(t *testing.T) {
 	if repairedOrigin.Port() == "" || repaired.ListenAddress != "0.0.0.0:"+repairedOrigin.Port() {
 		t.Fatalf("repaired origin does not match listen address: %+v", repaired)
 	}
-	renewed, err := renewLANCertificate(root, 60, "Test PC", "")
+	renewed, err := renewLANCertificate(root, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if renewed.InstallationID != first.InstallationID || renewed.GatewayOrigin != repaired.GatewayOrigin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.SetupURI == "" {
+	// Renewal rotates the certificate clients pinned without touching the identity
+	// the node bound, and it hands out no invitation: a client that has to be told
+	// about the new certificate is told by a new invitation, not by init.
+	if renewed.InstallationID != first.InstallationID || renewed.GatewayOrigin != repaired.GatewayOrigin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.PublicKeyPin == first.PublicKeyPin {
 		t.Fatalf("LAN renewal changed installation or did not rotate trust: %+v", renewed)
 	}
 	afterRenewal, err := loadLANState(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterRenewal.CertificateFile == beforeRenewal.CertificateFile || afterRenewal.PrivateKeyFile == beforeRenewal.PrivateKeyFile {
+	if afterRenewal.LAN.CertificateFile == beforeRenewal.LAN.CertificateFile || afterRenewal.LAN.PrivateKeyFile == beforeRenewal.LAN.PrivateKeyFile {
 		t.Fatal("renewal did not switch the state pointer to a new TLS identity")
 	}
-	if afterRenewal.NodeAddress != "10.0.0.1:58627" {
+	if afterRenewal.LAN.NodeAddress != "10.0.0.1:58627" {
 		t.Fatalf("renewal lost the node address: %+v", afterRenewal)
 	}
-	for _, name := range []string{afterRenewal.CertificateFile, afterRenewal.PrivateKeyFile} {
+	for _, name := range []string{afterRenewal.LAN.CertificateFile, afterRenewal.LAN.PrivateKeyFile} {
 		if _, err := os.Stat(filepath.Join(root, name)); err != nil {
 			t.Fatalf("renewed TLS file %q is unavailable: %v", name, err)
 		}
 	}
-	for _, name := range []string{beforeRenewal.CertificateFile, beforeRenewal.PrivateKeyFile} {
+	for _, name := range []string{beforeRenewal.LAN.CertificateFile, beforeRenewal.LAN.PrivateKeyFile} {
 		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
 			t.Fatalf("retired TLS file %q still exists or could not be checked: %v", name, err)
 		}

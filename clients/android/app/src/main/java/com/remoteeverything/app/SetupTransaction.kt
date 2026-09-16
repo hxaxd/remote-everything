@@ -19,7 +19,6 @@ interface SetupIdentityStore {
 }
 
 interface SetupTransport {
-    fun verifyCatalog(config: ConnectionConfig)
     fun request(
         config: ConnectionConfig,
         url: String,
@@ -57,8 +56,6 @@ sealed interface SetupState {
 }
 
 private object ProductionSetupTransport : SetupTransport {
-    override fun verifyCatalog(config: ConnectionConfig) = RemoteApi.verifyCatalog(config, null)
-
     override fun request(
         config: ConnectionConfig,
         url: String,
@@ -87,7 +84,7 @@ class SetupTransaction(
 ) {
     fun recover(): ConnectionConfig? {
         val staged = settings.stagedProfile() ?: return null
-        if (staged.mode == "public" && identity.hasStagedCredential(staged.installationId)) return staged
+        if (identity.hasStagedCredential(staged.installationId)) return staged
         identity.discardStagedCredential(staged.installationId)
         settings.discardStagedProfile()
         return null
@@ -95,7 +92,7 @@ class SetupTransaction(
 
     fun begin(setup: SetupPayload, onState: (SetupState) -> Unit = {}): SetupState {
         discardPending()
-        return if (setup.profile.mode == "lan") connectLan(setup.profile, onState) else pair(setup, onState)
+        return pair(setup, onState)
     }
 
     fun retryPairing(setup: SetupPayload, onState: (SetupState) -> Unit = {}): SetupState = pair(setup, onState)
@@ -106,20 +103,6 @@ class SetupTransaction(
         val staged = settings.stagedProfile() ?: return
         identity.discardStagedCredential(staged.installationId)
         settings.discardStagedProfile()
-    }
-
-    private fun connectLan(config: ConnectionConfig, onState: (SetupState) -> Unit): SetupState {
-        onState(SetupState.Pairing(config))
-        return runCatching {
-            transport.verifyCatalog(config)
-            settings.stageProfile(config)
-            val committed = settings.commitStagedProfile()
-            settings.discardStagedProfile()
-            SetupState.Ready(committed)
-        }.getOrElse {
-            discardPending()
-            SetupState.Failed(config, failureDetail(it, "局域网连接验证失败"), SetupAction.RESTART_SETUP)
-        }
     }
 
     private fun pair(setup: SetupPayload, onState: (SetupState) -> Unit): SetupState {

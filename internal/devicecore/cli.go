@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func (service *publicService) runDeviceCLI(args []string, output io.Writer) error {
+func (service *Trust) runDeviceCLI(args []string, output io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("missing device action")
 	}
@@ -36,7 +36,7 @@ func (service *publicService) runDeviceCLI(args []string, output io.Writer) erro
 		name := flags.String("name", "", "")
 		origin := flags.String("origin", "", "")
 		qrFile := flags.String("qr", "", "")
-		if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || strings.TrimSpace(*name) == "" || strings.TrimSpace(*origin) == "" {
+		if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || strings.TrimSpace(*name) == "" {
 			return errors.New("invalid device invite arguments")
 		}
 		ttl, err := time.ParseDuration(*ttlText)
@@ -51,7 +51,7 @@ func (service *publicService) runDeviceCLI(args []string, output io.Writer) erro
 		name := flags.String("name", "", "")
 		origin := flags.String("origin", "", "")
 		qrFile := flags.String("qr", "", "")
-		if flags.Parse(args[1:]) != nil || flags.NArg() != 1 || strings.TrimSpace(*name) == "" || strings.TrimSpace(*origin) == "" {
+		if flags.Parse(args[1:]) != nil || flags.NArg() != 1 || strings.TrimSpace(*name) == "" {
 			return errors.New("invalid device renew arguments")
 		}
 		ttl, err := time.ParseDuration(*ttlText)

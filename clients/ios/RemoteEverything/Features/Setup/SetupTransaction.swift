@@ -25,7 +25,6 @@ protocol SetupIdentityStore {
 /// Network transport for setup operations.
 /// Mirrors Android's `SetupTransport`.
 protocol SetupTransport {
-    func verifyCatalog(config: ConnectionConfig) async throws
     func request(
         config: ConnectionConfig,
         url: String,
@@ -71,19 +70,6 @@ enum SetupState {
 /// Real network transport backed by RemoteAPI + SecureHTTP.
 /// Mirrors Android's `ProductionSetupTransport`.
 struct ProductionSetupTransport: SetupTransport {
-    func verifyCatalog(config: ConnectionConfig) async throws {
-        let response = try await SecureHTTP.request(
-            config: config,
-            url: config.appsUrl,
-            method: "GET",
-            identity: nil
-        )
-        guard response.status == 200 else {
-            throw RemoteAPI.APIError.httpStatus(response.status)
-        }
-        _ = try RemoteAPI.decodeCatalog(config: config, json: try response.json())
-    }
-
     func request(
         config: ConnectionConfig,
         url: String,
@@ -140,13 +126,13 @@ final class SetupTransaction {
         self.transport = transport
     }
 
-    /// Recover a partially-completed public setup that has a staged credential.
-    /// Returns the config if recoverable, nil otherwise.
+    /// Recover a partially-completed setup: the staged profile is worth keeping
+    /// while the credential it pairs for survived.
     /// Mirrors Android's `recover()`.
     func recover() -> ConnectionConfig? {
         guard let staged = settings.stagedProfile() else { return nil }
 
-        if staged.mode == .public && (try? identity.hasStagedCredential(installationId: staged.installationId)) == true {
+        if (try? identity.hasStagedCredential(installationId: staged.installationId)) == true {
             return staged
         }
 
@@ -159,15 +145,10 @@ final class SetupTransaction {
     /// Mirrors Android's `begin()`.
     func begin(_ setup: SetupPayload) async -> SetupState {
         discardPending()
-
-        if setup.profile.mode == .lan {
-            return await connectLAN(config: setup.profile)
-        } else {
-            return await pair(setup)
-        }
+        return await pair(setup)
     }
 
-    /// Retry pairing after a previous failure. Only meaningful for public mode.
+    /// Retry pairing after a previous failure.
     /// Mirrors Android's `retryPairing()`.
     func retryPairing(_ setup: SetupPayload) async -> SetupState {
         return await pair(setup)
@@ -193,22 +174,9 @@ final class SetupTransaction {
 
     // MARK: - Private Steps
 
-    /// LAN connection: verify catalog → commit profile → ready.
-    /// Mirrors Android's `connectLan()`.
-    private func connectLAN(config: ConnectionConfig) async -> SetupState {
-        do {
-            try await transport.verifyCatalog(config: config)
-            try settings.stageProfile(config)
-            let committed = try settings.commitStagedProfile()
-            settings.discardStagedProfile()
-            return .ready(committed)
-        } catch {
-            discardPending()
-            return .failed(config, message: failureDetail(error, fallback: "局域网连接验证失败"), action: .restartSetup)
-        }
-    }
-
-    /// Public pairing: POST pair → stage credential → advance to activate.
+    /// Pairing: POST pair → stage credential → advance to activate. A LAN
+    /// entrance answers the same way; only the approval differs, and that is the
+    /// server's answer to make.
     /// Mirrors Android's `pair()`.
     private func pair(_ setup: SetupPayload) async -> SetupState {
         let config = setup.profile

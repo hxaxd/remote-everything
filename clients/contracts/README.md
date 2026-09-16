@@ -18,7 +18,7 @@ contracts/
 
 ## How to Use
 
-JSON Schemas are **human-readable documentation** of the wire format. They describe field names, types, patterns, and conditional constraints (e.g., LAN mode requires `fingerprint`, public mode requires `invitation`).
+JSON Schemas are **human-readable documentation** of the wire format. They describe field names, types, patterns, and conditional constraints (e.g., both modes carry an `invitation`, and LAN mode also pins `fingerprint` and `public_key_pin`).
 
 **Do NOT use schemas for runtime validation.** Each platform implements its own strict decoder in its native language, and every platform's test suite exercises that decoder directly with inline payloads (see `internal/setup` in Go, and each client's parser tests). Schemas exist so reviewers can verify that all four decoders enforce the same rules.
 

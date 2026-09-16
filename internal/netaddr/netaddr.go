@@ -51,6 +51,21 @@ func ValidUnicast(address string) bool {
 	return ValidUnicastHost(host) && Valid(address, host)
 }
 
+// ValidListen reports whether address is one a gateway may serve on: the
+// wildcard address or a specific IPv4 address, with a port this project
+// allocates from. A gateway that fronts its own clients may listen on every
+// interface; one behind an entrance listens where that entrance reaches it.
+func ValidListen(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	if host != "0.0.0.0" && !ValidUnicastHost(host) {
+		return false
+	}
+	return Valid(address, host)
+}
+
 // Reserve returns an available address on host. Each preferred port is tried in
 // order; when none of them is available the operating system picks one.
 func Reserve(host string, preferred ...int) (string, error) {
