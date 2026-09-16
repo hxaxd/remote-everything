@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"bytes"
@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,21 +16,44 @@ import (
 	"software.sslmate.com/src/go-pkcs12"
 )
 
-func setupPublicTest(t *testing.T) *publicService {
+// newNodeStub is a gateway surface whose node answers the control endpoint with
+// one app, which is what activation requires before it approves a device.
+func newNodeStub(t *testing.T) *gatewaycore.Gateway {
 	t.Helper()
-	result, err := initializePublicState(t.TempDir(), filepath.Join(t.TempDir(), "bundle"))
+	node := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/__local_remote_control" {
+			_, _ = io.WriteString(writer, "proxied")
+			return
+		}
+		var input map[string]string
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		if input["action"] == "list" {
+			_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"fixture","name":"Fixture","description":"","icon":"F","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}]}`)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"ok":true,"action":"`+input["action"]+`","computer_connected":true,"enabled":true,"running":true,"code":"ready"}`)
+	}))
+	t.Cleanup(node.Close)
+	gateway, err := gatewaycore.New(node.URL, strings.Repeat("01", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := openPublicService(result.State)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.pairFailureDelay = 0
-	return service
+	return gateway
 }
 
-func createInvitation(t *testing.T, service *publicService) string {
+func setupPublicTest(t *testing.T) *Trust {
+	t.Helper()
+	trust, err := Open(Config{
+		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Node: newNodeStub(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trust.pairFailureDelay = 0
+	return trust
+}
+
+func createInvitation(t *testing.T, service *Trust) string {
 	t.Helper()
 	var output bytes.Buffer
 	if err := service.issueInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", &output); err != nil {
@@ -44,7 +66,7 @@ func createInvitation(t *testing.T, service *publicService) string {
 	return result.Invitation
 }
 
-func pairRequest(t *testing.T, service *publicService, invitation, body string) *httptest.ResponseRecorder {
+func pairRequest(t *testing.T, service *Trust, invitation, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(body))
 	request.Header.Set("Authorization", "Invitation "+invitation)
@@ -53,7 +75,7 @@ func pairRequest(t *testing.T, service *publicService, invitation, body string) 
 	return recorder
 }
 
-func pairFixture(t *testing.T, service *publicService) pairResponse {
+func pairFixture(t *testing.T, service *Trust) pairResponse {
 	t.Helper()
 	invitation := createInvitation(t, service)
 	recorder := pairRequest(t, service, invitation, `{"device_name":"Test Phone","credential_password":"credential-password-123"}`)
@@ -67,7 +89,7 @@ func pairFixture(t *testing.T, service *publicService) pairResponse {
 	return paired
 }
 
-func approvePending(t *testing.T, service *publicService, fingerprint string) {
+func approvePending(t *testing.T, service *Trust, fingerprint string) {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
 	request.Header.Set(clientFingerprintHeader, fingerprint)
@@ -79,7 +101,7 @@ func approvePending(t *testing.T, service *publicService, fingerprint string) {
 	}
 }
 
-func activateApproved(t *testing.T, service *publicService, fingerprint string) {
+func activateApproved(t *testing.T, service *Trust, fingerprint string) {
 	t.Helper()
 	approvePending(t, service, fingerprint)
 	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
@@ -146,7 +168,7 @@ func TestActivationCommitsOnlyAfterNodeValidationAndIsIdempotent(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[]}`)
 	}))
 	defer node.Close()
-	service.gateway, _ = gatewaycore.New(node.URL, token)
+	service.node, _ = gatewaycore.New(node.URL, token)
 	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
 	request.Header.Set(clientFingerprintHeader, paired.CertificateFingerprint)
 	if _, code, err := service.activateDevice(request); err == nil || code != "approval_pending" {
@@ -166,7 +188,7 @@ func TestActivationCommitsOnlyAfterNodeValidationAndIsIdempotent(t *testing.T) {
 	if _, code, err := service.activateDevice(request); err != nil || code != "" {
 		t.Fatalf("activation failed: %s %v", code, err)
 	}
-	invites, _ := os.ReadDir(service.paths.invitesDir)
+	invites, _ := os.ReadDir(service.invitesDir)
 	if len(invites) != 0 {
 		t.Fatal("completed invitation transaction was not removed")
 	}
@@ -326,7 +348,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[]}`)
 	}))
 	defer node.Close()
-	service.gateway, _ = gatewaycore.New(node.URL, token)
+	service.node, _ = gatewaycore.New(node.URL, token)
 
 	oldCredential := pairFixture(t, service)
 	activateApproved(t, service, oldCredential.CertificateFingerprint)

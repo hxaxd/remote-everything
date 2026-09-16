@@ -1,5 +1,9 @@
 # 入口与网关 CLI
 
+两种入口记录的是同一件事：**身份 + 具名监听**。`installation_id` 决定节点把它绑成谁，监听列表说的是它在哪些地址上服务，每条都有名字（LAN 是 `lan`；公网网关是 `status`、`pairing`、`frps`、`node_tunnel`），因为渲染模板、运行记录和操作者都是按角色而不是按位置来引用它们的。
+
+文件因此也只差一点：`server.json` 就是这份状态本身；`lan.json` 是同一份状态再加一个 `lan` 块（节点地址、对外主机、客户端钉住的证书、访问令牌）。`ports repair` 是同一套实现——保住每条监听的名字与主机，只把端口搬走。CLI 输出仍然用具名字段（`status_listen`、`listen_address`……），部署模板与运行记录按这些名字取值，不受状态文件内部结构影响。
+
 ## LAN：Windows、Linux、macOS
 
 ```text

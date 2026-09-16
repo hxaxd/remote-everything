@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/nodecore"
@@ -134,11 +134,23 @@ func TestInitializePublicState(t *testing.T) {
 		}
 		seen[address] = true
 	}
+	// The state every gateway keeps is the same shape: identity plus named
+	// listeners, which is what the CLI and the deployment templates address.
+	stored := filepath.Join(root, "server.json")
+	state, err := gatewaycore.LoadState(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, reported := range map[string]string{"status": first.StatusListen, "pairing": first.PairingListen, "frps": first.FRPSListen, "node_tunnel": first.NodeTunnelListen} {
+		if address, err := state.Address(name); err != nil || address != reported {
+			t.Fatalf("listener %s = %q, %v; init reported %q", name, address, err, reported)
+		}
+	}
 	paths, err := newPublicPaths(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{paths.stateFile, gatewaycore.ControlTokenPath(root), paths.issuerKeyFile, paths.issuerCertFile} {
+	for _, path := range []string{paths.stateFile, gatewaycore.ControlTokenPath(root), devicecore.IssuerCertPath(root)} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("missing state file %s: %v", path, err)
 		}
@@ -152,14 +164,15 @@ func TestInitializePublicState(t *testing.T) {
 	if err := repairPublicPorts(root, &output); err != nil {
 		t.Fatal(err)
 	}
-	repaired, err := paths.loadState()
+	repaired, err := gatewaycore.LoadState(stored)
 	if err != nil || repaired.InstallationID != first.InstallationID {
 		t.Fatalf("port repair changed identity: %+v %v", repaired, err)
 	}
 	seen = map[string]bool{}
-	for _, address := range []string{repaired.StatusListen, repaired.PairingListen, repaired.FRPSListen, repaired.NodeTunnelListen} {
-		if !netaddr.ValidLoopback(address) || seen[address] {
-			t.Fatalf("invalid repaired address: %q", address)
+	for _, name := range []string{"status", "pairing", "frps", "node_tunnel"} {
+		address, err := repaired.Address(name)
+		if err != nil || !netaddr.ValidLoopback(address) || seen[address] {
+			t.Fatalf("invalid repaired address for %s: %q %v", name, address, err)
 		}
 		seen[address] = true
 	}
@@ -176,30 +189,4 @@ func entryNames(t *testing.T, directory string) []string {
 		names = append(names, entry.Name())
 	}
 	return names
-}
-
-func TestLoadIssuerRejectsTamperedSelfSignature(t *testing.T) {
-	root := t.TempDir()
-	if _, err := initializePublicState(root, filepath.Join(t.TempDir(), "bundle")); err != nil {
-		t.Fatal(err)
-	}
-	paths, err := newPublicPaths(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contents, err := os.ReadFile(paths.issuerCertFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	block, _ := pem.Decode(contents)
-	if block == nil || len(block.Bytes) == 0 {
-		t.Fatal("issuer certificate could not be decoded")
-	}
-	block.Bytes[len(block.Bytes)-1] ^= 0x01
-	if err := os.WriteFile(paths.issuerCertFile, pem.EncodeToMemory(block), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := loadIssuer(paths); err == nil {
-		t.Fatal("issuer with a tampered self-signature was accepted")
-	}
 }

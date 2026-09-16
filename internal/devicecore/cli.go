@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func (service *publicService) runDeviceCLI(args []string, output io.Writer) error {
+func (service *Trust) runDeviceCLI(args []string, output io.Writer) error {
 	if len(args) == 0 {
 		return errors.New("missing device action")
 	}

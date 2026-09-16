@@ -3,73 +3,42 @@ package main
 import (
 	"errors"
 	"path/filepath"
-	"regexp"
 
-	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
-const publicStateSchema = 1
-
-var validHex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
-
+// publicPaths is what the entrance keeps in its own root. The device CA, the
+// device records and the invitations live there too, but they belong to the
+// device trust and are named by it.
 type publicPaths struct {
-	root           string
-	devicesDir     string
-	invitesDir     string
-	issuerKeyFile  string
-	issuerCertFile string
-	stateFile      string
+	root      string
+	stateFile string
 }
 
-type publicState struct {
-	Schema           int    `json:"schema"`
-	InstallationID   string `json:"installation_id"`
-	StatusListen     string `json:"status_listen"`
-	PairingListen    string `json:"pairing_listen"`
-	FRPSListen       string `json:"frps_listen"`
-	NodeTunnelListen string `json:"node_tunnel_listen"`
-}
+// listenerNames are the listeners a public gateway serves. The state file is
+// the shared gateway state; these are the names it must carry, and the CLI and
+// the deployment templates address them by name.
+var listenerNames = []string{"status", "pairing", "frps", "node_tunnel"}
 
 func newPublicPaths(root string) (publicPaths, error) {
 	if !filepath.IsAbs(root) {
 		return publicPaths{}, errors.New("state path must be absolute")
 	}
 	root = filepath.Clean(root)
-	return publicPaths{
-		root: root, devicesDir: filepath.Join(root, "devices"),
-		invitesDir: filepath.Join(root, "invites"), issuerKeyFile: filepath.Join(root, "device-issuer.key.pem"),
-		issuerCertFile: filepath.Join(root, "device-issuer.crt.pem"), stateFile: filepath.Join(root, "server.json"),
-	}, nil
+	return publicPaths{root: root, stateFile: filepath.Join(root, "server.json")}, nil
 }
 
-func (paths publicPaths) loadState() (publicState, error) {
-	var state publicState
-	if err := jsonfile.Read(paths.stateFile, &state); err != nil {
-		return publicState{}, err
+func (paths publicPaths) loadState() (gatewaycore.State, error) {
+	state, err := gatewaycore.LoadState(paths.stateFile)
+	if err != nil {
+		return gatewaycore.State{}, err
 	}
-	addresses := []string{state.StatusListen, state.PairingListen, state.FRPSListen, state.NodeTunnelListen}
-	seen := map[string]bool{}
-	for _, address := range addresses {
-		if !netaddr.ValidLoopback(address) || seen[address] {
-			return publicState{}, errors.New("invalid public server state")
+	for _, name := range listenerNames {
+		address, err := state.Address(name)
+		if err != nil || !netaddr.ValidLoopback(address) {
+			return gatewaycore.State{}, errors.New("invalid public server state")
 		}
-		seen[address] = true
-	}
-	if state.Schema != publicStateSchema || !validHex64.MatchString(state.InstallationID) {
-		return publicState{}, errors.New("invalid public server state")
 	}
 	return state, nil
-}
-
-func openPublicService(root string) (*publicService, error) {
-	paths, err := newPublicPaths(root)
-	if err != nil {
-		return nil, err
-	}
-	state, err := paths.loadState()
-	if err != nil {
-		return nil, err
-	}
-	return newPublicService(paths, state), nil
 }

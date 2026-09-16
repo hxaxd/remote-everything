@@ -1,34 +1,31 @@
-package main
+package devicecore
 
 import (
 	"errors"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
-var statusClientFingerprint = regexp.MustCompile(`^[a-f0-9]{64}$`)
-
 func requestFingerprint(request *http.Request) string {
 	return strings.ToLower(strings.TrimSpace(request.Header.Get(clientFingerprintHeader)))
 }
 
-func (service *publicService) statusAuthorized(request *http.Request) bool {
+func (service *Trust) statusAuthorized(request *http.Request) bool {
 	fingerprint := requestFingerprint(request)
-	if !statusClientFingerprint.MatchString(fingerprint) {
+	if !validHex64.MatchString(fingerprint) {
 		return false
 	}
 	record, err := service.loadDeviceRecord(fingerprint)
 	return err == nil && record.Status == "approved"
 }
 
-func (service *publicService) activateDevice(request *http.Request) (any, string, error) {
+func (service *Trust) activateDevice(request *http.Request) (any, string, error) {
 	fingerprint := requestFingerprint(request)
-	if !statusClientFingerprint.MatchString(fingerprint) {
+	if !validHex64.MatchString(fingerprint) {
 		return nil, "unauthorized", errors.New("missing device fingerprint")
 	}
 	record, err := service.loadDeviceRecord(fingerprint)
@@ -45,13 +42,13 @@ func (service *publicService) activateDevice(request *http.Request) (any, string
 			if err := service.writeDeviceRecord(record); err != nil {
 				return nil, "activation_failed", err
 			}
-			auditLine("device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
+			service.audit("device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
 		}
 		if record.ApprovedAt == "" {
 			return nil, "approval_pending", errors.New("device approval pending")
 		}
 	}
-	apps, connected := service.gateway.ConnectedList()
+	apps, connected := service.node.ConnectedList()
 	if !connected {
 		return nil, "computer_offline", errors.New("node validation failed")
 	}
@@ -81,9 +78,9 @@ func (service *publicService) activateDevice(request *http.Request) (any, string
 			return nil, "activation_failed", err
 		}
 		if err := os.Remove(transactionPath); err != nil {
-			logLine("gateway", "warn", "remove completed invitation failed", "code", err.Error())
+			service.log("gateway", "warn", "remove completed invitation failed", "code", err.Error())
 		}
-		auditLine("device activated", "fingerprint", fingerprint, "device_name", record.DeviceName)
+		service.audit("device activated", "fingerprint", fingerprint, "device_name", record.DeviceName)
 	}
 	return apps, "", nil
 }
@@ -96,7 +93,7 @@ func rawRequestPath(request *http.Request) string {
 	return path
 }
 
-func (service *publicService) statusHTTPHandler(writer http.ResponseWriter, request *http.Request) {
+func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *http.Request) {
 	path := rawRequestPath(request)
 	if path == "/healthz" && request.Method == http.MethodGet {
 		gatewaycore.WriteJSON(writer, http.StatusOK, map[string]bool{"ok": true})
@@ -130,17 +127,5 @@ func (service *publicService) statusHTTPHandler(writer http.ResponseWriter, requ
 		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, gatewaycore.Error("unauthorized"))
 		return
 	}
-	service.gateway.ServeHTTP(writer, request)
-}
-
-func (service *publicService) newStatusServer() (*http.Server, error) {
-	token, err := gatewaycore.ReadControlToken(service.paths.root)
-	if err != nil {
-		return nil, err
-	}
-	service.gateway, err = gatewaycore.New("http://"+service.config.NodeTunnelListen, token)
-	if err != nil {
-		return nil, err
-	}
-	return gatewaycore.NewServer(service.config.StatusListen, http.HandlerFunc(service.statusHTTPHandler)), nil
+	service.node.ServeHTTP(writer, request)
 }

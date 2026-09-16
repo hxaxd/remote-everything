@@ -79,18 +79,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, "control token unavailable")
 		os.Exit(1)
 	}
-	handler, err := gatewaycore.New("http://"+lan.NodeAddress, token)
+	handler, err := gatewaycore.New("http://"+lan.LAN.NodeAddress, token)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	serveHandler := lanAccessHandler(lan.AccessToken, handler)
-	certificate, err := tls.LoadX509KeyPair(filepath.Join(root, lan.CertificateFile), filepath.Join(root, lan.PrivateKeyFile))
+	serveHandler := lanAccessHandler(lan.LAN.AccessToken, handler)
+	certificate, err := tls.LoadX509KeyPair(filepath.Join(root, lan.LAN.CertificateFile), filepath.Join(root, lan.LAN.PrivateKeyFile))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "LAN TLS material unavailable")
 		os.Exit(1)
 	}
-	server := gatewaycore.NewServer(lan.ListenAddress, serveHandler)
+	listenAddress, err := lan.listener()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "LAN state is missing its listener")
+		os.Exit(1)
+	}
+	server := gatewaycore.NewServer(listenAddress, serveHandler)
 	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	if err := server.ListenAndServeTLS("", ""); err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -1,4 +1,4 @@
-package main
+package devicecore
 
 import (
 	"encoding/json"
@@ -39,8 +39,8 @@ func parseTimestamp(value string) (time.Time, error) {
 	return time.Parse(time.RFC3339, value)
 }
 
-func (service *publicService) deviceRecordPath(fingerprint string) string {
-	return filepath.Join(service.paths.devicesDir, fingerprint+".json")
+func (service *Trust) deviceRecordPath(fingerprint string) string {
+	return filepath.Join(service.devicesDir, fingerprint+".json")
 }
 
 func validateDeviceRecord(record deviceRecord) error {
@@ -99,7 +99,7 @@ func validateDeviceRecord(record deviceRecord) error {
 	return nil
 }
 
-func (service *publicService) loadDeviceRecord(fingerprint string) (deviceRecord, error) {
+func (service *Trust) loadDeviceRecord(fingerprint string) (deviceRecord, error) {
 	if !validHex64.MatchString(fingerprint) {
 		return deviceRecord{}, errors.New("invalid device fingerprint")
 	}
@@ -113,7 +113,7 @@ func (service *publicService) loadDeviceRecord(fingerprint string) (deviceRecord
 	return record, nil
 }
 
-func (service *publicService) writeDeviceRecord(record deviceRecord) error {
+func (service *Trust) writeDeviceRecord(record deviceRecord) error {
 	if err := validateDeviceRecord(record); err != nil {
 		return err
 	}
@@ -128,8 +128,8 @@ func (service *publicService) writeDeviceRecord(record deviceRecord) error {
 	return atomicfile.MatchDirectoryOwner(path)
 }
 
-func (service *publicService) loadDeviceRecords() ([]deviceRecord, error) {
-	entries, err := os.ReadDir(service.paths.devicesDir)
+func (service *Trust) loadDeviceRecords() ([]deviceRecord, error) {
+	entries, err := os.ReadDir(service.devicesDir)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (service *publicService) loadDeviceRecords() ([]deviceRecord, error) {
 		fingerprint := strings.TrimSuffix(entry.Name(), ".json")
 		record, err := service.loadDeviceRecord(fingerprint)
 		if err != nil {
-			auditLine("corrupt device record skipped", "fingerprint", fingerprint, "error", err.Error())
+			service.audit("corrupt device record skipped", "fingerprint", fingerprint, "error", err.Error())
 			continue
 		}
 		if record.Status == "pending" {
@@ -157,7 +157,7 @@ func (service *publicService) loadDeviceRecords() ([]deviceRecord, error) {
 	return records, nil
 }
 
-func (service *publicService) deviceList(output io.Writer) error {
+func (service *Trust) deviceList(output io.Writer) error {
 	if err := service.cleanupExpiredState(); err != nil {
 		return err
 	}
@@ -168,7 +168,7 @@ func (service *publicService) deviceList(output io.Writer) error {
 	return json.NewEncoder(output).Encode(records)
 }
 
-func (service *publicService) deviceRevoke(fingerprint string, output io.Writer) error {
+func (service *Trust) deviceRevoke(fingerprint string, output io.Writer) error {
 	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || record.Status == "pending" {
@@ -184,12 +184,12 @@ func (service *publicService) deviceRevoke(fingerprint string, output io.Writer)
 		if err := service.writeDeviceRecord(record); err != nil {
 			return err
 		}
-		auditLine("device revoked", "fingerprint", fingerprint)
+		service.audit("device revoked", "fingerprint", fingerprint)
 	}
 	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": changed})
 }
 
-func (service *publicService) deviceApprove(fingerprint string, output io.Writer) error {
+func (service *Trust) deviceApprove(fingerprint string, output io.Writer) error {
 	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || (record.Status != "pending" && record.Status != "approved") || record.ApprovalRequestedAt == "" {
@@ -208,7 +208,7 @@ func (service *publicService) deviceApprove(fingerprint string, output io.Writer
 		if err := service.writeDeviceRecord(record); err != nil {
 			return err
 		}
-		auditLine("device approved", "fingerprint", fingerprint, "device_name", record.DeviceName)
+		service.audit("device approved", "fingerprint", fingerprint, "device_name", record.DeviceName)
 	}
 	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": changed})
 }

@@ -29,8 +29,6 @@ import (
 	setupcodec "github.com/hxaxd/remote-everything/internal/setup"
 )
 
-const lanStateSchema = 1
-
 var (
 	validDNSName            = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
 	validSHA256             = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -38,21 +36,72 @@ var (
 	validLANKeyFile         = regexp.MustCompile(`^lan-server-[a-f0-9]{64}\.key\.pem$`)
 )
 
-// lanState is the LAN entrance's own state: the identity a node binds it by,
-// where that node is, and the TLS identity its clients pin. It lives in the
-// entrance's own root — the entrance is a service of its own, and the node it
-// serves is a separate service that may well be a separate machine.
+const (
+	listenerName      = "lan"
+	listenerPort      = 58626
+	lanStateFile      = "lan.json"
+	lanStateAccessKey = "access_token"
+)
+
+// lanState is the LAN entrance's state: the same gateway state every entrance
+// records, plus what only an entrance that fronts its own clients needs. It
+// lives in the entrance's own root — the entrance is a service of its own, and
+// the node it serves is a separate service that may well be a separate machine.
 type lanState struct {
-	Schema                 int    `json:"schema"`
-	InstallationID         string `json:"installation_id"`
+	gatewaycore.State
+	LAN lanDetails `json:"lan"`
+}
+
+// lanDetails is the half of the state that is LAN-specific: where the node is,
+// and the TLS identity the entrance's clients pinned when they paired.
+type lanDetails struct {
 	NodeAddress            string `json:"node_address"`
-	ListenAddress          string `json:"listen_address"`
 	Host                   string `json:"host"`
 	GatewayOrigin          string `json:"gateway_origin"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	CertificateFile        string `json:"certificate_file"`
 	PrivateKeyFile         string `json:"private_key_file"`
-	AccessToken            string `json:"access_token,omitempty"`
+	AccessToken            string `json:"access_token"`
+}
+
+// listener returns the address the entrance serves its clients on.
+func (state lanState) listener() (string, error) {
+	return state.Address(listenerName)
+}
+
+// repair moves the entrance's listener to a new port and keeps everything else.
+func (state lanState) repair() (lanState, error) {
+	shared, err := state.State.Repair(map[string]int{listenerName: listenerPort})
+	if err != nil {
+		return lanState{}, err
+	}
+	state.State = shared
+	return state, nil
+}
+
+func (state lanState) save(root string) error {
+	return jsonfile.Write(filepath.Join(root, lanStateFile), state, 0o600)
+}
+
+// validate checks the part of the state that only a LAN entrance has; the rest
+// is checked by the shared gateway state.
+func (state lanState) validate() error {
+	listenAddress, err := state.listener()
+	if err != nil {
+		return errors.New("invalid LAN state")
+	}
+	_, port, _ := net.SplitHostPort(listenAddress)
+	expectedOrigin := "https://" + net.JoinHostPort(state.LAN.Host, port)
+	expectedCertificate := "lan-server-" + state.LAN.CertificateFingerprint + ".crt.pem"
+	expectedKey := "lan-server-" + state.LAN.CertificateFingerprint + ".key.pem"
+	if !netaddr.ValidUnicast(state.LAN.NodeAddress) || state.LAN.Host == "" ||
+		!validSHA256.MatchString(state.LAN.CertificateFingerprint) || !validSHA256.MatchString(state.LAN.AccessToken) ||
+		state.LAN.GatewayOrigin != expectedOrigin ||
+		state.LAN.CertificateFile != expectedCertificate || state.LAN.PrivateKeyFile != expectedKey ||
+		!validLANCertificateFile.MatchString(state.LAN.CertificateFile) || !validLANKeyFile.MatchString(state.LAN.PrivateKeyFile) {
+		return errors.New("invalid LAN state")
+	}
+	return nil
 }
 
 type lanInitResult struct {
@@ -157,37 +206,40 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	certificate, err := loadLANCertificate(root, state.Host, state)
+	certificate, err := loadLANCertificate(root, state.LAN.Host, state)
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	state.ListenAddress, err = netaddr.Reserve("0.0.0.0", 58626)
+	repaired, err := state.repair()
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	_, port, _ := net.SplitHostPort(state.ListenAddress)
-	state.GatewayOrigin = "https://" + net.JoinHostPort(state.Host, port)
-	if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
+	listenAddress, err := repaired.listener()
+	if err != nil {
+		return lanInitResult{}, err
+	}
+	_, port, _ := net.SplitHostPort(listenAddress)
+	repaired.LAN.GatewayOrigin = "https://" + net.JoinHostPort(repaired.LAN.Host, port)
+	if err := repaired.save(root); err != nil {
 		return lanInitResult{}, err
 	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress,
-		GatewayOrigin: state.GatewayOrigin, CertificateFingerprint: state.CertificateFingerprint,
+		OK: true, InstallationID: repaired.InstallationID, ListenAddress: listenAddress,
+		GatewayOrigin: repaired.LAN.GatewayOrigin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
 		PublicKeyPin: lanPublicKeyPin(certificate),
 	}, nil
 }
 
 func loadLANState(root string) (lanState, error) {
 	var state lanState
-	if err := jsonfile.Read(filepath.Join(root, "lan.json"), &state); err != nil {
+	if err := jsonfile.Read(filepath.Join(root, lanStateFile), &state); err != nil {
 		return lanState{}, err
 	}
-	_, port, _ := net.SplitHostPort(state.ListenAddress)
-	expectedOrigin := "https://" + net.JoinHostPort(state.Host, port)
-	expectedCertificate := "lan-server-" + state.CertificateFingerprint + ".crt.pem"
-	expectedKey := "lan-server-" + state.CertificateFingerprint + ".key.pem"
-	if !netaddr.Valid(state.ListenAddress, "0.0.0.0") || !netaddr.ValidUnicast(state.NodeAddress) || state.Schema != lanStateSchema || !validSHA256.MatchString(state.InstallationID) || state.Host == "" || !validSHA256.MatchString(state.CertificateFingerprint) || state.GatewayOrigin != expectedOrigin || !validLANCertificateFile.MatchString(state.CertificateFile) || !validLANKeyFile.MatchString(state.PrivateKeyFile) || state.CertificateFile != expectedCertificate || state.PrivateKeyFile != expectedKey || !validSHA256.MatchString(state.AccessToken) {
-		return lanState{}, errors.New("invalid LAN state")
+	if err := state.Validate(); err != nil {
+		return lanState{}, err
+	}
+	if err := state.validate(); err != nil {
+		return lanState{}, err
 	}
 	return state, nil
 }
@@ -213,12 +265,12 @@ func writeLANCertificatePair(root string, certificate *x509.Certificate, certifi
 }
 
 func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, error) {
-	certificate, err := parseLANCertificate(filepath.Join(root, state.CertificateFile), filepath.Join(root, state.PrivateKeyFile), host)
+	certificate, err := parseLANCertificate(filepath.Join(root, state.LAN.CertificateFile), filepath.Join(root, state.LAN.PrivateKeyFile), host)
 	if err != nil {
 		return nil, err
 	}
 	fingerprintBytes := sha256.Sum256(certificate.Raw)
-	if hex.EncodeToString(fingerprintBytes[:]) != state.CertificateFingerprint {
+	if hex.EncodeToString(fingerprintBytes[:]) != state.LAN.CertificateFingerprint {
 		return nil, errors.New("LAN certificate fingerprint does not match state")
 	}
 	return certificate, nil
@@ -231,23 +283,28 @@ func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, e
 func reconcileLANState(root, nodeAddress, host, installationID, fingerprint, certificateFile, keyFile, accessToken string) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
-		listenAddress, allocateErr := netaddr.Reserve("0.0.0.0", 58626)
+		shared, allocateErr := gatewaycore.NewState(installationID, []gatewaycore.ListenerPreference{
+			{Name: listenerName, Host: "0.0.0.0", PreferredPort: listenerPort},
+		})
 		if allocateErr != nil {
 			return lanState{}, allocateErr
 		}
+		listenAddress, addressErr := shared.Address(listenerName)
+		if addressErr != nil {
+			return lanState{}, addressErr
+		}
 		_, port, _ := net.SplitHostPort(listenAddress)
-		state = lanState{
-			Schema: lanStateSchema, InstallationID: installationID, NodeAddress: nodeAddress,
-			ListenAddress: listenAddress, Host: host,
+		state = lanState{State: shared, LAN: lanDetails{
+			NodeAddress: nodeAddress, Host: host,
 			GatewayOrigin: "https://" + net.JoinHostPort(host, port), CertificateFingerprint: fingerprint,
 			CertificateFile: certificateFile, PrivateKeyFile: keyFile, AccessToken: accessToken,
-		}
+		}}
 	} else if err != nil {
 		return lanState{}, err
-	} else if state.InstallationID != installationID || state.Host != host || state.CertificateFingerprint != fingerprint || state.CertificateFile != certificateFile || state.PrivateKeyFile != keyFile {
+	} else if state.InstallationID != installationID || state.LAN.Host != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
 		return lanState{}, errors.New("existing LAN state does not match host or certificate")
 	} else {
-		state.NodeAddress = nodeAddress
+		state.LAN.NodeAddress = nodeAddress
 	}
 	if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
 		return lanState{}, err
@@ -274,7 +331,7 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	existing, stateErr := loadLANState(root)
 	installationID := ""
 	if stateErr == nil {
-		if existing.Host != host {
+		if existing.LAN.Host != host {
 			return lanInitResult{}, errors.New("existing LAN state serves another host")
 		}
 		installationID = existing.InstallationID
@@ -297,8 +354,8 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	accessToken := ""
 	if stateErr == nil {
 		certificate, err = loadLANCertificate(root, host, existing)
-		certificateFile, keyFile = existing.CertificateFile, existing.PrivateKeyFile
-		accessToken = existing.AccessToken
+		certificateFile, keyFile = existing.LAN.CertificateFile, existing.LAN.PrivateKeyFile
+		accessToken = existing.LAN.AccessToken
 		if accessToken == "" {
 			accessToken, err = gatewaycore.NewSecret()
 			if err != nil {
@@ -341,10 +398,14 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	if err := identity.WriteBundle(bootstrapDir); err != nil {
 		return lanInitResult{}, err
 	}
+	listenAddress, err := state.listener()
+	if err != nil {
+		return lanInitResult{}, err
+	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress,
-		GatewayOrigin: state.GatewayOrigin, CertificateFingerprint: state.CertificateFingerprint,
-		PublicKeyPin: lanPublicKeyPin(certificate), AccessToken: state.AccessToken,
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
+		GatewayOrigin: state.LAN.GatewayOrigin, CertificateFingerprint: state.LAN.CertificateFingerprint,
+		PublicKeyPin: lanPublicKeyPin(certificate), AccessToken: state.LAN.AccessToken,
 	}, nil
 }
 
@@ -357,14 +418,14 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	certificate, certificatePEM, keyPEM, err := generateLANCertificate(state.Host, validDays)
+	certificate, certificatePEM, keyPEM, err := generateLANCertificate(state.LAN.Host, validDays)
 	if err != nil {
 		return lanInitResult{}, err
 	}
 	fingerprintBytes := sha256.Sum256(certificate.Raw)
 	fingerprint := hex.EncodeToString(fingerprintBytes[:])
 	keyPin := lanPublicKeyPin(certificate)
-	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.GatewayOrigin, fingerprint, keyPin, state.AccessToken)
+	setupURI, err := setupcodec.Build("lan", state.InstallationID, name, state.LAN.GatewayOrigin, fingerprint, keyPin, state.LAN.AccessToken)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -375,19 +436,23 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	oldCertificateFile, oldKeyFile := state.CertificateFile, state.PrivateKeyFile
-	state.CertificateFingerprint = fingerprint
-	state.CertificateFile = certificateFile
-	state.PrivateKeyFile = keyFile
-	if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
+	oldCertificateFile, oldKeyFile := state.LAN.CertificateFile, state.LAN.PrivateKeyFile
+	state.LAN.CertificateFingerprint = fingerprint
+	state.LAN.CertificateFile = certificateFile
+	state.LAN.PrivateKeyFile = keyFile
+	if err := state.save(root); err != nil {
 		_ = os.Remove(filepath.Join(root, certificateFile))
 		_ = os.Remove(filepath.Join(root, keyFile))
 		return lanInitResult{}, err
 	}
 	_ = os.Remove(filepath.Join(root, oldCertificateFile))
 	_ = os.Remove(filepath.Join(root, oldKeyFile))
+	listenAddress, err := state.listener()
+	if err != nil {
+		return lanInitResult{}, err
+	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress, GatewayOrigin: state.GatewayOrigin,
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, GatewayOrigin: state.LAN.GatewayOrigin,
 		CertificateFingerprint: fingerprint, SetupURI: setupURI, QRFile: qrFile,
 		PublicKeyPin: keyPin,
 	}, nil
