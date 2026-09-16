@@ -29,8 +29,21 @@ func TestInitializeLAN(t *testing.T) {
 	if len(nodeState.Bindings) != 1 || nodeState.Bindings[0].InstallationID != first.InstallationID {
 		t.Fatalf("LAN init did not register a node binding: %+v", nodeState.Bindings)
 	}
-	if _, err := os.Stat(filepath.Join(root, "bindings", first.InstallationID, "control-token")); err != nil {
-		t.Fatalf("binding control token missing: %v", err)
+	// A LAN entrance has no tunnel, so neither side of the binding may hold
+	// anything beyond the control token the entrance authenticates with.
+	bindingEntries, err := os.ReadDir(filepath.Join(root, "bindings", first.InstallationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindingEntries) != 1 || bindingEntries[0].Name() != "control-token" {
+		t.Fatalf("LAN binding holds %v, want only control-token", bindingEntries)
+	}
+	gatewayEntries, err := os.ReadDir(lanGatewayRoot(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gatewayEntries) != 1 || gatewayEntries[0].Name() != "control-token" {
+		t.Fatalf("LAN gateway directory holds %v, want only control-token", gatewayEntries)
 	}
 	second, err := initializeLAN(root, "127.0.0.1", 30)
 	if err != nil || second.CertificateFingerprint != first.CertificateFingerprint {

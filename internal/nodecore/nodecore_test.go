@@ -292,18 +292,12 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	}
 }
 
-// writeTestBundle generates a gateway material and node bundle for the given
-// installation ID and control token, returning the bootstrap directory.
+// writeTestBundle writes the identity bundle a gateway side hands to a node,
+// returning the bootstrap directory.
 func writeTestBundle(t *testing.T, installationID, controlToken string) string {
 	t.Helper()
 	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
-	material, err := deploymentbootstrap.EnsureGatewayMaterial(
-		filepath.Join(t.TempDir(), "gateway"), installationID, controlToken,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, material); err != nil {
+	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, installationID, controlToken); err != nil {
 		t.Fatal(err)
 	}
 	return bootstrapDir
@@ -442,7 +436,10 @@ func TestAppListHidesAdapterSourceAndAdapterCommandShowsIt(t *testing.T) {
 	}
 }
 
-func TestAddBindingCreatesMaterialsInSubdirectory(t *testing.T) {
+// A binding is the gateway's identity at the node and nothing more: the node
+// keeps the control token it authenticates that gateway with, and no material
+// belonging to anything the gateway owns.
+func TestAddBindingRegistersIdentityOnly(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Initialize(root); err != nil {
 		t.Fatal(err)
@@ -457,13 +454,13 @@ func TestAddBindingCreatesMaterialsInSubdirectory(t *testing.T) {
 		t.Fatalf("expected installation_id %s, got %s", installationID, result.InstallationID)
 	}
 	bindingDir := filepath.Join(root, "bindings", installationID)
-	if _, err := os.Stat(filepath.Join(bindingDir, "control-token")); err != nil {
-		t.Fatalf("control-token not created: %v", err)
+	entries, err := os.ReadDir(bindingDir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(bindingDir, "frps-token")); err != nil {
-		t.Fatalf("frps-token not created: %v", err)
+	if len(entries) != 1 || entries[0].Name() != "control-token" {
+		t.Fatalf("binding directory holds %v, want only control-token", entries)
 	}
-	// Verify state has the binding
 	state, err := LoadState(root)
 	if err != nil {
 		t.Fatal(err)
@@ -488,6 +485,29 @@ func TestAddBindingIsIdempotent(t *testing.T) {
 	state, _ := LoadState(root)
 	if len(state.Bindings) != 1 {
 		t.Fatalf("expected 1 binding, got %d", len(state.Bindings))
+	}
+}
+
+// Re-binding an installation that is already bound with another token must fail
+// rather than silently redefine which token that gateway authenticates with.
+func TestAddBindingRejectsAnotherTokenForTheSameInstallation(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	installationID := strings.Repeat("b", 64)
+	if _, err := AddBinding(root, writeTestBundle(t, installationID, strings.Repeat("a", 64))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddBinding(root, writeTestBundle(t, installationID, strings.Repeat("c", 64))); err == nil {
+		t.Fatal("re-binding an installation with another control token was accepted")
+	}
+	token, err := os.ReadFile(filepath.Join(root, "bindings", installationID, "control-token"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(token)) != strings.Repeat("a", 64) {
+		t.Fatalf("failed re-bind changed the bound token to %q", strings.TrimSpace(string(token)))
 	}
 }
 

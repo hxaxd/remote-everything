@@ -78,12 +78,14 @@ fi
 init_json=$("$temp_root/control" init --state "$state_root")
 printf '%s' "$init_json" | assert_json 'value["ok"] and len(value["node_id"]) == 64' 'init creates node state'
 "$temp_root/control" init --state "$state_root" | assert_json 'value["ok"]' 'init is idempotent'
-"$temp_root/genbundle" -gateway "$temp_root/gateway" -bootstrap "$temp_root/bootstrap" \
+"$temp_root/genbundle" -bootstrap "$temp_root/bootstrap" \
   -installation-id "$installation_id" -control-token "$token"
 "$temp_root/control" binding add --state "$state_root" --bootstrap "$temp_root/bootstrap" \
   | assert_json 'value["ok"] and value["installation_id"] == "'"$installation_id"'"' 'binding add registers a gateway'
 "$temp_root/control" binding list --state "$state_root" \
   | assert_json 'len(value) == 1 and value[0]["installation_id"] == "'"$installation_id"'"' 'binding list shows the gateway'
+binding_files=$(find "$state_root/bindings/$installation_id" -type f | wc -l)
+[[ "$binding_files" -eq 1 ]] || fail "a binding holds only its control token, found $binding_files files"
 control_port=$(printf '%s' "$init_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["listen_address"].rsplit(":",1)[1])')
 "$temp_root/control" serve --state "$state_root" &
 control_pid=$!

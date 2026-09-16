@@ -294,8 +294,9 @@ func reconcileLANState(root, host, nodeID, installationID, fingerprint, certific
 	return state, nil
 }
 
-// lanGatewayRoot is the LAN entrance's own gateway state directory, laid out
-// like the public gateway's root: control-token, frps-token and the tunnel CA.
+// lanGatewayRoot is the LAN entrance's own gateway state directory. It holds the
+// control token the entrance authenticates to the node with and nothing else: a
+// LAN entrance has no tunnel, so there is no tunnel material to keep here.
 func lanGatewayRoot(root string) string {
 	return filepath.Join(root, "gateway")
 }
@@ -417,19 +418,16 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 		}
 		return lanInitResult{}, err
 	}
-	// The LAN entrance is itself a gateway: register its binding after lan.json
+	// The LAN entrance is itself a gateway: it hands the node the same identity
+	// bundle a public gateway hands over. It registers that bundle after lan.json
 	// is in place, so a failed init reuses the same installation_id on retry
 	// instead of piling up new bindings.
-	material, err := deploymentbootstrap.EnsureGatewayMaterial(gatewayRoot, installationID, controlToken)
-	if err != nil {
-		return lanInitResult{}, err
-	}
 	bootstrapDir, err := os.MkdirTemp("", "remote-everything-lan-bootstrap-")
 	if err != nil {
 		return lanInitResult{}, err
 	}
 	defer os.RemoveAll(bootstrapDir)
-	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, material); err != nil {
+	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, installationID, controlToken); err != nil {
 		return lanInitResult{}, err
 	}
 	if _, err := nodecore.AddBinding(root, bootstrapDir); err != nil {

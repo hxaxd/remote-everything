@@ -9,7 +9,7 @@ remote-everything-lan-server ports repair --state PATH
 remote-everything-lan-server serve --state PATH
 ```
 
-先初始化同一状态目录中的节点。`init` 创建 schema 1 的 `lan.json`，把 LAN 入口注册为节点的一个 binding（材料放在 `gateway/` 子目录），自动选择入口端口并输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹、setup URI 和可选二维码。`serve` 只读取持久化地址。
+先初始化同一状态目录中的节点。`init` 创建 schema 1 的 `lan.json`，把 LAN 入口注册为节点的一个 binding，自动选择入口端口并输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹、setup URI 和可选二维码。`serve` 只读取持久化地址。
 
 续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；移动客户端扫描输出载荷，以相同 `installation_id` 原子替换该 Profile 的指纹，不新建实例。入口端口即客户端 Profile 的 origin：`ports repair` 改变端口后原 Profile 全部失效，必须再执行一次 `certificate renew` 让移动客户端重扫替换。
 
@@ -31,9 +31,9 @@ remote-everything-gateway device --state PATH invitation cancel TOKEN_HASH
 remote-everything-gateway device --state PATH revoke FINGERPRINT
 ```
 
-`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、控制令牌、FRPS token、隧道 CA，以及四个互不相同的动态 loopback 地址；同时在指定绝对目录生成节点 bootstrap。bundle 只含节点所需的统一 ID、控制令牌、FRPS token、隧道 CA 证书和客户端证书/私钥，不含隧道 CA 私钥。目录已存在时必须与当前网关身份和 CA 完全匹配。
+`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、控制令牌、FRPS token、隧道 CA、隧道客户端身份，以及四个互不相同的动态 loopback 地址；同时在指定绝对目录生成节点 bootstrap。bundle 只含节点要的统一 ID 与控制令牌：隧道材料属于网关自己，留在网关状态目录，`init` 输出中的 `frps_token_file`、`tunnel_ca_file`、`tunnel_client_certificate_file` 与 `tunnel_client_key_file` 就是它们的位置。目录已存在时必须与当前网关身份和 CA 完全匹配。重复执行 `init` 不会替换已经存在的隧道客户端身份，避免正在运行的隧道代理被静默换掉凭据。
 
-隧道客户端证书到期前，停节点 FRPC，使用新的空输出目录执行 `tunnel renew`，通过加密管理通道送到节点并再次执行节点 `binding add --bootstrap`。节点只在 installation ID、控制令牌、FRPS token 与隧道 CA 全部匹配时写入以新指纹命名的客户端证书/私钥；按 CLI 返回路径重渲染、重启并验证 FRPC 后，删除旧身份文件和两端 bundle 副本。该操作不改变端口、设备 CA 或移动客户端授权。
+隧道客户端证书到期前执行 `tunnel renew --state PATH`：它用同一个隧道 CA 签发新的客户端身份并原地替换，返回新路径与指纹。这是纯网关侧操作，节点不参与，也不需要重启节点——绑定身份（安装 ID 与控制令牌）不变。把新身份投递到运行隧道代理的那台机器并让它重载，是后续改动定义的工作；在那之前公网形态无法端到端完成。该操作不改变端口、设备 CA 或移动客户端授权。
 
 Agent 通过已有 SSH 或等价的加密管理通道把整个 bundle 送到节点，限制目录和私钥只允许部署账户读取，执行节点导入并比对两端 ID 后删除服务器输出副本与节点输入副本。长期材料只保留在两端状态目录；`runtime.json` 只记录路径和摘要。
 
