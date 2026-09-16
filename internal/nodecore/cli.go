@@ -8,16 +8,17 @@ import (
 	"io"
 )
 
-const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH | binding add --state ABSOLUTE_PATH --bootstrap ABSOLUTE_PATH | binding remove --state ABSOLUTE_PATH INSTALLATION_ID | binding list --state ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app adapter --state ABSOLUTE_PATH ID | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
+const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH [--listen HOST] | binding add --state ABSOLUTE_PATH --bootstrap ABSOLUTE_PATH | binding remove --state ABSOLUTE_PATH INSTALLATION_ID | binding list --state ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH [--listen HOST] | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app adapter --state ABSOLUTE_PATH ID | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
 
 func runInit(parts []string, output io.Writer) error {
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "")
+	listenHost := flags.String("listen", "127.0.0.1", "")
 	if flags.Parse(parts) != nil || flags.NArg() != 0 {
 		return errors.New("invalid init arguments")
 	}
-	result, err := Initialize(*state)
+	result, err := Initialize(*state, *listenHost)
 	if err != nil {
 		return err
 	}
@@ -117,10 +118,11 @@ func runPorts(parts []string, output io.Writer) error {
 	flags := flag.NewFlagSet("ports repair", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "")
+	listenHost := flags.String("listen", "", "")
 	if len(parts) < 1 || parts[0] != "repair" || flags.Parse(parts[1:]) != nil || flags.NArg() != 0 {
 		return errors.New("invalid ports repair arguments")
 	}
-	result, err := RepairPorts(*state)
+	result, err := RepairPorts(*state, *listenHost)
 	if err != nil {
 		return err
 	}

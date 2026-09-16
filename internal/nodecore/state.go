@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -98,7 +99,7 @@ func loadStateFile(path string) (State, error) {
 	if err := jsonfile.Read(path, &state); err != nil {
 		return State{}, err
 	}
-	if !validToken.MatchString(state.NodeID) || !netaddr.ValidLoopback(state.ListenAddress) {
+	if !validToken.MatchString(state.NodeID) || !netaddr.ValidUnicast(state.ListenAddress) {
 		return State{}, errors.New("invalid node state")
 	}
 	seen := map[string]bool{}
@@ -129,12 +130,18 @@ func (node *Node) currentState() (State, error) {
 	return loadStateFile(node.stateFile)
 }
 
-// Initialize creates a new node with a random NodeID and allocated loopback
-// address. No bindings are created — use AddBinding for that.
-func Initialize(root string) (BindingResult, error) {
+// Initialize creates a new node that listens on listenHost with an allocated
+// port. The host is the address a gateway dials, so a node whose gateway runs on
+// another machine has to listen on an address that machine can reach; the
+// default loopback suits a gateway on the same machine and the tunnel form. No
+// bindings are created — use AddBinding for that.
+func Initialize(root, listenHost string) (BindingResult, error) {
 	node, err := statePaths(root)
 	if err != nil {
 		return BindingResult{}, err
+	}
+	if !netaddr.ValidUnicastHost(listenHost) {
+		return BindingResult{}, errors.New("invalid listen host")
 	}
 	if err := os.MkdirAll(node.enabledRoot, 0o700); err != nil {
 		return BindingResult{}, err
@@ -149,7 +156,7 @@ func Initialize(root string) (BindingResult, error) {
 		if randomErr != nil {
 			return BindingResult{}, randomErr
 		}
-		listenAddress, allocateErr := netaddr.Reserve("127.0.0.1", 58627)
+		listenAddress, allocateErr := netaddr.Reserve(listenHost, 58627)
 		if allocateErr != nil {
 			return BindingResult{}, allocateErr
 		}
@@ -159,6 +166,10 @@ func Initialize(root string) (BindingResult, error) {
 		}
 	} else if err != nil {
 		return BindingResult{}, fmt.Errorf("load node state: %w", err)
+	} else if host, _, splitErr := net.SplitHostPort(state.ListenAddress); splitErr != nil {
+		return BindingResult{}, splitErr
+	} else if host != listenHost {
+		return BindingResult{}, fmt.Errorf("node already listens on %s; ports repair --listen moves it", host)
 	}
 
 	if _, err := os.Stat(node.appsFile); errors.Is(err, os.ErrNotExist) {
@@ -277,7 +288,12 @@ func Open(root string, platform Platform) (*Node, error) {
 	return node, nil
 }
 
-func RepairPorts(root string) (BindingResult, error) {
+// RepairPorts reallocates the address the node listens on, keeping its identity.
+// An empty listenHost keeps the host the node already listens on, which is what
+// its gateways are configured with; a host moves the node to another address,
+// which is how a node whose network address changed is put back in reach without
+// minting a new identity.
+func RepairPorts(root, listenHost string) (BindingResult, error) {
 	node, err := statePaths(root)
 	if err != nil {
 		return BindingResult{}, err
@@ -296,10 +312,17 @@ func RepairPorts(root string) (BindingResult, error) {
 			reserved[address] = true
 		}
 	}
+	if listenHost == "" {
+		if listenHost, _, err = net.SplitHostPort(state.ListenAddress); err != nil {
+			return BindingResult{}, err
+		}
+	} else if !netaddr.ValidUnicastHost(listenHost) {
+		return BindingResult{}, errors.New("invalid listen host")
+	}
 	chosen := ""
 	preferred := 58627
 	for attempts := 0; attempts < 3 && chosen == ""; attempts++ {
-		candidate, err := netaddr.Reserve("127.0.0.1", preferred)
+		candidate, err := netaddr.Reserve(listenHost, preferred)
 		if err != nil {
 			return BindingResult{}, err
 		}
@@ -309,7 +332,7 @@ func RepairPorts(root string) (BindingResult, error) {
 		preferred = 0
 	}
 	if chosen == "" {
-		return BindingResult{}, errors.New("no loopback port available outside registered applications")
+		return BindingResult{}, errors.New("no port available outside registered applications")
 	}
 	state.ListenAddress = chosen
 	if err := jsonfile.Write(node.stateFile, state, 0o600); err != nil {

@@ -3,11 +3,11 @@
 三个平台共用以下接口；路径均为绝对路径。
 
 ```text
-remote-everything-control init --state PATH
+remote-everything-control init --state PATH [--listen HOST]
 remote-everything-control binding add --state PATH --bootstrap DIRECTORY
 remote-everything-control binding remove --state PATH INSTALLATION_ID
 remote-everything-control binding list --state PATH
-remote-everything-control ports repair --state PATH
+remote-everything-control ports repair --state PATH [--listen HOST]
 remote-everything-control serve --state PATH
 remote-everything-control app list --state PATH
 remote-everything-control app adapter --state PATH ID
@@ -15,13 +15,13 @@ remote-everything-control app set --state PATH --file DEFINITION.json
 remote-everything-control app remove --state PATH ID
 ```
 
-`init` 只创建节点身份（随机 `node_id`、loopback `listen_address`、空注册表与日志目录），不产生任何网关绑定；`serve` 不接受端口参数。
+`init` 只创建节点身份（随机 `node_id`、`listen_address`、空注册表与日志目录），不产生任何网关绑定；`serve` 不接受端口参数。`--listen` 是节点监听的地址，也是网关拨号用的地址，缺省 `127.0.0.1`：网关与节点同机（含公网形态的隧道入口）用缺省值，网关在局域网内另一台机器时由 Agent 指定该机器的局域网地址。只接受具体的 IPv4 地址，不接受 `0.0.0.0`、主机名或 IPv6——网关需要的是一个能连的地址。
 
-网关通过 `binding add` 绑定到节点：bootstrap 目录由网关侧生成，节点校验 manifest 与令牌格式，把控制令牌写入 `bindings/<installation_id>/` 子目录。一个绑定只含身份——安装 ID 与控制令牌——节点不接收也不保管任何证书或隧道材料；网关自己拥有的一切留在网关侧，节点不思考它。重复添加同一 `installation_id` 幂等；同一安装换了控制令牌时报错，不覆盖成另一个安装。一个节点可绑定多个网关（如 LAN 入口 + 公网网关），控制接口接受任一绑定的控制令牌。绑定的增删对运行中的 `serve` 立即生效，无需重启。LAN 入口在自身 `init` 时自动建立绑定，无需手动 `binding add`。`binding remove` 删除绑定及其令牌，`binding list` 列出现有绑定。
+网关通过 `binding add` 绑定到节点：bootstrap 目录由网关侧生成，节点校验 manifest 与令牌格式，把控制令牌写入 `bindings/<installation_id>/` 子目录。一个绑定只含身份——安装 ID 与控制令牌——节点不接收也不保管任何证书或隧道材料；网关自己拥有的一切留在网关侧，节点不思考它。重复添加同一 `installation_id` 幂等；同一安装换了控制令牌时报错，不覆盖成另一个安装。一个节点可绑定多个网关（如 LAN 入口 + 公网网关），控制接口接受任一绑定的控制令牌。绑定的增删对运行中的 `serve` 立即生效，无需重启。两种形态的网关走同一条路：LAN 入口和公网网关都自己产出身份 bundle，由 Agent 送到节点执行 `binding add`，没有入口能自己写节点状态。`binding remove` 删除绑定及其令牌，`binding list` 列出现有绑定。
 
 `init` 输出 `ok`、`state`、`node_id`、`listen_address`；`binding add` 另输出 `installation_id`。
 
-端口冲突时先停服务，执行 `ports repair` 原子重分配并保持 `node_id`（自动避开已注册应用的 `proxy_url` 端口），同步运行记录后重启；public 形态还需按新节点地址重渲染 FRPC 配置并重启 FRPC。
+端口冲突时先停服务，执行 `ports repair` 原子重分配并保持 `node_id`（自动避开已注册应用的 `proxy_url` 端口），同步运行记录后重启；public 形态还需按新节点地址重渲染 FRPC 配置并重启 FRPC。节点换了网络地址时用 `ports repair --listen HOST`：它同样保持 `node_id`，只把监听地址搬到新主机上；之后各网关按新地址重新执行自身 `init` 更新记录并重启即可，`installation_id` 与客户端凭据都不变。
 
 应用定义拒绝未知字段和尾随 JSON：
 ```json

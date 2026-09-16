@@ -66,9 +66,17 @@ func TestOfflineActionUsesTheSameProtocolShape(t *testing.T) {
 	}
 }
 
-func TestNewRejectsNonLoopbackAndInvalidToken(t *testing.T) {
-	if _, err := New("http://example.com:1234", testToken); err == nil {
-		t.Fatal("non-loopback node URL accepted")
+// The node is a concrete address a gateway dials, which may be another machine
+// on the same network: a name or an unspecified address gives the gateway
+// nothing to connect to.
+func TestNewAcceptsAnyConcreteNodeAddressAndRejectsTheRest(t *testing.T) {
+	if _, err := New("http://192.168.1.10:58627", testToken); err != nil {
+		t.Fatalf("a node on the network was rejected: %v", err)
+	}
+	for _, nodeURL := range []string{"http://example.com:1234", "http://0.0.0.0:1234", "https://192.168.1.10:58627", "http://192.168.1.10"} {
+		if _, err := New(nodeURL, testToken); err == nil {
+			t.Fatalf("node URL %q was accepted", nodeURL)
+		}
 	}
 	if _, err := New("http://127.0.0.1:1234", "weak"); err == nil {
 		t.Fatal("invalid control token accepted")

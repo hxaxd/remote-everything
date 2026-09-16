@@ -6,16 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/nodecore"
 )
 
-const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --host HOST --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | certificate renew --state ABSOLUTE_PATH --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH"
+const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | certificate renew --state ABSOLUTE_PATH --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH"
 
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "init" {
@@ -77,17 +74,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "LAN state unavailable")
 		os.Exit(1)
 	}
-	node, err := nodecore.LoadState(root)
-	if err != nil || node.NodeID != lan.NodeID || !lanBindingPresent(node, lan.InstallationID) {
-		fmt.Fprintln(os.Stderr, "LAN binding is missing from the node state; run init")
-		os.Exit(1)
-	}
-	token, err := gatewaycore.ReadControlToken(lanGatewayRoot(root))
+	token, err := gatewaycore.ReadControlToken(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "control token unavailable")
 		os.Exit(1)
 	}
-	handler, err := gatewaycore.New("http://"+node.ListenAddress, token)
+	handler, err := gatewaycore.New("http://"+lan.NodeAddress, token)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -98,11 +90,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "LAN TLS material unavailable")
 		os.Exit(1)
 	}
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
-	server := &http.Server{
-		Addr: lan.ListenAddress, Handler: serveHandler, TLSConfig: tlsConfig,
-		ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 90 * time.Second,
-	}
+	server := gatewaycore.NewServer(lan.ListenAddress, serveHandler)
+	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	if err := server.ListenAndServeTLS("", ""); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
