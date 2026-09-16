@@ -440,7 +440,12 @@ func TestExpiredPendingDeviceIsCleaned(t *testing.T) {
 	if err := service.writeDeviceRecord(record); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.loadDeviceRecords(); err != nil {
+	// Reading the store is not what cleans it: a device that never finished
+	// pairing is removed by the sweep, which is what a gateway runs when it opens.
+	if records, err := service.loadDeviceRecords(); err != nil || len(records) != 1 {
+		t.Fatalf("reading the store changed it: %+v %v", records, err)
+	}
+	if err := service.cleanupExpiredState(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(service.deviceRecordPath(record.CertificateFingerprint)); !os.IsNotExist(err) {
