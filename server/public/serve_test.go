@@ -83,18 +83,18 @@ func startPublicEntrance(t *testing.T) *publicHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers, err := service.Servers()
+	surfaces, err := service.Surfaces()
 	if err != nil {
 		t.Fatal(err)
 	}
 	harness.service = service
-	for index, server := range servers {
+	for index, surface := range surfaces {
 		listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
 		if listenErr != nil {
 			t.Fatal(listenErr)
 		}
-		go func(server *http.Server) { _ = server.Serve(listener) }(server)
-		t.Cleanup(func() { _ = server.Close() })
+		go func(surface entrance.Surface) { _ = surface.Bind(listener) }(surface)
+		t.Cleanup(func() { _ = listener.Close() })
 		if index == 0 {
 			harness.status = "http://" + listener.Addr().String()
 		} else {

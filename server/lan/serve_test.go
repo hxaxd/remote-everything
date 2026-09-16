@@ -56,19 +56,19 @@ func startLANEntrance(t *testing.T) *lanHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers, err := service.Servers()
+	surfaces, err := service.Surfaces()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// A deployment binds the address its state recorded; a test binds one of its
 	// own so two entrances never collide, and serves the same surface on it.
-	server := servers[0]
+	surface := surfaces[0]
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _ = server.ServeTLS(listener, "", "") }()
-	t.Cleanup(func() { _ = server.Close() })
+	go func() { _ = surface.Bind(listener) }()
+	t.Cleanup(func() { _ = listener.Close() })
 
 	harness.service = service
 	harness.origin = "https://" + listener.Addr().String()
