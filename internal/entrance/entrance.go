@@ -15,7 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
+	"net"
 
 	"github.com/hxaxd/remote-everything/internal/logline"
 
@@ -30,34 +30,46 @@ type Gateway interface {
 	State() gatewaycore.State
 	// Trust is how this gateway decides which devices reach its node.
 	Trust() *devicecore.Trust
-	// Servers are the surfaces this gateway answers on, addressed but not yet
-	// listening: naming them separately is what lets the deployment bind the
-	// addresses it recorded and lets a test serve the same surfaces on ports of
-	// its own.
-	Servers() ([]*http.Server, error)
+	// Surfaces are the addresses this gateway answers on, each with the way it is
+	// answered there: a LAN entrance terminates TLS with the certificate its
+	// clients pinned, a public one is reached through the entrance that
+	// authenticates its clients, and telling those apart is not something this
+	// package can do for them.
+	Surfaces() ([]Surface, error)
+}
+
+// Surface is one address a gateway answers on.
+type Surface struct {
+	// Address is the address the gateway recorded for it.
+	Address string
+	// Bind answers on a listener that is already bound, which is where a shape
+	// says how it serves there — over TLS it terminates itself, or over what the
+	// entrance in front of it forwards. Nothing else in the deployment has to know
+	// which of the two it is.
+	Bind func(listener net.Listener) error
 }
 
 // Serve binds every surface a gateway says it serves and blocks until one of
-// them stops. A surface that terminates TLS carries the certificate to serve in
-// its own TLS configuration, so which shape is being served does not show here.
+// them stops. Binding is this package's — every gateway listens the same way —
+// and answering is the shape's, which is what each surface brings with it.
 func Serve(gateway Gateway, log func(component, level, message string, keyValues ...string)) error {
-	servers, err := gateway.Servers()
+	surfaces, err := gateway.Surfaces()
 	if err != nil {
 		return err
 	}
-	if len(servers) == 0 {
+	if len(surfaces) == 0 {
 		return errors.New("a gateway serves nothing")
 	}
-	stopped := make(chan error, len(servers))
-	for _, server := range servers {
-		go func(server *http.Server) {
-			log("gateway", "info", "listening", "path", server.Addr)
-			if server.TLSConfig != nil {
-				stopped <- server.ListenAndServeTLS("", "")
-				return
-			}
-			stopped <- server.ListenAndServe()
-		}(server)
+	stopped := make(chan error, len(surfaces))
+	for _, surface := range surfaces {
+		listener, err := net.Listen("tcp", surface.Address)
+		if err != nil {
+			return err
+		}
+		go func(surface Surface, listener net.Listener) {
+			log("gateway", "info", "listening", "path", surface.Address)
+			stopped <- surface.Bind(listener)
+		}(surface, listener)
 	}
 	return <-stopped
 }
