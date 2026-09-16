@@ -19,7 +19,7 @@
 
 DSH (DeepSeek Harness), SillyTavern, and the small tools you write all run on your computer—but you do not have to stay in front of it.
 
-Remote Everything runs a lightweight node on the computer and delivers explicitly registered local Web apps to Android, iOS, or HarmonyOS clients. It does not modify the original apps, move data to a third-party cloud, or require you to maintain an account system: connect directly on the same network, or remotely through your own server or existing overlay network.
+Remote Everything runs a lightweight node on the computer and delivers explicitly registered local Web apps to Android, iOS, or HarmonyOS clients. It does not modify the original apps or move data to a third-party cloud: connect directly on the same network, or remotely through your own server or existing overlay network.
 
 > One mobile client connects to many computers; one computer instance manages many local apps.
 
@@ -97,9 +97,9 @@ Everyday operations use natural language as well:
 
 - **LAN**: before opening a remote app, the client confirms the gateway with the server-certificate SHA-256 fingerprint from the QR code, and also checks certificate validity and the target host; the entry only allows the selected LAN or overlay interfaces.
 - **Public**: pairing invitations are single-use and time-limited. Device certificates stay pending until the user verifies the full fingerprint and approves them; later requests use both mTLS and the device record.
-- **Server side**: the control token exists only on the Gateway–Node path—not in mobile clients or release packages; public mode only adds traffic to the existing port 443.
-- **Client side**: device credentials go into system secure storage; Web data is isolated with the strongest verifiable semantics on each platform; external links open in the system browser.
-- **Supply chain**: release assets include SHA-256 digests; stable clients use a fixed signature or the platform's official distribution signing; local release checks and optional CI refuse to bake deploy credentials into clients.
+- **Server side**: the control token exists only on the Gateway–Node path; public mode only reuses port 443.
+- **Client side**: device credentials go into system secure storage; Web data is isolated in each platform's WebView; external links open in the system browser.
+- **Supply chain**: release assets include SHA-256 digests; stable clients use a fixed signature or the platform's official distribution signing.
 
 Do not open a public Issue for a security vulnerability; report privately via the [Security Policy](SECURITY.md).
 
