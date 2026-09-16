@@ -1,13 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 
 	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/logline"
 )
 
 func main() {
@@ -19,38 +19,19 @@ func main() {
 		}
 		return
 	}
-	if len(args) > 0 && (args[0] == "serve" || args[0] == "device") {
-		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
-		flags.SetOutput(io.Discard)
-		state := flags.String("state", "", "")
-		if flags.Parse(args[1:]) == nil {
-			service, openErr := openPublicService(*state)
-			if openErr != nil {
-				fmt.Fprintln(os.Stderr, openErr)
-				os.Exit(1)
-			}
-			if args[0] == "serve" && flags.NArg() == 0 {
-				if err := entrance.Serve(service, logline.Log); err != nil {
-					logline.Log("gateway", "error", "server stopped", "code", err.Error())
-					os.Exit(1)
-				}
-				return
-			}
-			if args[0] == "device" {
-				if err := service.Trust().RunCLI(flags.Args(), os.Stdout); err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					os.Exit(1)
-				}
-				return
-			}
-		}
+	// The commands every gateway has: opening the state is what tells this one
+	// apart from the other shape, and nothing after that does.
+	open := func(root string) (entrance.Gateway, error) { return openPublicService(root) }
+	if handled, code := entrance.Run(args, open, os.Stdout, os.Stderr); handled {
+		os.Exit(code)
 	}
 	if len(args) > 1 && args[0] == "ports" && args[1] == "repair" {
 		flags := flag.NewFlagSet("ports repair", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		state := flags.String("state", "", "")
 		if flags.Parse(args[2:]) == nil && flags.NArg() == 0 {
-			if err := repairPublicPorts(*state, os.Stdout); err == nil {
+			if result, err := repairPublicPorts(*state); err == nil {
+				_ = json.NewEncoder(os.Stdout).Encode(result)
 				return
 			} else {
 				fmt.Fprintln(os.Stderr, err)
@@ -64,7 +45,8 @@ func main() {
 		state := flags.String("state", "", "")
 		nodeBootstrap := flags.String("node-bootstrap", "", "")
 		if flags.Parse(args[2:]) == nil && flags.NArg() == 0 {
-			if err := renewTunnelIdentity(*state, *nodeBootstrap, os.Stdout); err == nil {
+			if result, err := renewTunnelIdentity(*state, *nodeBootstrap); err == nil {
+				_ = json.NewEncoder(os.Stdout).Encode(result)
 				return
 			} else {
 				fmt.Fprintln(os.Stderr, err)

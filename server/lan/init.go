@@ -128,7 +128,7 @@ type lanInitResult struct {
 	OK                     bool   `json:"ok"`
 	InstallationID         string `json:"installation_id"`
 	ListenAddress          string `json:"listen_address"`
-	GatewayOrigin          string `json:"gateway_origin"`
+	Origin                 string `json:"origin"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	PublicKeyPin           string `json:"public_key_pin"`
 }
@@ -210,10 +210,6 @@ func generateLANCertificate(host string, validDays int) (*x509.Certificate, []by
 }
 
 func repairLANPorts(root string) (lanInitResult, error) {
-	if !filepath.IsAbs(root) {
-		return lanInitResult{}, errors.New("state path must be absolute")
-	}
-	root = filepath.Clean(root)
 	state, err := loadLANState(root)
 	if err != nil {
 		return lanInitResult{}, err
@@ -243,12 +239,16 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	}
 	return lanInitResult{
 		OK: true, InstallationID: repaired.InstallationID, ListenAddress: listenAddress,
-		GatewayOrigin: repaired.Origin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
+		Origin: repaired.Origin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
 		PublicKeyPin: devicecore.PublicKeyPin(certificate),
 	}, nil
 }
 
 func loadLANState(root string) (lanState, error) {
+	if !filepath.IsAbs(root) {
+		return lanState{}, errors.New("state path must be absolute")
+	}
+	root = filepath.Clean(root)
 	var state lanState
 	if err := jsonfile.Read(filepath.Join(root, lanStateFile), &state); err != nil {
 		return lanState{}, err
@@ -338,8 +338,8 @@ func reconcileLANState(root, nodeAddress, host, installationID, fingerprint, cer
 }
 
 func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir string) (lanInitResult, error) {
-	if !filepath.IsAbs(root) || !filepath.IsAbs(bootstrapDir) {
-		return lanInitResult{}, errors.New("state and bootstrap paths must be absolute")
+	if !filepath.IsAbs(bootstrapDir) {
+		return lanInitResult{}, errors.New("bootstrap path must be absolute")
 	}
 	host = strings.TrimSpace(host)
 	if !validLANHost(host) {
@@ -351,7 +351,6 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	if validDays < 1 || validDays > 3650 {
 		return lanInitResult{}, errors.New("valid-days must be between 1 and 3650")
 	}
-	root = filepath.Clean(root)
 	existing, stateErr := loadLANState(root)
 	installationID := ""
 	if stateErr == nil {
@@ -415,7 +414,7 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	}
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
-		GatewayOrigin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
+		Origin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
 		PublicKeyPin: devicecore.PublicKeyPin(certificate),
 	}, nil
 }
@@ -425,10 +424,9 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 // paired devices a client remembers are the credentials it still holds, but the
 // gateway it dials is a new one and it has to be told so, with a new invitation.
 func renewLANCertificate(root string, validDays int) (lanInitResult, error) {
-	if !filepath.IsAbs(root) || validDays < 1 || validDays > 3650 {
+	if validDays < 1 || validDays > 3650 {
 		return lanInitResult{}, errors.New("invalid LAN certificate renewal arguments")
 	}
-	root = filepath.Clean(root)
 	state, err := loadLANState(root)
 	if err != nil {
 		return lanInitResult{}, err
@@ -463,7 +461,7 @@ func renewLANCertificate(root string, validDays int) (lanInitResult, error) {
 		return lanInitResult{}, err
 	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, GatewayOrigin: state.Origin,
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, Origin: state.Origin,
 		CertificateFingerprint: fingerprint, PublicKeyPin: keyPin,
 	}, nil
 }

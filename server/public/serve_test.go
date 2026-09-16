@@ -149,5 +149,3 @@ func (harness *publicHarness) Approve(fingerprint string) error {
 }
 
 func (harness *publicHarness) NodeSaw() []string { return harness.nodeRequests }
-
-var _ entrancetest.Harness = (*publicHarness)(nil)
