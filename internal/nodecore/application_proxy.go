@@ -66,11 +66,24 @@ func (node *Node) gatewayHandler(writer http.ResponseWriter, request *http.Reque
 	// public/LAN Host; NewSingleHostReverseProxy would rewrite it to 127.0.0.1:port and
 	// break apps (e.g. KimiWeb) that compare Origin against Host for DNS rebinding.
 	inboundHost := request.Host
+	// Look up adapter for this app (nil if none configured)
+	node.adaptersMu.RLock()
+	adapter := node.adapters[app.ID]
+	node.adaptersMu.RUnlock()
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(proxyRequest *httputil.ProxyRequest) {
 			proxyRequest.SetURL(target)
 			proxyRequest.Out.Host = inboundHost
+			if adapter != nil {
+				adapter.OnRequest(proxyRequest.Out, app.ID)
+			}
 		},
+	}
+	if adapter != nil {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			adapter.OnResponse(resp, app.ID)
+			return nil
+		}
 	}
 	proxy.ErrorHandler = func(responseWriter http.ResponseWriter, _ *http.Request, _ error) {
 		gatewayMessage(responseWriter, http.StatusBadGateway, app.Name+" 尚未运行", "请返回应用目录启动它，然后重新进入。")
