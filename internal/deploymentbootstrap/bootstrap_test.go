@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -105,10 +106,51 @@ func TestGatewayMaterialRejectsTamperedTunnelCASignature(t *testing.T) {
 	}
 }
 
-// A gateway that already has a tunnel client identity must keep it: a tunnel
-// agent that is running authenticates with the files it was started with, so
-// ensuring an identity may issue one but never replace one. Renewal is the
-// explicit way to replace it, and it keeps the tunnel CA.
+// The tunnel agent's material travels in the handover bundle, in its own
+// directory, so nothing of the tunnel sits in the gateway's own state.
+func TestTunnelMaterialLivesInTheHandoverBundle(t *testing.T) {
+	installationID := strings.Repeat("a1", 32)
+	root := filepath.Join(t.TempDir(), "gateway")
+	material, err := EnsureGatewayMaterial(root, installationID, strings.Repeat("b2", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	delivered, err := EnsureTunnelMaterial(bundle, material)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"frps-token", "tunnel-client.crt.pem", "tunnel-client.key.pem"}
+	entries, err := os.ReadDir(delivered.Directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("tunnel material holds %d entries, want %v", len(entries), want)
+	}
+	for index, name := range want {
+		if entries[index].Name() != name {
+			t.Fatalf("tunnel material entry %d is %q, want %q", index, entries[index].Name(), name)
+		}
+	}
+	// The gateway keeps what the tunnel server and the 443 entrance on its own
+	// machine read, and never the client identity.
+	server := readNames(t, root)
+	sort.Strings(server)
+	wantServer := []string{"frps-token", "tunnel-ca.crt.pem", "tunnel-ca.key.pem"}
+	if len(server) != len(wantServer) {
+		t.Fatalf("gateway state root holds %v, want %v", server, wantServer)
+	}
+	for index, name := range wantServer {
+		if server[index] != name {
+			t.Fatalf("gateway state root holds %v, want %v", server, wantServer)
+		}
+	}
+}
+
+// A tunnel agent that is running authenticates with the files it was started
+// with, so ensuring material may issue an identity but never replace one.
+// Renewal is the explicit way to replace it, and it keeps the tunnel CA.
 func TestTunnelClientIdentityIsKeptUntilRenewed(t *testing.T) {
 	installationID := strings.Repeat("a1", 32)
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -116,21 +158,22 @@ func TestTunnelClientIdentityIsKeptUntilRenewed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issued, err := EnsureTunnelClientIdentity(root, material)
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	issued, err := EnsureTunnelMaterial(bundle, material)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !validTunnelClient(readCertificate(t, issued.CertificateFile), material, time.Now()) {
 		t.Fatal("issued certificate is not a valid client identity for the tunnel CA")
 	}
-	again, err := EnsureTunnelClientIdentity(root, material)
+	again, err := EnsureTunnelMaterial(bundle, material)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again.Fingerprint != issued.Fingerprint {
 		t.Fatalf("ensure replaced an existing tunnel identity: %s -> %s", issued.Fingerprint, again.Fingerprint)
 	}
-	renewed, err := RenewTunnelClientIdentity(root, material)
+	renewed, err := RenewTunnelMaterial(bundle, material)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,13 +189,14 @@ func TestTunnelClientIdentityIsKeptUntilRenewed(t *testing.T) {
 	}
 }
 
-func TestTunnelClientIdentityRefusesKeyThatDoesNotMatchCertificate(t *testing.T) {
+func TestTunnelMaterialRefusesKeyThatDoesNotMatchCertificate(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	material, err := EnsureGatewayMaterial(root, strings.Repeat("a1", 32), strings.Repeat("b2", 32))
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity, err := EnsureTunnelClientIdentity(root, material)
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	delivered, err := EnsureTunnelMaterial(bundle, material)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,10 +204,23 @@ func TestTunnelClientIdentityRefusesKeyThatDoesNotMatchCertificate(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(identity.KeyFile, otherKey, 0o600); err != nil {
+	if err := os.WriteFile(delivered.KeyFile, otherKey, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := EnsureTunnelClientIdentity(root, material); err == nil {
+	if _, err := EnsureTunnelMaterial(bundle, material); err == nil {
 		t.Fatal("a client key that does not match the certificate was accepted")
 	}
+}
+
+func readNames(t *testing.T, directory string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
 }

@@ -55,8 +55,17 @@ def validate_frp_contract(client_text, server_text):
     if not isinstance(proxies, list) or len(proxies) != 1:
         raise ValueError("frpc must define exactly one node proxy")
     proxy = proxies[0]
-    if proxy.get("type") != "tcp" or proxy.get("localIP") != "127.0.0.1" or not isinstance(proxy.get("localPort"), int) or not isinstance(proxy.get("remotePort"), int):
+    if proxy.get("type") != "tcp" or not isinstance(proxy.get("localPort"), int) or not isinstance(proxy.get("remotePort"), int):
         raise ValueError("frpc node proxy contract is invalid")
+    local_host = proxy.get("localIP")
+    if not isinstance(local_host, str):
+        raise ValueError("frpc node proxy contract is invalid")
+    try:
+        local_address = ipaddress.IPv4Address(local_host)
+    except ipaddress.AddressValueError:
+        raise ValueError("frpc node proxy contract is invalid")
+    if local_address.is_unspecified or local_address.is_multicast:
+        raise ValueError("frpc node proxy must point at an address the tunnel can reach")
     if server.get("bindAddr") != "127.0.0.1" or not isinstance(server.get("bindPort"), int):
         raise ValueError("frps must bind a dynamic loopback port")
     if nested(server, "transport", "maxPoolCount") != FRP_POOL_COUNT:

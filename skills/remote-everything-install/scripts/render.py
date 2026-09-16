@@ -71,6 +71,17 @@ def hostname(value, name):
     return value
 
 
+def node_host(value, name):
+    value = text(value, name)
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError:
+        fail(f"{name} must be an IPv4 address")
+    if address.is_unspecified or address.is_multicast:
+        fail(f"{name} must be an address the tunnel can dial")
+    return value
+
+
 def loopback_upstream(value, name):
     value = text(value, name)
     match = LOOPBACK_UPSTREAM.fullmatch(value)
@@ -233,7 +244,7 @@ def render_frp(kind, input_path, output):
             "FRPS_LOG": toml_string(portable_absolute(value["frps_log"], "frps_log"), "frps_log"),
         }
     else:
-        keys = {"public_host", "tunnel_client_cert", "tunnel_client_key", "frps_token_file", "frpc_log", "installation_id", "node_port", "node_tunnel_port"}
+        keys = {"public_host", "tunnel_client_cert", "tunnel_client_key", "frps_token_file", "frpc_log", "installation_id", "node_host", "node_port", "node_tunnel_port"}
         value = load_values(input_path, keys)
         if not HEX64.fullmatch(value["installation_id"]):
             fail("invalid installation_id")
@@ -243,7 +254,8 @@ def render_frp(kind, input_path, output):
             "TUNNEL_CLIENT_KEY": toml_string(portable_absolute(value["tunnel_client_key"], "tunnel_client_key"), "tunnel_client_key"),
             "FRPS_TOKEN_FILE": toml_string(portable_absolute(value["frps_token_file"], "frps_token_file"), "frps_token_file"),
             "FRPC_LOG": toml_string(portable_absolute(value["frpc_log"], "frpc_log"), "frpc_log"),
-            "INSTALLATION_ID": value["installation_id"], "NODE_PORT": port(value["node_port"], "node_port"), "NODE_TUNNEL_PORT": port(value["node_tunnel_port"], "node_tunnel_port"),
+            "INSTALLATION_ID": value["installation_id"], "NODE_HOST": node_host(value["node_host"], "node_host"),
+            "NODE_PORT": port(value["node_port"], "node_port"), "NODE_TUNNEL_PORT": port(value["node_tunnel_port"], "node_tunnel_port"),
         }
     atomic_write(output, replace(read_template(kind + ".toml.tmpl"), fields))
 
