@@ -64,21 +64,20 @@ type Config struct {
 	Root string
 	// InstallationID is the identity the setup URI carries.
 	InstallationID string
-	// Mode is how this gateway admits devices. In the LAN mode an invitation is
-	// the whole admission — redeeming it approves the device, because the
-	// operator who handed it over is the approval — and the setup URI pins the
-	// gateway's own certificate, since nothing else signs it. In the public mode
-	// an authority clients already trust signs the gateway and the operator
-	// confirms each device after it pairs, because an invitation travels over a
-	// network the operator does not watch.
-	Mode string
 	// Origin is the origin this gateway recorded for itself, which is where its
 	// clients dial it and what every invitation points at.
 	Origin string
-	// Certificate is the gateway's own certificate. The LAN mode pins it in the
-	// setup URI; the public mode has none, because an authority signs the
-	// entrance in front of it.
+	// Certificate is the certificate this gateway serves its clients with, if it
+	// serves one of its own: an invitation then carries it, because nothing else
+	// signs that gateway and its clients have nowhere else to learn which
+	// certificate to expect. A gateway an authority signs has none to declare.
 	Certificate *x509.Certificate
+	// ApproveOnRedemption is the admission this gateway grants: an invitation is
+	// the whole of it when the operator who handed the invitation over is the
+	// approval, which is what an entrance serving its own network does. A gateway
+	// whose invitations travel over a network nobody watches waits instead for its
+	// operator to confirm the device that redeemed one.
+	ApproveOnRedemption bool
 	// Node is what the admitted requests reach.
 	Node Node
 	// Log writes one operational line; Audit writes the device audit trail.
@@ -92,7 +91,6 @@ type Config struct {
 type Trust struct {
 	root                string
 	installationID      string
-	mode                string
 	origin              string
 	certificate         *x509.Certificate
 	issuer              *x509.Certificate
@@ -117,26 +115,13 @@ func Open(config Config) (*Trust, error) {
 	if config.Root == "" || !filepath.IsAbs(config.Root) || config.InstallationID == "" || config.Origin == "" || config.Node == nil {
 		return nil, errors.New("invalid device trust configuration")
 	}
-	switch config.Mode {
-	case "lan":
-		if config.Certificate == nil {
-			return nil, errors.New("a LAN gateway pins the certificate it serves")
-		}
-	case "public":
-		if config.Certificate != nil {
-			return nil, errors.New("a public gateway is signed by an authority, it has no certificate of its own to pin")
-		}
-	default:
-		return nil, errors.New("invalid device trust mode")
-	}
 	root := filepath.Clean(config.Root)
 	trust := &Trust{
 		root:                root,
 		installationID:      config.InstallationID,
-		mode:                config.Mode,
 		origin:              config.Origin,
 		certificate:         config.Certificate,
-		approveOnRedemption: config.Mode == "lan",
+		approveOnRedemption: config.ApproveOnRedemption,
 		devicesDir:          filepath.Join(root, devicesDirName),
 		invitesDir:          filepath.Join(root, invitesDirName),
 		issuerKeyFile:       filepath.Join(root, issuerKeyName),

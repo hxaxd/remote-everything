@@ -133,7 +133,7 @@ func (service *Trust) setupURI(name, invitation string) (string, error) {
 		fingerprint = CertificateFingerprint(service.certificate)
 		keyPin = PublicKeyPin(service.certificate)
 	}
-	return setupcodec.Build(service.mode, service.installationID, name, service.origin, invitation, fingerprint, keyPin)
+	return setupcodec.Build(service.installationID, name, service.origin, invitation, fingerprint, keyPin)
 }
 
 func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, replaces string, output io.Writer) error {
