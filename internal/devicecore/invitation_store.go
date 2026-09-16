@@ -137,9 +137,6 @@ func (service *Trust) setupURI(name, invitation string) (string, error) {
 }
 
 func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, replaces string, output io.Writer) error {
-	if err := service.cleanupExpiredState(); err != nil {
-		return err
-	}
 	if ttl < time.Minute || ttl > 24*time.Hour {
 		return errors.New("invite ttl must be between 1m and 24h")
 	}
@@ -200,6 +197,10 @@ func (service *Trust) restoreReplacedDevice(record invitationRecord) error {
 	return service.writeDeviceRecord(replaced)
 }
 
+// cleanupExpiredState is where the store's housekeeping lives: invitations that
+// ran out are removed, and with them the pending devices that never finished
+// pairing against them. A gateway sweeps when it opens, so a command or a server
+// always starts from a store no dead invitation is still holding.
 func (service *Trust) cleanupExpiredState() error {
 	now := time.Now().UTC()
 	referencedPending := map[string]bool{}
@@ -247,9 +248,6 @@ func (service *Trust) cleanupExpiredState() error {
 }
 
 func (service *Trust) invitationList(output io.Writer) error {
-	if err := service.cleanupExpiredState(); err != nil {
-		return err
-	}
 	entries, err := os.ReadDir(service.invitesDir)
 	if err != nil {
 		return err

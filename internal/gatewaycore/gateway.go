@@ -211,7 +211,7 @@ func validCatalogMetadata(value string, maximum int, allowEmpty bool) bool {
 	return true
 }
 
-func (gateway *Gateway) List() json.RawMessage {
+func (gateway *Gateway) list() json.RawMessage {
 	if result, ok := gateway.ConnectedList(); ok {
 		return result
 	}
@@ -248,7 +248,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		return
 	}
 	if path == "/__remote_everything/apps" && request.Method == http.MethodGet {
-		writeRaw(writer, gateway.List())
+		writeRaw(writer, gateway.list())
 		return
 	}
 	if match := appRoute.FindStringSubmatch(path); match != nil {
@@ -268,7 +268,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 	}
 	if match := openRoute.FindStringSubmatch(path); match != nil && request.Method == http.MethodGet && validID.MatchString(match[1]) {
 		var shape ControlResponse
-		_ = json.Unmarshal(gateway.List(), &shape)
+		_ = json.Unmarshal(gateway.list(), &shape)
 		for _, app := range shape.Apps {
 			if app.ID == match[1] {
 				http.SetCookie(writer, &http.Cookie{Name: proxysecurity.RoutingCookieName, Value: match[1], Path: "/", MaxAge: 86400, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
