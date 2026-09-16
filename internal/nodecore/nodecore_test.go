@@ -31,7 +31,7 @@ func (testPlatform) Launch(AppDefinition, io.Writer) (ManagedProcess, error) {
 
 func initializeTestNode(t *testing.T) (*Node, BindingResult) {
 	t.Helper()
-	result, err := Initialize(t.TempDir())
+	result, err := Initialize(t.TempDir(), "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,14 +59,14 @@ func TestInitializeAllocatesStableAvailableLoopbackAddress(t *testing.T) {
 		defer listener.Close()
 	}
 	root := t.TempDir()
-	first, err := Initialize(root)
+	first, err := Initialize(root, "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !netaddr.ValidLoopback(first.ListenAddress) || (listener != nil && first.ListenAddress == "127.0.0.1:58627") || len(first.NodeID) != 64 {
 		t.Fatalf("unexpected init result: %+v", first)
 	}
-	second, err := Initialize(root)
+	second, err := Initialize(root, "127.0.0.1")
 	if err != nil || second.ListenAddress != first.ListenAddress || second.NodeID != first.NodeID {
 		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}
@@ -74,11 +74,11 @@ func TestInitializeAllocatesStableAvailableLoopbackAddress(t *testing.T) {
 
 func TestRepairPortsPreservesNodeIdentity(t *testing.T) {
 	root := t.TempDir()
-	first, err := Initialize(root)
+	first, err := Initialize(root, "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	repaired, err := RepairPorts(root)
+	repaired, err := RepairPorts(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,13 +87,74 @@ func TestRepairPortsPreservesNodeIdentity(t *testing.T) {
 	}
 }
 
+// A gateway on another machine reaches the node at the host it listens on, so
+// the host has to be one a peer can dial: an unspecified address or a name
+// would leave the gateway with nothing to connect to.
+func TestInitializeRejectsUndialableListenHosts(t *testing.T) {
+	for _, host := range []string{"", "0.0.0.0", "localhost", "::1", "224.0.0.1", "300.1.1.1"} {
+		if _, err := Initialize(t.TempDir(), host); err == nil {
+			t.Errorf("listen host %q was accepted", host)
+		}
+	}
+}
+
+func TestInitializeAndRepairKeepTheListenHost(t *testing.T) {
+	host := nonLoopbackIPv4(t)
+	root := t.TempDir()
+	first, err := Initialize(root, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !netaddr.ValidUnicast(first.ListenAddress) || !strings.HasPrefix(first.ListenAddress, host+":") {
+		t.Fatalf("init did not listen on %s: %+v", host, first)
+	}
+	repaired, err := RepairPorts(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(repaired.ListenAddress, host+":") || !netaddr.ValidUnicast(repaired.ListenAddress) {
+		t.Fatalf("repair changed the listen host: %+v", repaired)
+	}
+	// Re-running init must not quietly move a node off the address its gateways
+	// are configured with; moving it is an explicit repair that keeps identity.
+	if _, err := Initialize(root, "127.0.0.1"); err == nil {
+		t.Fatal("init moved the node to another listen host")
+	}
+	moved, err := RepairPorts(root, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.NodeID != first.NodeID || !netaddr.ValidLoopback(moved.ListenAddress) {
+		t.Fatalf("moving the node changed its identity: %+v", moved)
+	}
+}
+
+// nonLoopbackIPv4 returns an address of the machine's own network interface,
+// standing in for the address a gateway on another machine would dial.
+func nonLoopbackIPv4(t *testing.T) string {
+	t.Helper()
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range addresses {
+		ip, _, err := net.ParseCIDR(address.String())
+		if err != nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() {
+			continue
+		}
+		return ip.String()
+	}
+	t.Skip("this machine has no non-loopback IPv4 address")
+	return ""
+}
+
 func TestRepairPortsSkipsRegisteredApplicationAddress(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:58627")
 	if err != nil {
 		t.Skip("preferred port unavailable on this machine")
 	}
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	node, err := Open(root, testPlatform{})
@@ -114,7 +175,7 @@ func TestRepairPortsSkipsRegisteredApplicationAddress(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	repaired, err := RepairPorts(root)
+	repaired, err := RepairPorts(root, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +367,7 @@ func writeTestBundle(t *testing.T, installationID, controlToken string) string {
 
 func TestControlRejectsTrailingJSON(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	token := strings.Repeat("a", 64)
@@ -442,7 +503,7 @@ func TestAppListHidesAdapterSourceAndAdapterCommandShowsIt(t *testing.T) {
 // belonging to anything the gateway owns.
 func TestAddBindingRegistersIdentityOnly(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	controlToken := strings.Repeat("a", 64)
@@ -476,7 +537,7 @@ func TestAddBindingRegistersIdentityOnly(t *testing.T) {
 
 func TestAddBindingIsIdempotent(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	bootstrapDir := writeTestBundle(t, strings.Repeat("b", 64), strings.Repeat("a", 64))
@@ -496,7 +557,7 @@ func TestAddBindingIsIdempotent(t *testing.T) {
 // rather than silently redefine which token that gateway authenticates with.
 func TestAddBindingRejectsAnotherTokenForTheSameInstallation(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	installationID := strings.Repeat("b", 64)
@@ -517,7 +578,7 @@ func TestAddBindingRejectsAnotherTokenForTheSameInstallation(t *testing.T) {
 
 func TestRemoveBindingDeletesMaterials(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	installationID := strings.Repeat("b", 64)
@@ -547,7 +608,7 @@ func TestRemoveBindingDeletesMaterials(t *testing.T) {
 // through the control endpoint's status codes, not the auth helper.
 func TestControlAuthFollowsBoundTokens(t *testing.T) {
 	root := t.TempDir()
-	if _, err := Initialize(root); err != nil {
+	if _, err := Initialize(root, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	node, err := Open(root, testPlatform{})

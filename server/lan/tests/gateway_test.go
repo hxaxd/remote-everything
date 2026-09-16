@@ -100,9 +100,16 @@ func TestOfflineList(t *testing.T) {
 	}
 }
 
-func TestGatewayRejectsNonLocalNodeAndInvalidToken(t *testing.T) {
-	if _, err := gatewaycore.New("http://192.0.2.1:58627", testToken); err == nil {
-		t.Fatal("accepted a non-loopback node")
+// The node is wherever it is — another machine in the same network, or the local
+// end of a tunnel — so the address only has to be one a gateway can dial.
+func TestGatewayRejectsUnusableNodeAddressAndInvalidToken(t *testing.T) {
+	for _, nodeURL := range []string{"http://0.0.0.0:58627", "http://node.example:58627", "http://192.0.2.1"} {
+		if _, err := gatewaycore.New(nodeURL, testToken); err == nil {
+			t.Fatalf("accepted node address %q", nodeURL)
+		}
+	}
+	if _, err := gatewaycore.New("http://192.0.2.1:58627", testToken); err != nil {
+		t.Fatalf("rejected a node on another machine: %v", err)
 	}
 	if _, err := gatewaycore.New("http://127.0.0.1:58627", "not-a-control-token"); err == nil {
 		t.Fatal("accepted an invalid control token")

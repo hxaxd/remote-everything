@@ -1,15 +1,17 @@
 # 运行记录
 
-每台节点和公网服务器分别使用项目内 `.runtime/`：
+每个部署位置使用项目内 `.runtime/`：
 
 ```text
 .runtime/
 ├── bin/
 ├── config/
-├── state/node/ 或 state/server/
+├── state/node/、state/lan/ 或 state/server/
 ├── logs/
 └── runtime.json
 ```
+
+每个服务使用自己的状态目录，目录路径记在 `runtime.json` 里该组件的 `arguments`（`--state`）与 `out` 位置，没有任何服务读写另一个服务的状态目录。节点与入口可以在同一台机器上，也可以在同一局域网内的不同机器上；不在同一台机器时两台机器各有自己的 `.runtime/`。
 
 `runtime.json` 使用严格 schema 1。用 `python skills/remote-everything-install/scripts/runtime.py init ...` 创建；用 `put` 更新组件、依赖或集成；用 `verify` 写入验收结果；用 `validate` 检查。工具拒绝旧/未知字段并原子替换文件。
 

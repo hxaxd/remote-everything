@@ -12,7 +12,6 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
-	"github.com/hxaxd/remote-everything/internal/nodecore"
 )
 
 const controlTokenName = "control-token"
@@ -88,21 +87,9 @@ func EnsureControlToken(gatewayRoot string) (string, error) {
 	return token, nil
 }
 
-// WriteBundle writes the identity bundle an operator hands to a node.
+// WriteBundle writes the identity bundle an operator hands to a node. A gateway
+// runs wherever it runs, so handing the bundle over is the only way it reaches a
+// node: there is no gateway that imports its own binding.
 func (identity Identity) WriteBundle(directory string) error {
 	return deploymentbootstrap.WriteNodeBundle(directory, identity.InstallationID, identity.ControlToken)
-}
-
-// Bind hands this identity to the node rooted at nodeRoot.
-func (identity Identity) Bind(nodeRoot string) error {
-	directory, err := os.MkdirTemp("", "remote-everything-bootstrap-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(directory)
-	if err := identity.WriteBundle(directory); err != nil {
-		return err
-	}
-	_, err = nodecore.AddBinding(nodeRoot, directory)
-	return err
 }
