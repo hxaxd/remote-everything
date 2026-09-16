@@ -21,13 +21,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/atomicfile"
-	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/nodecore"
 	setupcodec "github.com/hxaxd/remote-everything/internal/setup"
 )
@@ -64,14 +63,6 @@ type lanInitResult struct {
 	SetupURI               string `json:"setup_uri,omitempty"`
 	QRFile                 string `json:"qr_file,omitempty"`
 	AccessToken            string `json:"-"`
-}
-
-func randomHex(size int) (string, error) {
-	value := make([]byte, size)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(value), nil
 }
 
 func lanPublicKeyPin(certificate *x509.Certificate) string {
@@ -155,23 +146,6 @@ func generateLANCertificate(host string, validDays int) (*x509.Certificate, []by
 		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), nil
 }
 
-func allocateLANAddress() (string, error) {
-	for _, address := range []string{"0.0.0.0:58626", "0.0.0.0:0"} {
-		listener, err := net.Listen("tcp4", address)
-		if err != nil {
-			continue
-		}
-		port := listener.Addr().(*net.TCPAddr).Port
-		if closeErr := listener.Close(); closeErr != nil {
-			return "", closeErr
-		}
-		if port >= 1024 {
-			return net.JoinHostPort("0.0.0.0", strconv.Itoa(port)), nil
-		}
-	}
-	return "", errors.New("no LAN port available")
-}
-
 func repairLANPorts(root string) (lanInitResult, error) {
 	if !filepath.IsAbs(root) {
 		return lanInitResult{}, errors.New("state path must be absolute")
@@ -185,17 +159,13 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	state.ListenAddress, err = allocateLANAddress()
+	state.ListenAddress, err = netaddr.Reserve("0.0.0.0", 58626)
 	if err != nil {
 		return lanInitResult{}, err
 	}
 	_, port, _ := net.SplitHostPort(state.ListenAddress)
 	state.GatewayOrigin = "https://" + net.JoinHostPort(state.Host, port)
-	contents, err := json.Marshal(state)
-	if err != nil {
-		return lanInitResult{}, err
-	}
-	if err := atomicfile.Write(filepath.Join(root, "lan.json"), append(contents, '\n'), 0o600); err != nil {
+	if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
 		return lanInitResult{}, err
 	}
 	return lanInitResult{
@@ -206,26 +176,15 @@ func repairLANPorts(root string) (lanInitResult, error) {
 }
 
 func loadLANState(root string) (lanState, error) {
-	file, err := os.Open(filepath.Join(root, "lan.json"))
-	if err != nil {
-		return lanState{}, err
-	}
-	defer file.Close()
 	var state lanState
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil {
+	if err := jsonfile.Read(filepath.Join(root, "lan.json"), &state); err != nil {
 		return lanState{}, err
 	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return lanState{}, errors.New("trailing JSON content")
-	}
-	host, port, err := net.SplitHostPort(state.ListenAddress)
-	portNumber, portErr := strconv.Atoi(port)
+	_, port, _ := net.SplitHostPort(state.ListenAddress)
 	expectedOrigin := "https://" + net.JoinHostPort(state.Host, port)
 	expectedCertificate := "lan-server-" + state.CertificateFingerprint + ".crt.pem"
 	expectedKey := "lan-server-" + state.CertificateFingerprint + ".key.pem"
-	if err != nil || portErr != nil || portNumber < 1024 || portNumber > 65535 || host != "0.0.0.0" || state.Schema != lanStateSchema || !validSHA256.MatchString(state.NodeID) || !validSHA256.MatchString(state.InstallationID) || state.Host == "" || !validSHA256.MatchString(state.CertificateFingerprint) || state.GatewayOrigin != expectedOrigin || !validLANCertificateFile.MatchString(state.CertificateFile) || !validLANKeyFile.MatchString(state.PrivateKeyFile) || state.CertificateFile != expectedCertificate || state.PrivateKeyFile != expectedKey || !validSHA256.MatchString(state.AccessToken) {
+	if !netaddr.Valid(state.ListenAddress, "0.0.0.0") || state.Schema != lanStateSchema || !validSHA256.MatchString(state.NodeID) || !validSHA256.MatchString(state.InstallationID) || state.Host == "" || !validSHA256.MatchString(state.CertificateFingerprint) || state.GatewayOrigin != expectedOrigin || !validLANCertificateFile.MatchString(state.CertificateFile) || !validLANKeyFile.MatchString(state.PrivateKeyFile) || state.CertificateFile != expectedCertificate || state.PrivateKeyFile != expectedKey || !validSHA256.MatchString(state.AccessToken) {
 		return lanState{}, errors.New("invalid LAN state")
 	}
 	return state, nil
@@ -266,7 +225,7 @@ func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, e
 func reconcileLANState(root, host, nodeID, installationID, fingerprint, certificateFile, keyFile, accessToken string) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
-		listenAddress, allocateErr := allocateLANAddress()
+		listenAddress, allocateErr := netaddr.Reserve("0.0.0.0", 58626)
 		if allocateErr != nil {
 			return lanState{}, allocateErr
 		}
@@ -276,11 +235,7 @@ func reconcileLANState(root, host, nodeID, installationID, fingerprint, certific
 			GatewayOrigin: "https://" + net.JoinHostPort(host, port), CertificateFingerprint: fingerprint,
 			CertificateFile: certificateFile, PrivateKeyFile: keyFile, AccessToken: accessToken,
 		}
-		contents, marshalErr := json.Marshal(state)
-		if marshalErr != nil {
-			return lanState{}, marshalErr
-		}
-		if err := atomicfile.Write(filepath.Join(root, "lan.json"), append(contents, '\n'), 0o600); err != nil {
+		if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
 			return lanState{}, err
 		}
 		return state, nil
@@ -299,29 +254,6 @@ func reconcileLANState(root, host, nodeID, installationID, fingerprint, certific
 // LAN entrance has no tunnel, so there is no tunnel material to keep here.
 func lanGatewayRoot(root string) string {
 	return filepath.Join(root, "gateway")
-}
-
-func lanControlTokenFile(gatewayRoot string) string {
-	return filepath.Join(gatewayRoot, "control-token")
-}
-
-func ensureLANControlToken(path string) (string, error) {
-	contents, err := os.ReadFile(path)
-	if err == nil {
-		token := strings.TrimSpace(string(contents))
-		if !validSHA256.MatchString(token) {
-			return "", errors.New("invalid existing LAN control token")
-		}
-		return token, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return "", err
-	}
-	token, err := randomHex(32)
-	if err != nil {
-		return "", err
-	}
-	return token, atomicfile.Write(path, []byte(token+"\n"), 0o600)
 }
 
 func lanBindingPresent(state nodecore.State, installationID string) bool {
@@ -358,17 +290,14 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 		}
 		installationID = existing.InstallationID
 	} else if errors.Is(stateErr, os.ErrNotExist) {
-		if installationID, err = randomHex(32); err != nil {
+		if installationID, err = gatewaycore.NewSecret(); err != nil {
 			return lanInitResult{}, err
 		}
 	} else {
 		return lanInitResult{}, stateErr
 	}
 	gatewayRoot := lanGatewayRoot(root)
-	if err := os.MkdirAll(gatewayRoot, 0o700); err != nil {
-		return lanInitResult{}, err
-	}
-	controlToken, err := ensureLANControlToken(lanControlTokenFile(gatewayRoot))
+	controlToken, err := gatewaycore.EnsureControlToken(gatewayRoot)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -385,14 +314,14 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 		certificateFile, keyFile = existing.CertificateFile, existing.PrivateKeyFile
 		accessToken = existing.AccessToken
 		if accessToken == "" {
-			accessToken, err = randomHex(32)
+			accessToken, err = gatewaycore.NewSecret()
 			if err != nil {
 				return lanInitResult{}, err
 			}
 		}
 	} else if errors.Is(stateErr, os.ErrNotExist) {
 		var tokenErr error
-		accessToken, tokenErr = randomHex(32)
+		accessToken, tokenErr = gatewaycore.NewSecret()
 		if tokenErr != nil {
 			return lanInitResult{}, tokenErr
 		}
@@ -418,19 +347,12 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 		}
 		return lanInitResult{}, err
 	}
-	// The LAN entrance is itself a gateway: it hands the node the same identity
-	// bundle a public gateway hands over. It registers that bundle after lan.json
-	// is in place, so a failed init reuses the same installation_id on retry
-	// instead of piling up new bindings.
-	bootstrapDir, err := os.MkdirTemp("", "remote-everything-lan-bootstrap-")
-	if err != nil {
-		return lanInitResult{}, err
-	}
-	defer os.RemoveAll(bootstrapDir)
-	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, installationID, controlToken); err != nil {
-		return lanInitResult{}, err
-	}
-	if _, err := nodecore.AddBinding(root, bootstrapDir); err != nil {
+	// The LAN entrance is itself a gateway, so it registers the same identity a
+	// public gateway hands over. It binds after lan.json is in place, so a failed
+	// init reuses the same installation_id on retry instead of piling up
+	// bindings.
+	identity := gatewaycore.Identity{InstallationID: installationID, ControlToken: controlToken}
+	if err := identity.Bind(root); err != nil {
 		return lanInitResult{}, fmt.Errorf("register LAN binding: %w", err)
 	}
 	return lanInitResult{
@@ -475,13 +397,7 @@ func renewLANCertificate(root string, validDays int, name, qrFile string) (lanIn
 	state.CertificateFingerprint = fingerprint
 	state.CertificateFile = certificateFile
 	state.PrivateKeyFile = keyFile
-	contents, err := json.Marshal(state)
-	if err != nil {
-		_ = os.Remove(filepath.Join(root, certificateFile))
-		_ = os.Remove(filepath.Join(root, keyFile))
-		return lanInitResult{}, err
-	}
-	if err := atomicfile.Write(filepath.Join(root, "lan.json"), append(contents, '\n'), 0o600); err != nil {
+	if err := jsonfile.Write(filepath.Join(root, "lan.json"), state, 0o600); err != nil {
 		_ = os.Remove(filepath.Join(root, certificateFile))
 		_ = os.Remove(filepath.Join(root, keyFile))
 		return lanInitResult{}, err

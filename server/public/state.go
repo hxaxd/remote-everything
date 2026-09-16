@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
-	"net"
-	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
+
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
 const publicStateSchema = 1
@@ -16,13 +14,12 @@ const publicStateSchema = 1
 var validHex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type publicPaths struct {
-	root             string
-	controlTokenFile string
-	devicesDir       string
-	invitesDir       string
-	issuerKeyFile    string
-	issuerCertFile   string
-	stateFile        string
+	root           string
+	devicesDir     string
+	invitesDir     string
+	issuerKeyFile  string
+	issuerCertFile string
+	stateFile      string
 }
 
 type publicState struct {
@@ -40,47 +37,21 @@ func newPublicPaths(root string) (publicPaths, error) {
 	}
 	root = filepath.Clean(root)
 	return publicPaths{
-		root: root, controlTokenFile: filepath.Join(root, "control-token"), devicesDir: filepath.Join(root, "devices"),
+		root: root, devicesDir: filepath.Join(root, "devices"),
 		invitesDir: filepath.Join(root, "invites"), issuerKeyFile: filepath.Join(root, "device-issuer.key.pem"),
 		issuerCertFile: filepath.Join(root, "device-issuer.crt.pem"), stateFile: filepath.Join(root, "server.json"),
 	}, nil
 }
 
-func validPublicLoopback(address string) bool {
-	host, portText, err := net.SplitHostPort(address)
-	if err != nil || host != "127.0.0.1" {
-		return false
-	}
-	port, err := strconv.Atoi(portText)
-	return err == nil && port >= 1024 && port <= 65535
-}
-
-func decodePublicJSON(path string, output any) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	decoder := json.NewDecoder(file)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(output); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		return errors.New("trailing JSON content")
-	}
-	return nil
-}
-
 func (paths publicPaths) loadState() (publicState, error) {
 	var state publicState
-	if err := decodePublicJSON(paths.stateFile, &state); err != nil {
+	if err := jsonfile.Read(paths.stateFile, &state); err != nil {
 		return publicState{}, err
 	}
 	addresses := []string{state.StatusListen, state.PairingListen, state.FRPSListen, state.NodeTunnelListen}
 	seen := map[string]bool{}
 	for _, address := range addresses {
-		if !validPublicLoopback(address) || seen[address] {
+		if !netaddr.ValidLoopback(address) || seen[address] {
 			return publicState{}, errors.New("invalid public server state")
 		}
 		seen[address] = true
