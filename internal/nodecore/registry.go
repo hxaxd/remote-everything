@@ -97,6 +97,10 @@ func (node *Node) validateRegistry(value Registry) error {
 	if value.Schema != registrySchema || value.Apps == nil {
 		return errors.New("invalid application registry schema")
 	}
+	state, err := node.currentState()
+	if err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, app := range value.Apps {
 		address, err := proxyAddress(app.ProxyURL)
@@ -127,7 +131,7 @@ func (node *Node) validateRegistry(value Registry) error {
 		if seen[app.ID] {
 			return errors.New("duplicate application id")
 		}
-		if address == node.state.ListenAddress {
+		if address == state.ListenAddress {
 			return errors.New("application proxy_url conflicts with node listen address")
 		}
 		if !validDirectory(app.WorkDir) {

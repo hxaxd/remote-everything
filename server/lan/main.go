@@ -78,11 +78,11 @@ func main() {
 		os.Exit(1)
 	}
 	node, err := nodecore.LoadState(root)
-	if err != nil || node.InstallationID != lan.InstallationID {
-		fmt.Fprintln(os.Stderr, "node state unavailable")
+	if err != nil || node.NodeID != lan.NodeID || !lanBindingPresent(node, lan.InstallationID) {
+		fmt.Fprintln(os.Stderr, "LAN binding is missing from the node state; run init")
 		os.Exit(1)
 	}
-	token, err := os.ReadFile(filepath.Join(root, "control-token"))
+	token, err := os.ReadFile(lanControlTokenFile(lanGatewayRoot(root)))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "control token unavailable")
 		os.Exit(1)

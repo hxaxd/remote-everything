@@ -56,21 +56,34 @@ try {
     $appPort = Get-FreePort
     $childPort = Get-FreePort
     $script:token = '01' * 32
+    $installationId = '02' * 32
 
     Push-Location $windowsRoot
     try { & $go.Source build -o $controlPath . }
     finally { Pop-Location }
     Assert-True ($LASTEXITCODE -eq 0) 'temporary control binary builds'
+    $repoRoot = Split-Path -Parent (Split-Path -Parent $windowsRoot)
+    $genBundlePath = Join-Path $temporaryRoot 'genbundle.exe'
+    Push-Location $repoRoot
+    try { & $go.Source build -o $genBundlePath ./internal/nodecore/testharness/genbundle }
+    finally { Pop-Location }
+    Assert-True ($LASTEXITCODE -eq 0) 'temporary genbundle binary builds'
 
     $env:LOCALAPPDATA = $stateParent
-    $tokenSource = Join-Path $temporaryRoot 'control-token'
-    [IO.File]::WriteAllText($tokenSource, $script:token)
-    $initialized = (& $controlPath init --state $stateRoot --control-token-file $tokenSource | ConvertFrom-Json)
+    $initialized = (& $controlPath init --state $stateRoot | ConvertFrom-Json)
     Assert-True ($LASTEXITCODE -eq 0 -and $initialized.ok -and $initialized.state -eq $stateRoot) 'init creates node state'
     $script:controlPort = ([Net.IPEndPoint]::Parse($initialized.listen_address)).Port
-    Assert-True ($initialized.installation_id -match '^[0-9a-f]{64}$') 'init creates a stable installation id'
-    $initializedAgain = (& $controlPath init --state $stateRoot --control-token-file $tokenSource | ConvertFrom-Json)
-    Assert-True ($LASTEXITCODE -eq 0 -and $initializedAgain.ok -and $initializedAgain.listen_address -eq $initialized.listen_address -and $initializedAgain.installation_id -eq $initialized.installation_id) 'init is idempotent'
+    Assert-True ($initialized.node_id -match '^[0-9a-f]{64}$') 'init creates a stable node id'
+    $initializedAgain = (& $controlPath init --state $stateRoot | ConvertFrom-Json)
+    Assert-True ($LASTEXITCODE -eq 0 -and $initializedAgain.ok -and $initializedAgain.listen_address -eq $initialized.listen_address -and $initializedAgain.node_id -eq $initialized.node_id) 'init is idempotent'
+    $gatewayDir = Join-Path $temporaryRoot 'gateway'
+    $bootstrapDir = Join-Path $temporaryRoot 'bootstrap'
+    & $genBundlePath -gateway $gatewayDir -bootstrap $bootstrapDir -installation-id $installationId -control-token $script:token
+    Assert-True ($LASTEXITCODE -eq 0) 'gateway bundle is generated'
+    $binding = (& $controlPath binding add --state $stateRoot --bootstrap $bootstrapDir | ConvertFrom-Json)
+    Assert-True ($LASTEXITCODE -eq 0 -and $binding.ok -and $binding.installation_id -eq $installationId) 'binding add registers the gateway'
+    $bindings = (& $controlPath binding list --state $stateRoot | ConvertFrom-Json)
+    Assert-True (@($bindings).Count -eq 1 -and $bindings[0].installation_id -eq $installationId) 'binding list shows the gateway'
 
     $controlProcess = Start-Process -FilePath $controlPath `
         -ArgumentList @('serve', '--state', ('"' + $stateRoot + '"')) `

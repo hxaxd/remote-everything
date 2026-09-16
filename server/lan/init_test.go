@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/hxaxd/remote-everything/internal/nodecore"
@@ -12,10 +11,7 @@ import (
 
 func TestInitializeLAN(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "control-token"), []byte(strings.Repeat("01", 32)), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := nodecore.Initialize(root, filepath.Join(root, "control-token")); err != nil {
+	if _, err := nodecore.Initialize(root); err != nil {
 		t.Fatal(err)
 	}
 	first, err := initializeLAN(root, "127.0.0.1", 30)
@@ -25,6 +21,16 @@ func TestInitializeLAN(t *testing.T) {
 	origin, parseErr := url.Parse(first.GatewayOrigin)
 	if !first.OK || parseErr != nil || origin.Scheme != "https" || origin.Hostname() != "127.0.0.1" || origin.Port() == "" || len(first.CertificateFingerprint) != 64 || len(first.InstallationID) != 64 {
 		t.Fatalf("unexpected init result: %+v", first)
+	}
+	nodeState, err := nodecore.LoadState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodeState.Bindings) != 1 || nodeState.Bindings[0].InstallationID != first.InstallationID {
+		t.Fatalf("LAN init did not register a node binding: %+v", nodeState.Bindings)
+	}
+	if _, err := os.Stat(filepath.Join(root, "bindings", first.InstallationID, "control-token")); err != nil {
+		t.Fatalf("binding control token missing: %v", err)
 	}
 	second, err := initializeLAN(root, "127.0.0.1", 30)
 	if err != nil || second.CertificateFingerprint != first.CertificateFingerprint {
