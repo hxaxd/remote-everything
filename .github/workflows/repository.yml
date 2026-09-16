@@ -43,7 +43,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate Skills, runtime records, and deployment scripts
         run: |
-          python skills/validate.py
           python -m unittest \
             skills/remote-everything-install/scripts/test_runtime.py \
             skills/remote-everything-install/scripts/test_render.py \

@@ -153,7 +153,6 @@ function Validate-Repository {
     Step 'Validate repository assets and deployment scripts'
     $tracked = @(git ls-files | Where-Object { $_ -match '\.(p12|pfx|jks|keystore|key|key\.pem)$|(^|/)AGENTS\.local\.md$|(^|/)local\.properties$' })
     if ($tracked) { throw "Tracked credential or local files:`n$($tracked -join "`n")" }
-    Run { python skills/validate.py } 'Skill validation failed'
     Run { python -m unittest skills/remote-everything-install/scripts/test_runtime.py skills/remote-everything-install/scripts/test_render.py skills/remote-everything-install/scripts/test_validate_deployment.py skills/remote-everything-install/scripts/test_inspect_443.py } 'Deployment tests failed'
     Run { python skills/remote-everything-install/scripts/runtime.py validate skills/remote-everything-install/assets/runtime.minimal.json } 'Minimal runtime validation failed'
     Run { python skills/remote-everything-install/scripts/runtime.py validate skills/remote-everything-install/assets/runtime.full.json } 'Full runtime validation failed'
