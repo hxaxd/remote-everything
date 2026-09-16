@@ -144,13 +144,6 @@ func (service *Trust) loadDeviceRecords() ([]deviceRecord, error) {
 			service.audit("corrupt device record skipped", "fingerprint", fingerprint, "error", err.Error())
 			continue
 		}
-		if record.Status == "pending" {
-			expires, _ := parseTimestamp(record.PendingExpiresAt)
-			if !time.Now().UTC().Before(expires) {
-				_ = os.Remove(service.deviceRecordPath(fingerprint))
-				continue
-			}
-		}
 		records = append(records, record)
 	}
 	sort.Slice(records, func(i, j int) bool { return records[i].CreatedAt < records[j].CreatedAt })
@@ -158,9 +151,6 @@ func (service *Trust) loadDeviceRecords() ([]deviceRecord, error) {
 }
 
 func (service *Trust) deviceList(output io.Writer) error {
-	if err := service.cleanupExpiredState(); err != nil {
-		return err
-	}
 	records, err := service.loadDeviceRecords()
 	if err != nil {
 		return err
