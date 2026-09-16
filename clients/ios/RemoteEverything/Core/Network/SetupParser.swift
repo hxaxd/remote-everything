@@ -5,7 +5,6 @@ import Foundation
 enum SetupParser {
     private static let installationIdPattern = try! Regex("^[a-f0-9]{64}$")
     private static let fingerprintPattern = try! Regex("^[a-f0-9]{64}$")
-    private static let accessTokenPattern = try! Regex("^[a-f0-9]{64}$")
     private static let invitationPattern = try! Regex("^[A-Za-z0-9_-]{43}$")
     private static let publicKeyPinPattern = try! Regex("^[A-Za-z0-9+/]{43}=$")
 
@@ -45,7 +44,7 @@ enum SetupParser {
 
         let mode = values["mode"] ?? ""
         let expectedKeys: Set<String> = mode == "lan"
-            ? ["v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin", "token"]
+            ? ["v", "id", "name", "mode", "origin", "fingerprint", "public_key_pin", "invitation"]
             : ["v", "id", "name", "mode", "origin", "invitation"]
 
         guard Set(values.keys) == expectedKeys else {
@@ -58,19 +57,15 @@ enum SetupParser {
             mode: mode,
             origin: values["origin"] ?? "",
             fingerprint: values["fingerprint"] ?? "",
-            publicKeyPin: values["public_key_pin"] ?? "",
-            accessToken: values["token"] ?? ""
+            publicKeyPin: values["public_key_pin"] ?? ""
         )
 
-        if mode == "public" {
-            let invitation = values["invitation"] ?? ""
-            guard try invitationPattern.wholeMatch(in: invitation) != nil else {
-                throw ParseError(description: "公网邀请无效")
-            }
-            return SetupPayload(profile: profile, invitation: invitation)
+        // Both modes admit the device by redeeming an invitation, so both carry one.
+        let invitation = values["invitation"] ?? ""
+        guard try invitationPattern.wholeMatch(in: invitation) != nil else {
+            throw ParseError(description: "初始化链接缺少有效邀请")
         }
-
-        return SetupPayload(profile: profile, invitation: "")
+        return SetupPayload(profile: profile, invitation: invitation)
     }
 
     static func create(
@@ -79,8 +74,7 @@ enum SetupParser {
         mode: String,
         origin: String,
         fingerprint: String = "",
-        publicKeyPin: String = "",
-        accessToken: String = ""
+        publicKeyPin: String = ""
     ) throws -> ConnectionConfig {
         guard try installationIdPattern.wholeMatch(in: installationId) != nil else {
             throw ParseError(description: "安装实例标识无效")
@@ -124,8 +118,9 @@ enum SetupParser {
             .replacingOccurrences(of: ":", with: "")
             .replacingOccurrences(of: " ", with: "")
 
+        // Only a LAN entrance serves a certificate of its own; the public one is
+        // signed by an authority the device already trusts, so it pins nothing.
         let configMode: ConnectionConfig.ConnectionMode = mode == "lan" ? .lan : .public
-        let normalizedToken = accessToken.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if configMode == .lan {
             guard try fingerprintPattern.wholeMatch(in: normalizedFingerprint) != nil else {
                 throw ParseError(description: "局域网服务证书指纹无效")
@@ -133,11 +128,8 @@ enum SetupParser {
             guard try publicKeyPinPattern.wholeMatch(in: publicKeyPin) != nil else {
                 throw ParseError(description: "局域网服务公钥摘要无效")
             }
-            guard try accessTokenPattern.wholeMatch(in: normalizedToken) != nil else {
-                throw ParseError(description: "局域网访问令牌无效")
-            }
-        } else if !normalizedToken.isEmpty {
-            throw ParseError(description: "公网连接不能包含访问令牌")
+        } else if !normalizedFingerprint.isEmpty || !publicKeyPin.isEmpty {
+            throw ParseError(description: "公网连接不能包含证书指纹")
         }
 
         return ConnectionConfig(
@@ -146,8 +138,7 @@ enum SetupParser {
             mode: configMode,
             gatewayOrigin: normalizedOrigin,
             gatewayFingerprint: configMode == .lan ? normalizedFingerprint : "",
-            gatewayPublicKeyPin: configMode == .lan ? publicKeyPin : "",
-            accessToken: configMode == .lan ? normalizedToken : ""
+            gatewayPublicKeyPin: configMode == .lan ? publicKeyPin : ""
         )
     }
 

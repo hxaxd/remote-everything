@@ -6,31 +6,22 @@ import (
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/logline"
 )
 
-type errorResponse struct {
-	OK   bool   `json:"ok"`
-	Code string `json:"code"`
-}
-
-func errorBody(code string) errorResponse {
-	return errorResponse{OK: false, Code: code}
-}
-
+// serveGateway serves the two listeners the 443 entrance forwards to: the status
+// surface (device activation, admission, then the gateway) and the pairing
+// surface an invitation is redeemed at.
 func (service *publicService) serveGateway() error {
-	statusServer, err := service.newStatusServer()
-	if err != nil {
-		return fmt.Errorf("load control token: %w", err)
-	}
-	pairingServer, err := service.newPairingServer()
-	if err != nil {
-		return fmt.Errorf("prepare pairing service: %w", err)
-	}
+	statusServer := gatewaycore.NewServer(service.listen("status"), service.trust.StatusHandler())
+	pairingServer := gatewaycore.NewServer(service.listen("pairing"), service.trust.PairHandler())
 
 	stopped := make(chan error, 2)
 	start := func(name string, server *http.Server) {
 		go func() {
-			logLine(name, "info", "listening", "path", server.Addr)
+			logline.Log(name, "info", "listening", "path", server.Addr)
 			stopped <- server.ListenAndServe()
 		}()
 	}
@@ -60,13 +51,13 @@ func main() {
 			}
 			if args[0] == "serve" && flags.NArg() == 0 {
 				if err := service.serveGateway(); err != nil {
-					logLine("gateway", "error", "server stopped", "code", err.Error())
+					logline.Log("gateway", "error", "server stopped", "code", err.Error())
 					os.Exit(1)
 				}
 				return
 			}
 			if args[0] == "device" {
-				if err := service.runDeviceCLI(flags.Args(), os.Stdout); err != nil {
+				if err := service.trust.RunCLI(flags.Args(), os.Stdout); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}

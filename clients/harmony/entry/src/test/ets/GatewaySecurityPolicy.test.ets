@@ -20,15 +20,23 @@ export default function gatewaySecurityPolicyTest() {
       expect(fp1 === fp2).assertFalse();
     });
 
-    it('lan_mode_does_not_allow_client_cert', DEFAULT, () => {
+    it('lan_mode_allows_client_cert_only_for_gateway', DEFAULT, () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'LAN PC', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
       expect(GatewaySecurityPolicy.allowsClientCertificate(
         config, true, '192.168.1.5', 60001
+      )).assertTrue();
+
+      expect(GatewaySecurityPolicy.allowsClientCertificate(
+        config, false, '192.168.1.5', 60001
+      )).assertFalse();
+
+      expect(GatewaySecurityPolicy.allowsClientCertificate(
+        config, true, '192.168.1.5', 443
       )).assertFalse();
     });
 

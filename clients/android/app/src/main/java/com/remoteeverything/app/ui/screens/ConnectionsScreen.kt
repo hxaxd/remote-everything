@@ -174,7 +174,7 @@ fun ConnectionsScreen(
                     ProfileRow(
                         profile = profile,
                         active = active?.installationId == profile.installationId,
-                        usable = profile.mode != "public" || session.identity.hasCredential(profile.installationId),
+                        usable = session.identity.hasCredential(profile.installationId),
                         onSelect = {
                             session.selectProfile(profile)
                             onOpenCatalog()
@@ -192,10 +192,7 @@ fun ConnectionsScreen(
             onDismissRequest = { pendingDelete = null },
             title = { Text("删除 ${profile.name}?") },
             text = {
-                Text(
-                    if (profile.mode == "public") "删除本机保存的连接和设备私钥。服务器上的设备记录应由部署 Agent 同时吊销。"
-                    else "删除本机保存的连接。",
-                )
+                Text("删除本机保存的连接和设备私钥。服务器上的设备记录应由部署 Agent 同时吊销。")
             },
             confirmButton = {
                 TextButton(onClick = {

@@ -189,8 +189,8 @@ class RemoteActivity : ComponentActivity() {
         val generation = ++pageGeneration
         destroyPage()
         val identity = DeviceIdentity(this)
-        val clientIdentity = if (config.mode == "public") identity.clientIdentity(config.installationId) else null
-        if (config.mode == "public" && clientIdentity == null) {
+        val clientIdentity = identity.clientIdentity(config.installationId)
+        if (clientIdentity == null) {
             showFailure("设备身份不存在，请重新初始化连接")
             return
         }
@@ -280,7 +280,7 @@ class RemoteActivity : ComponentActivity() {
                 runOnUiThread {
                     if (generation != pageGeneration || browser !== webView) return@runOnUiThread
                     browser.onResume()
-                    browser.loadUrl(openUrl, config.authorizationHeaders())
+                    browser.loadUrl(openUrl)
                 }
             }
         } catch (error: Throwable) {

@@ -1,26 +1,16 @@
 package main
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"io"
-	"math/big"
 	"os"
 	"path/filepath"
-	"time"
 
-	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/jsonfile"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
 type publicInitResult struct {
@@ -52,85 +42,22 @@ type tunnelRenewResult struct {
 	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
 
-func initializeIssuer(paths publicPaths) error {
-	keyExists := false
-	if _, err := os.Stat(paths.issuerKeyFile); err == nil {
-		keyExists = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+// allocationPreferences are the four distinct loopback listeners a public
+// gateway serves: the status port its own clients reach through the 443
+// entrance, the pairing port, the frps upstream, and the port the tunnel brings
+// the node's control channel in on.
+func allocationPreferences() []gatewaycore.ListenerPreference {
+	return []gatewaycore.ListenerPreference{
+		{Name: "status", Host: "127.0.0.1", PreferredPort: 58629},
+		{Name: "pairing", Host: "127.0.0.1", PreferredPort: 58631},
+		{Name: "frps", Host: "127.0.0.1", PreferredPort: 58630},
+		{Name: "node_tunnel", Host: "127.0.0.1", PreferredPort: 58628},
 	}
-	certExists := false
-	if _, err := os.Stat(paths.issuerCertFile); err == nil {
-		certExists = true
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if keyExists || certExists {
-		if !keyExists || !certExists {
-			return errors.New("incomplete device issuer material")
-		}
-		_, _, err := loadIssuer(paths)
-		return err
-	}
-	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		return err
-	}
-	serialBytes := make([]byte, 20)
-	if _, err := rand.Read(serialBytes); err != nil {
-		return err
-	}
-	serial := new(big.Int).SetBytes(serialBytes)
-	serial.Rsh(serial, 1)
-	now := time.Now()
-	template := &x509.Certificate{
-		SerialNumber: serial, Subject: pkix.Name{CommonName: "Remote Everything Device Issuer"},
-		NotBefore: now.Add(-5 * time.Minute), NotAfter: now.Add(3650 * 24 * time.Hour),
-		IsCA: true, BasicConstraintsValid: true, MaxPathLen: 0, MaxPathLenZero: true,
-		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-	}
-	certificateDER, err := x509.CreateCertificate(rand.Reader, template, template, &privateKey.PublicKey, privateKey)
-	if err != nil {
-		return err
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
-	if err != nil {
-		return err
-	}
-	if err := atomicfile.Write(paths.issuerKeyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
-		return err
-	}
-	if err := atomicfile.Write(paths.issuerCertFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificateDER}), 0o644); err != nil {
-		return err
-	}
-	_, _, err = loadIssuer(paths)
-	return err
 }
 
-// allocatePublicAddresses reserves the four distinct loopback addresses the
-// public gateway listens on, in the order status, pairing, frps, node tunnel.
-func allocatePublicAddresses() ([4]string, error) {
-	preferred := []int{58629, 58631, 58630, 58628}
-	var addresses [4]string
-	seen := map[string]bool{}
-	for index, port := range preferred {
-		for attempt := 0; attempt < 16 && addresses[index] == ""; attempt++ {
-			candidate, err := netaddr.Reserve("127.0.0.1", port)
-			if err != nil {
-				return addresses, err
-			}
-			if !seen[candidate] {
-				addresses[index] = candidate
-				seen[candidate] = true
-				continue
-			}
-			port = 0
-		}
-		if addresses[index] == "" {
-			return addresses, errors.New("no public loopback port available")
-		}
-	}
-	return addresses, nil
+func listen(state gatewaycore.State, name string) string {
+	address, _ := state.Address(name)
+	return address
 }
 
 func initializePublicState(root, nodeBootstrap string) (publicInitResult, error) {
@@ -141,12 +68,6 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	if err := os.MkdirAll(paths.devicesDir, 0o700); err != nil {
-		return publicInitResult{}, err
-	}
-	if err := os.MkdirAll(paths.invitesDir, 0o700); err != nil {
-		return publicInitResult{}, err
-	}
 	state, err := paths.loadState()
 	newState := errors.Is(err, os.ErrNotExist)
 	if newState {
@@ -154,13 +75,9 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		if randomErr != nil {
 			return publicInitResult{}, randomErr
 		}
-		addresses, allocateErr := allocatePublicAddresses()
-		if allocateErr != nil {
-			return publicInitResult{}, allocateErr
-		}
-		state = publicState{
-			Schema: publicStateSchema, InstallationID: installationID,
-			StatusListen: addresses[0], PairingListen: addresses[1], FRPSListen: addresses[2], NodeTunnelListen: addresses[3],
+		state, err = gatewaycore.NewState(installationID, allocationPreferences())
+		if err != nil {
+			return publicInitResult{}, err
 		}
 	} else if err != nil {
 		return publicInitResult{}, err
@@ -169,15 +86,12 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	if err := initializeIssuer(paths); err != nil {
-		return publicInitResult{}, err
-	}
-	_, deviceIssuer, err := loadIssuer(paths)
+	deviceIssuer, err := devicecore.EnsureIssuer(paths.root)
 	if err != nil {
 		return publicInitResult{}, err
 	}
 	if newState {
-		if err := jsonfile.Write(paths.stateFile, state, 0o600); err != nil {
+		if err := state.Save(paths.stateFile); err != nil {
 			return publicInitResult{}, err
 		}
 	}
@@ -195,9 +109,9 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	}
 	return publicInitResult{
 		OK: true, State: paths.root, InstallationID: state.InstallationID,
-		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: paths.issuerCertFile,
-		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
-		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
+		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: devicecore.IssuerCertPath(paths.root),
+		StatusListen: listen(state, "status"), PairingListen: listen(state, "pairing"),
+		FRPSListen: listen(state, "frps"), NodeTunnelListen: listen(state, "node_tunnel"),
 		NodeBootstrap: filepath.Clean(nodeBootstrap), FRPSTokenFile: material.FRPSTokenFile, TunnelCAFile: material.CACertFile,
 		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
 		DeviceIssuerDN: deviceIssuer.Subject.String(), TunnelIssuerDN: material.CACertificate.Subject.String(),
@@ -262,25 +176,17 @@ func repairPublicPorts(root string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	addresses, err := allocatePublicAddresses()
+	repaired, err := state.Repair(map[string]int{"status": 58629, "pairing": 58631, "frps": 58630, "node_tunnel": 58628})
 	if err != nil {
 		return err
 	}
-	state.StatusListen = addresses[0]
-	state.PairingListen = addresses[1]
-	state.FRPSListen = addresses[2]
-	state.NodeTunnelListen = addresses[3]
-	contents, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	if err := atomicfile.Write(paths.stateFile, append(contents, '\n'), 0o600); err != nil {
+	if err := repaired.Save(paths.stateFile); err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(publicInitResult{
 		OK: true, State: paths.root, InstallationID: state.InstallationID,
-		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: paths.issuerCertFile,
-		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
-		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
+		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: devicecore.IssuerCertPath(paths.root),
+		StatusListen: listen(state, "status"), PairingListen: listen(state, "pairing"),
+		FRPSListen: listen(state, "frps"), NodeTunnelListen: listen(state, "node_tunnel"),
 	})
 }

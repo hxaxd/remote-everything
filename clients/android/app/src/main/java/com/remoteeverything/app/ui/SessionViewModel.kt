@@ -104,7 +104,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         checkForUpdate()
         _profiles.value = settings.profiles()
         val pending = setupTransaction.recover()
-        val active = settings.activeProfile()?.takeIf { it.mode != "public" || identity.hasCredential(it.installationId) }
+        val active = settings.activeProfile()?.takeIf { identity.hasCredential(it.installationId) }
         when {
             pending != null -> _startState.value = StartState.PendingActivation(pending)
             active == null -> _startState.value = StartState.NoProfile
@@ -117,7 +117,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun clientIdentityOf(config: ConnectionConfig): ClientIdentity? =
-        if (config.mode == "public") identity.clientIdentity(config.installationId) else null
+        identity.clientIdentity(config.installationId)
 
     // ---- 目录 ----
 

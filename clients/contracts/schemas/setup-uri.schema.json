@@ -41,18 +41,13 @@
       "pattern": "^[A-Za-z0-9+/]{43}=$",
       "description": "Base64-encoded SHA-256 digest of the gateway certificate SubjectPublicKeyInfo. Required for LAN mode, absent for public mode."
     },
-    "token": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$",
-      "description": "LAN access token: 64 lowercase hex characters. Required for LAN mode, absent for public mode."
-    },
     "invitation": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{43}$",
-      "description": "Base64url invitation token. Required for public mode, absent for LAN mode."
+      "description": "Base64url invitation token, 43 characters. Required in both modes: it is the secret a device redeems for a credential of its own."
     }
   },
-  "required": ["v", "id", "name", "mode", "origin"],
+  "required": ["v", "id", "name", "mode", "origin", "invitation"],
   "additionalProperties": false,
   "allOf": [
     {
@@ -60,8 +55,7 @@
         "properties": { "mode": { "const": "lan" } }
       },
       "then": {
-        "required": ["fingerprint", "public_key_pin", "token"],
-        "properties": { "invitation": { "not": {} } }
+        "required": ["fingerprint", "public_key_pin"]
       }
     },
     {
@@ -69,11 +63,9 @@
         "properties": { "mode": { "const": "public" } }
       },
       "then": {
-        "required": ["invitation"],
         "properties": {
           "fingerprint": { "not": {} },
-          "public_key_pin": { "not": {} },
-          "token": { "not": {} }
+          "public_key_pin": { "not": {} }
         }
       }
     }

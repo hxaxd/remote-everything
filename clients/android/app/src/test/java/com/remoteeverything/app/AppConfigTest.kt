@@ -11,7 +11,7 @@ class AppConfigTest {
 
     @Test
     fun parsesStrictLanSetup() {
-        val token = "01".repeat(32)
+        val invitation = "B".repeat(43)
         val setup = AppConfig.parseSetup(
             setupUri(
                 "v" to "2",
@@ -21,13 +21,13 @@ class AppConfigTest {
                 "origin" to "https://192.168.1.5:60001",
                 "fingerprint" to "cd".repeat(32),
                 "public_key_pin" to "A".repeat(43) + "=",
-                "token" to token,
+                "invitation" to invitation,
             ),
         )
         assertEquals(id, setup.profile.installationId)
         assertEquals("https://192.168.1.5:60001", setup.profile.gatewayOrigin)
-        assertEquals(token, setup.profile.accessToken)
-        assertEquals("", setup.invitation)
+        assertEquals("cd".repeat(32), setup.profile.gatewayFingerprint)
+        assertEquals(invitation, setup.invitation)
     }
 
     @Test
@@ -57,12 +57,14 @@ class AppConfigTest {
             "origin" to "http://127.0.0.1:58626",
             "fingerprint" to "cd".repeat(32),
             "public_key_pin" to "A".repeat(43) + "=",
-            "token" to "01".repeat(32),
+            "invitation" to "B".repeat(43),
         )
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base) }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base.replace("http%3A", "https%3A") + "&mode=lan") }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(base.replace("http%3A", "https%3A") + "&extra=x") }
-        val missingToken = setupUri(
+        // A LAN entrance pins the certificate it serves itself; a public one has
+        // nothing of its own to pin, and both are admitted by an invitation.
+        val missingInvitation = setupUri(
             "v" to "2",
             "id" to id,
             "name" to "PC",
@@ -71,7 +73,26 @@ class AppConfigTest {
             "fingerprint" to "cd".repeat(32),
             "public_key_pin" to "A".repeat(43) + "=",
         )
-        assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(missingToken) }
+        assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(missingInvitation) }
+        val missingPin = setupUri(
+            "v" to "2",
+            "id" to id,
+            "name" to "PC",
+            "mode" to "lan",
+            "origin" to "https://192.168.1.5:60001",
+            "invitation" to "B".repeat(43),
+        )
+        assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(missingPin) }
+        val pinnedPublic = setupUri(
+            "v" to "2",
+            "id" to id,
+            "name" to "PC",
+            "mode" to "public",
+            "origin" to "https://remote.example.com",
+            "fingerprint" to "cd".repeat(32),
+            "invitation" to "B".repeat(43),
+        )
+        assertThrows(IllegalArgumentException::class.java) { AppConfig.parseSetup(pinnedPublic) }
         assertThrows(IllegalArgumentException::class.java) { AppConfig.create(id, "PC", "public", "https://remote.example.com:0") }
     }
 

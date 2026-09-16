@@ -4,8 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object ProfileCodec {
-    private val fields = setOf("installation_id", "name", "mode", "origin", "fingerprint", "public_key_pin", "access_token")
-    private val legacyFields = setOf("installation_id", "name", "mode", "origin", "fingerprint", "public_key_pin")
+    private val fields = setOf("installation_id", "name", "mode", "origin", "fingerprint", "public_key_pin")
 
     fun encode(value: ConnectionConfig): JSONObject = JSONObject()
         .put("installation_id", value.installationId)
@@ -14,13 +13,12 @@ object ProfileCodec {
         .put("origin", value.gatewayOrigin)
         .put("fingerprint", value.gatewayFingerprint)
         .put("public_key_pin", value.gatewayPublicKeyPin)
-        .put("access_token", value.accessToken)
 
     fun encodeAll(values: List<ConnectionConfig>): String = JSONArray().apply { values.forEach { put(encode(it)) } }.toString()
 
     fun decode(value: JSONObject): ConnectionConfig {
         val keys = value.keys().asSequence().toSet()
-        require(keys == fields || keys == legacyFields) { "连接配置字段无效" }
+        require(keys == fields) { "连接配置字段无效" }
         return AppConfig.create(
             value.getString("installation_id"),
             value.getString("name"),
@@ -28,7 +26,6 @@ object ProfileCodec {
             value.getString("origin"),
             value.getString("fingerprint"),
             value.getString("public_key_pin"),
-            if (value.has("access_token")) value.getString("access_token") else "",
         )
     }
 

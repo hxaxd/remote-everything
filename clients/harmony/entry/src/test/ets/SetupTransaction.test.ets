@@ -220,11 +220,10 @@ class FakeIdentityStore implements SetupIdentityStore {
 }
 
 class FakeTransport implements SetupTransport {
-  verifyCalls = 0;
   requestCalls: RequestCall[] = [];
   activateResponses: HTTPResult[] = [];
-  verifyStarted: DeferredVoid | null = null;
-  verifyGate: DeferredVoid | null = null;
+  pairStarted: DeferredVoid | null = null;
+  pairGate: DeferredVoid | null = null;
   activationStarted: DeferredVoid | null = null;
   activationGate: DeferredHTTPResult | null = null;
   pairResponse: HTTPResult = {
@@ -243,23 +242,21 @@ class FakeTransport implements SetupTransport {
     body: JSON.stringify({ 'ok': true, 'computer_connected': true, 'code': 'ready', 'apps': [] })
   };
 
-  async verifyCatalog(config: ConnectionConfig): Promise<void> {
-    this.verifyCalls += 1;
-    if (this.verifyStarted !== null) {
-      this.verifyStarted.resolve();
-    }
-    if (this.verifyGate !== null) {
-      await this.verifyGate.promise;
-    }
-  }
-
   async request(
     config: ConnectionConfig, url: string, method: string,
     identity: ClientIdentity | null, headers: Record<string, string>, body: string | null
   ): Promise<HTTPResult> {
     const call: RequestCall = { url: url, method: method, body: body };
     this.requestCalls.push(call);
-    if (url.includes('pair')) return this.pairResponse;
+    if (url.includes('pair')) {
+      if (this.pairStarted !== null) {
+        this.pairStarted.resolve();
+      }
+      if (this.pairGate !== null) {
+        await this.pairGate.promise;
+      }
+      return this.pairResponse;
+    }
     if (this.activationStarted !== null) {
       this.activationStarted.resolve();
     }
@@ -333,8 +330,7 @@ class RestartableProfileStore implements SetupProfileStore {
     return left.installationId === right.installationId && left.name === right.name &&
       left.mode === right.mode && left.gatewayOrigin === right.gatewayOrigin &&
       left.gatewayFingerprint === right.gatewayFingerprint &&
-      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin &&
-      left.accessToken === right.accessToken;
+      left.gatewayPublicKeyPin === right.gatewayPublicKeyPin;
   }
 }
 
@@ -501,25 +497,34 @@ async function recoverAfterRestart(
 export default function setupTransactionTest() {
   describe('SetupTransaction', () => {
 
-    it('lan_connection_verifies_before_committing', DEFAULT, async () => {
+    // A LAN entrance admits devices the way the public one does: the client
+    // redeems its invitation for a credential and then activates it. Only the
+    // approval differs, and that is the server's answer to make.
+    it('lan_connection_pairs_and_activates_like_the_public_one', DEFAULT, async () => {
       const store = new FakeProfileStore();
+      const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
 
       const transaction = new SetupTransaction(
-        store, new FakeIdentityStore(), 'Test Device', transport
+        store, identityStore, 'Test Device', transport
       );
 
       const config = SetupParser.create(
         INSTALLATION_ID, 'Test LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
 
-      const result = await transaction.begin(new SetupPayload(config, ''));
+      const result = await transaction.begin(
+        new SetupPayload(config, 'B'.repeat(43))
+      );
 
       expect(result.kind).assertEqual(SetupStateKind.READY);
-      expect(transport.verifyCalls).assertEqual(1);
+      expect(transport.requestCalls.length).assertEqual(2);
+      expect(transport.requestCalls[0].url === config.pairUrl).assertTrue();
+      expect(transport.requestCalls[1].url === config.activateUrl).assertTrue();
+      expect(identityStore.promoted).assertTrue();
       expect(store.committed).not().assertNull();
     });
 
@@ -544,12 +549,12 @@ export default function setupTransactionTest() {
       expect(identityStore.promoted).assertFalse();
     });
 
-    it('cancel_during_lan_verification_prevents_commit', DEFAULT, async () => {
+    it('cancel_during_pairing_prevents_commit', DEFAULT, async () => {
       const store = new FakeProfileStore();
       const identityStore = new FakeIdentityStore();
       const transport = new FakeTransport();
-      transport.verifyStarted = new DeferredVoid();
-      transport.verifyGate = new DeferredVoid();
+      transport.pairStarted = new DeferredVoid();
+      transport.pairGate = new DeferredVoid();
       const transaction = new SetupTransaction(
         store, identityStore, 'device', transport
       );
@@ -557,13 +562,15 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
 
-      const resultPromise = transaction.begin(new SetupPayload(config, ''));
-      await transport.verifyStarted.promise;
+      const resultPromise = transaction.begin(
+        new SetupPayload(config, 'B'.repeat(43))
+      );
+      await transport.pairStarted.promise;
       const cancelPromise = transaction.cancel();
-      transport.verifyGate.resolve();
+      transport.pairGate.resolve();
       const result = await resultPromise;
       await cancelPromise;
 
@@ -573,7 +580,7 @@ export default function setupTransactionTest() {
       expect(identityStore.promoted).assertFalse();
     });
 
-    it('cancel_during_lan_commit_finishes_ready_without_split_state', DEFAULT, async () => {
+    it('cancel_during_commit_finishes_ready_without_split_state', DEFAULT, async () => {
       const store = new FakeProfileStore();
       store.commitStarted = new DeferredVoid();
       store.commitGate = new DeferredVoid();
@@ -585,20 +592,25 @@ export default function setupTransactionTest() {
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
 
-      const resultPromise = transaction.begin(new SetupPayload(config, ''));
+      const resultPromise = transaction.begin(
+        new SetupPayload(config, 'B'.repeat(43))
+      );
       await store.commitStarted.promise;
       const cancelPromise = transaction.cancel();
       store.commitGate.resolve();
       const result = await resultPromise;
       await cancelPromise;
 
+      // The credential is promoted before the profile is committed, so the
+      // commit is the last step to land and being cancelled during it leaves the
+      // same state a completed setup would.
       expect(result.kind).assertEqual(SetupStateKind.READY);
       expect(store.committed).not().assertNull();
       expect(store.staged).assertNull();
-      expect(identityStore.promoted).assertFalse();
+      expect(identityStore.promoted).assertTrue();
     });
 
     it('cancel_during_credential_staging_cleans_the_late_write', DEFAULT, async () => {
@@ -793,26 +805,6 @@ export default function setupTransactionTest() {
       expect(identityStore.activeCredential).assertEqual('old-active');
       expect(identityStore.staged).assertFalse();
       expect(identityStore.rolledBack).assertTrue();
-    });
-
-    it('lan_cleanup_failure_after_commit_still_returns_ready', DEFAULT, async () => {
-      const store = new FakeProfileStore();
-      store.discardFailuresRemaining = 1;
-      const config = SetupParser.create(
-        INSTALLATION_ID, 'LAN', 'lan',
-        'https://192.168.1.5:60001',
-        'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
-      );
-      const transaction = new SetupTransaction(
-        store, new FakeIdentityStore(), 'device', new FakeTransport()
-      );
-
-      const result = await transaction.begin(new SetupPayload(config, ''));
-
-      expect(result.kind).assertEqual(SetupStateKind.READY);
-      expect(store.committed).not().assertNull();
-      expect(store.staged).not().assertNull();
     });
 
     it('public_cleanup_failures_after_commit_still_return_ready', DEFAULT, async () => {
@@ -1179,7 +1171,7 @@ export default function setupTransactionTest() {
       expect(identityStore.activeCredential).assertEqual('pending');
     });
 
-    it('recovery_only_returns_activatable_public_transaction', DEFAULT, async () => {
+    it('recovery_only_returns_a_transaction_whose_credential_survived', DEFAULT, async () => {
       const config = SetupParser.create(
         INSTALLATION_ID, 'Public', 'public',
         'https://remote.example.com'
@@ -1196,17 +1188,20 @@ export default function setupTransactionTest() {
       const recovered = await transaction.recover();
       expect(recovered).not().assertNull();
 
-      // LAN staged should not be recoverable
+      // Every mode pairs for a credential, so every mode recovers the same way.
       const lanConfig = SetupParser.create(
         INSTALLATION_ID, 'LAN', 'lan',
         'https://192.168.1.5:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
       store.staged = lanConfig;
+      identityStore.staged = true;
+      expect(await transaction.recover()).not().assertNull();
+
+      // Without its credential the staged profile cannot be activated.
       identityStore.staged = false;
-      const lanRecovered = await transaction.recover();
-      expect(lanRecovered).assertNull();
+      expect(await transaction.recover()).assertNull();
     });
   });
 }

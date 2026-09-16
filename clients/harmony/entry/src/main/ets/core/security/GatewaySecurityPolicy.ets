@@ -37,8 +37,9 @@ export class GatewaySecurityPolicy {
   }
 
   /**
-   * Determine whether to offer a client certificate for a given challenge.
-   * Only for public mode, only when identity is available, only for the gateway host/port.
+   * Determine whether to offer a client certificate for a given challenge. A
+   * device is admitted by the certificate it was issued in every mode: what
+   * differs between them is who signs the entrance, not who the client is.
    */
   static allowsClientCertificate(
     config: ConnectionConfig,
@@ -46,7 +47,6 @@ export class GatewaySecurityPolicy {
     host: string | null,
     port: number
   ): boolean {
-    return config.mode === 'public' && identityPresent &&
-      config.isGatewayEndpoint(host, port);
+    return identityPresent && config.isGatewayEndpoint(host, port);
   }
 }

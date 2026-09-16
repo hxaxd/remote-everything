@@ -13,14 +13,14 @@
 1. 按 [install Skill](../SKILL.md) 的 public 流程走完整轮，唯一的区别是 Caddy 已经存在——把新 gateway 的路由**追加**到 Caddyfile，不要覆盖现有路由。
 2. `gateway init --node-bootstrap` 会生成新的 installationId 和独立的 loopback 端口组，不与已有 gateway 冲突。
 3. 把 bootstrap bundle 送到新电脑，完成节点初始化。
-4. `device invite` 生成新二维码，移动客户端扫码后批准。
+4. `device invite` 生成新二维码，移动客户端扫码后在 `device list` 确认并批准。
 5. 客户端的 Profile 列表会多出一条。在「连接管理」里切换即可。
 
 结果：两台电脑各自的 gateway 共享一个 Caddy:443，Android、iOS 与 HarmonyOS 客户端都通过切换 Profile 选择连接实例。
 
 ## LAN 形态
 
-每台电脑运行自己的 node（`node_id`），并可运行自己的 LAN 入口绑定。入口和节点同机时节点用缺省 loopback 监听；入口在局域网内另一台机器上时，节点 `--listen` 指向该机能被入口访问的地址，入口 `--node-address` 指回同一个地址。只要移动设备能访问入口端口（同网段或组网内），扫码添加即可。多个 LAN 实例之间完全独立。
+每台电脑运行自己的 node（`node_id`），并可运行自己的 LAN 入口绑定。入口和节点同机时节点用缺省 loopback 监听；入口在局域网内另一台机器上时，节点 `--listen` 指向该机能被入口访问的地址，入口 `--node-address` 指回同一个地址。只要移动设备能访问入口端口（同网段或组网内），入口 `device invite` 发一条邀请、扫码添加即可——兑换即批准，不需要人工确认。多个 LAN 实例之间完全独立。
 
 ## 移动客户端
 
