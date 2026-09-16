@@ -64,6 +64,21 @@ type Config struct {
 	Root string
 	// InstallationID is the identity the setup URI carries.
 	InstallationID string
+	// Mode is how this gateway admits devices. In the LAN mode an invitation is
+	// the whole admission — redeeming it approves the device, because the
+	// operator who handed it over is the approval — and the setup URI pins the
+	// gateway's own certificate, since nothing else signs it. In the public mode
+	// an authority clients already trust signs the gateway and the operator
+	// confirms each device after it pairs, because an invitation travels over a
+	// network the operator does not watch.
+	Mode string
+	// Origin is the HTTPS origin this gateway's clients dial. Invitations default
+	// to it; a gateway that does not know its own origin needs it per invitation.
+	Origin string
+	// Certificate is the gateway's own certificate. The LAN mode pins it in the
+	// setup URI; the public mode has none, because an authority signs the
+	// entrance in front of it.
+	Certificate *x509.Certificate
 	// Node is what the admitted requests reach.
 	Node Node
 	// Log writes one operational line; Audit writes the device audit trail.
@@ -75,19 +90,24 @@ type Config struct {
 
 // Trust is the device trust of one gateway.
 type Trust struct {
-	root             string
-	installationID   string
-	devicesDir       string
-	invitesDir       string
-	issuerKeyFile    string
-	issuerCertFile   string
-	node             Node
-	log              func(component, level, message string, keyValues ...string)
-	audit            func(message string, keyValues ...string)
-	pairLock         sync.Mutex
-	pairFailureDelay time.Duration
-	pairLimiter      *rateLimiter
-	statusLimiter    *rateLimiter
+	root                string
+	installationID      string
+	mode                string
+	origin              string
+	certificate         *x509.Certificate
+	issuer              *x509.Certificate
+	approveOnRedemption bool
+	devicesDir          string
+	invitesDir          string
+	issuerKeyFile       string
+	issuerCertFile      string
+	node                Node
+	log                 func(component, level, message string, keyValues ...string)
+	audit               func(message string, keyValues ...string)
+	pairLock            sync.Mutex
+	pairFailureDelay    time.Duration
+	pairLimiter         *rateLimiter
+	statusLimiter       *rateLimiter
 }
 
 // Open brings up the device trust of a gateway, creating its CA and its record
@@ -97,20 +117,36 @@ func Open(config Config) (*Trust, error) {
 	if config.Root == "" || !filepath.IsAbs(config.Root) || config.InstallationID == "" || config.Node == nil {
 		return nil, errors.New("invalid device trust configuration")
 	}
+	switch config.Mode {
+	case "lan":
+		if config.Certificate == nil {
+			return nil, errors.New("a LAN gateway pins the certificate it serves")
+		}
+	case "public":
+		if config.Certificate != nil {
+			return nil, errors.New("a public gateway is signed by an authority, it has no certificate of its own to pin")
+		}
+	default:
+		return nil, errors.New("invalid device trust mode")
+	}
 	root := filepath.Clean(config.Root)
 	trust := &Trust{
-		root:             root,
-		installationID:   config.InstallationID,
-		devicesDir:       filepath.Join(root, devicesDirName),
-		invitesDir:       filepath.Join(root, invitesDirName),
-		issuerKeyFile:    filepath.Join(root, issuerKeyName),
-		issuerCertFile:   filepath.Join(root, issuerCertName),
-		node:             config.Node,
-		log:              config.Log,
-		audit:            config.Audit,
-		pairFailureDelay: 350 * time.Millisecond,
-		pairLimiter:      newPairRateLimiter(),
-		statusLimiter:    newStatusRateLimiter(),
+		root:                root,
+		installationID:      config.InstallationID,
+		mode:                config.Mode,
+		origin:              config.Origin,
+		certificate:         config.Certificate,
+		approveOnRedemption: config.Mode == "lan",
+		devicesDir:          filepath.Join(root, devicesDirName),
+		invitesDir:          filepath.Join(root, invitesDirName),
+		issuerKeyFile:       filepath.Join(root, issuerKeyName),
+		issuerCertFile:      filepath.Join(root, issuerCertName),
+		node:                config.Node,
+		log:                 config.Log,
+		audit:               config.Audit,
+		pairFailureDelay:    350 * time.Millisecond,
+		pairLimiter:         newPairRateLimiter(),
+		statusLimiter:       newStatusRateLimiter(),
 	}
 	if trust.log == nil {
 		trust.log = func(string, string, string, ...string) {}
@@ -123,9 +159,11 @@ func Open(config Config) (*Trust, error) {
 			return nil, err
 		}
 	}
-	if _, err := EnsureIssuer(root); err != nil {
+	issuer, err := EnsureIssuer(root)
+	if err != nil {
 		return nil, err
 	}
+	trust.issuer = issuer
 	if err := trust.cleanupExpiredState(); err != nil {
 		return nil, err
 	}
@@ -141,6 +179,46 @@ func (service *Trust) StatusHandler() http.Handler {
 // PairHandler serves the pairing endpoint an invitation is redeemed at.
 func (service *Trust) PairHandler() http.Handler {
 	return http.HandlerFunc(service.pairHTTPHandler)
+}
+
+// ServeHTTP serves both surfaces on one listener, for an entrance that
+// terminates TLS itself and forwards everything it terminates to one address.
+// The pairing endpoint is answered first: a device redeeming an invitation has
+// no credential yet, so it cannot be admitted by the surface that checks one.
+func (service *Trust) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if rawRequestPath(request) == pairRequestPath {
+		service.pairHTTPHandler(writer, request)
+		return
+	}
+	service.statusHTTPHandler(writer, request)
+}
+
+// WithClientFingerprint wraps a handler so that the trust can tell which device
+// a request came from: it stamps the fingerprint of the client certificate the
+// entrance verified, and drops whatever the client itself sent before that. An
+// entrance that terminates mTLS itself calls this; one behind a proxy is
+// stamped by the proxy, which verifies the same certificate the same way.
+func WithClientFingerprint(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		request.Header.Del(clientFingerprintHeader)
+		if request.TLS != nil {
+			for _, chain := range request.TLS.VerifiedChains {
+				if len(chain) == 0 {
+					continue
+				}
+				request.Header.Set(clientFingerprintHeader, CertificateFingerprint(chain[0]))
+				break
+			}
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+// Issuer is the certificate every device credential chains to: an entrance that
+// terminates mTLS itself verifies the certificates its clients present against
+// it.
+func (service *Trust) Issuer() *x509.Certificate {
+	return service.issuer
 }
 
 // IssuerCertPath is where a gateway keeps the device CA certificate.

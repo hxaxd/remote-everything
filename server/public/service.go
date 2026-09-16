@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/logline"
 )
 
 // publicService is the public entrance: its state, the device trust that guards
@@ -48,8 +49,8 @@ func openPublicService(root string) (*publicService, error) {
 		return nil, err
 	}
 	trust, err := devicecore.Open(devicecore.Config{
-		Root: paths.root, InstallationID: state.InstallationID, Node: gateway,
-		Log: logLine, Audit: auditLine,
+		Root: paths.root, InstallationID: state.InstallationID, Mode: "public", Node: gateway,
+		Log: logline.Log, Audit: logline.Audit,
 	})
 	if err != nil {
 		return nil, err

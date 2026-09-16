@@ -1,104 +1,80 @@
 package main
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
-const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | certificate renew --state ABSOLUTE_PATH --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH"
+const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST [--valid-days DAYS] | certificate renew --state ABSOLUTE_PATH [--valid-days DAYS] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | revoke FINGERPRINT | invite --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
 
 func main() {
-	if len(os.Args) >= 2 && os.Args[1] == "init" {
-		if err := runLANInit(os.Args[2:], os.Stdout); err != nil {
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "init" {
+		if err := runLANInit(args[1:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "ports" && os.Args[2] == "repair" {
+	if len(args) > 0 && (args[0] == "serve" || args[0] == "device") {
+		flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		stateRoot := flags.String("state", "", "")
+		if flags.Parse(args[1:]) == nil && filepath.IsAbs(*stateRoot) {
+			service, openErr := openLANService(*stateRoot)
+			if openErr != nil {
+				fmt.Fprintln(os.Stderr, openErr)
+				os.Exit(1)
+			}
+			if args[0] == "serve" && flags.NArg() == 0 {
+				if err := service.serveGateway(); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				return
+			}
+			if args[0] == "device" {
+				if err := service.trust.RunCLI(flags.Args(), os.Stdout); err != nil {
+					fmt.Fprintln(os.Stderr, err)
+					os.Exit(1)
+				}
+				return
+			}
+		}
+	}
+	if len(args) > 1 && args[0] == "ports" && args[1] == "repair" {
 		flags := flag.NewFlagSet("ports repair", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		stateRoot := flags.String("state", "", "")
-		if flags.Parse(os.Args[3:]) != nil || flags.NArg() != 0 {
-			fmt.Fprintln(os.Stderr, lanUsage)
-			os.Exit(64)
+		if flags.Parse(args[2:]) == nil && flags.NArg() == 0 {
+			if result, err := repairLANPorts(*stateRoot); err == nil {
+				_ = json.NewEncoder(os.Stdout).Encode(result)
+				return
+			} else {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 		}
-		result, err := repairLANPorts(*stateRoot)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		_ = json.NewEncoder(os.Stdout).Encode(result)
-		return
 	}
-	if len(os.Args) >= 3 && os.Args[1] == "certificate" && os.Args[2] == "renew" {
+	if len(args) > 1 && args[0] == "certificate" && args[1] == "renew" {
 		flags := flag.NewFlagSet("certificate renew", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		stateRoot := flags.String("state", "", "")
-		name := flags.String("name", "", "")
 		validDays := flags.Int("valid-days", 825, "")
-		qrFile := flags.String("qr", "", "")
-		if flags.Parse(os.Args[3:]) != nil || flags.NArg() != 0 {
-			fmt.Fprintln(os.Stderr, lanUsage)
-			os.Exit(64)
+		if flags.Parse(args[2:]) == nil && flags.NArg() == 0 {
+			if result, err := renewLANCertificate(*stateRoot, *validDays); err == nil {
+				_ = json.NewEncoder(os.Stdout).Encode(result)
+				return
+			} else {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
 		}
-		result, err := renewLANCertificate(*stateRoot, *validDays, *name, *qrFile)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		_ = json.NewEncoder(os.Stdout).Encode(result)
-		return
 	}
-	if len(os.Args) < 2 || os.Args[1] != "serve" {
-		fmt.Fprintln(os.Stderr, lanUsage)
-		os.Exit(64)
-	}
-	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	stateRoot := flags.String("state", "", "")
-	if flags.Parse(os.Args[2:]) != nil || flags.NArg() != 0 || !filepath.IsAbs(*stateRoot) {
-		fmt.Fprintln(os.Stderr, lanUsage)
-		os.Exit(64)
-	}
-	root := filepath.Clean(*stateRoot)
-	lan, err := loadLANState(root)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "LAN state unavailable")
-		os.Exit(1)
-	}
-	token, err := gatewaycore.ReadControlToken(root)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "control token unavailable")
-		os.Exit(1)
-	}
-	handler, err := gatewaycore.New("http://"+lan.LAN.NodeAddress, token)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	serveHandler := lanAccessHandler(lan.LAN.AccessToken, handler)
-	certificate, err := tls.LoadX509KeyPair(filepath.Join(root, lan.LAN.CertificateFile), filepath.Join(root, lan.LAN.PrivateKeyFile))
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "LAN TLS material unavailable")
-		os.Exit(1)
-	}
-	listenAddress, err := lan.listener()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "LAN state is missing its listener")
-		os.Exit(1)
-	}
-	server := gatewaycore.NewServer(listenAddress, serveHandler)
-	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
-	if err := server.ListenAndServeTLS("", ""); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+	fmt.Fprintln(os.Stderr, lanUsage)
+	os.Exit(64)
 }

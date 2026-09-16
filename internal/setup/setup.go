@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	hex64        = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	invitation   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
-	publicKeyPin = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
+	hex64               = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	invitationPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+	publicKeyPinPattern = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
 )
 
 func normalizeOrigin(value string) (string, error) {
@@ -32,7 +32,12 @@ func normalizeOrigin(value string) (string, error) {
 	return "https://" + parsed.Host, nil
 }
 
-func Build(mode, installationID, name, origin, secret, keyPin, token string) (string, error) {
+// Build renders the URI a gateway delivers an invitation in. The invitation is
+// what both modes carry: it is the secret a device redeems for a credential, and
+// it is the only thing that admits one. The LAN mode carries the entrance's own
+// certificate beside it, because no authority signs that entrance and its
+// clients have nowhere else to learn which certificate to expect.
+func Build(mode, installationID, name, origin, invitation, certificateFingerprint, publicKeyPin string) (string, error) {
 	if !hex64.MatchString(installationID) {
 		return "", errors.New("invalid installation id")
 	}
@@ -44,26 +49,28 @@ func Build(mode, installationID, name, origin, secret, keyPin, token string) (st
 	if err != nil {
 		return "", err
 	}
+	if !invitationPattern.MatchString(invitation) {
+		return "", errors.New("invalid setup invitation")
+	}
 	values := url.Values{
-		"v":      {"2"},
-		"id":     {installationID},
-		"name":   {name},
-		"mode":   {mode},
-		"origin": {normalizedOrigin},
+		"v":          {"2"},
+		"id":         {installationID},
+		"name":       {name},
+		"mode":       {mode},
+		"origin":     {normalizedOrigin},
+		"invitation": {invitation},
 	}
 	switch mode {
 	case "lan":
-		if !hex64.MatchString(secret) || !publicKeyPin.MatchString(keyPin) || !hex64.MatchString(token) {
+		if !hex64.MatchString(certificateFingerprint) || !publicKeyPinPattern.MatchString(publicKeyPin) {
 			return "", errors.New("invalid LAN setup parameters")
 		}
-		values.Set("fingerprint", secret)
-		values.Set("public_key_pin", keyPin)
-		values.Set("token", token)
+		values.Set("fingerprint", certificateFingerprint)
+		values.Set("public_key_pin", publicKeyPin)
 	case "public":
-		if !invitation.MatchString(secret) || keyPin != "" || token != "" {
+		if certificateFingerprint != "" || publicKeyPin != "" {
 			return "", errors.New("invalid public setup parameters")
 		}
-		values.Set("invitation", secret)
 	default:
 		return "", errors.New("invalid setup mode")
 	}

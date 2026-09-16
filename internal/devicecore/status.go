@@ -37,15 +37,30 @@ func (service *Trust) activateDevice(request *http.Request) (any, string, error)
 		if parseErr != nil || !time.Now().UTC().Before(expires) {
 			return nil, "invitation_expired", errors.New("pending device expired")
 		}
-		if record.ApprovalRequestedAt == "" {
-			record.ApprovalRequestedAt = isoUTC(time.Now())
-			if err := service.writeDeviceRecord(record); err != nil {
-				return nil, "activation_failed", err
+		if service.approveOnRedemption {
+			// This gateway's admission is the invitation itself: the operator who
+			// handed it over is the one who approves the device, so it asks and is
+			// granted in the same instant and there is nobody to wait for.
+			if record.ApprovedAt == "" {
+				now := isoUTC(time.Now())
+				record.ApprovalRequestedAt = now
+				record.ApprovedAt = now
+				if err := service.writeDeviceRecord(record); err != nil {
+					return nil, "activation_failed", err
+				}
+				service.audit("device approved by invitation", "fingerprint", fingerprint, "device_name", record.DeviceName)
 			}
-			service.audit("device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
-		}
-		if record.ApprovedAt == "" {
-			return nil, "approval_pending", errors.New("device approval pending")
+		} else {
+			if record.ApprovalRequestedAt == "" {
+				record.ApprovalRequestedAt = isoUTC(time.Now())
+				if err := service.writeDeviceRecord(record); err != nil {
+					return nil, "activation_failed", err
+				}
+				service.audit("device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
+			}
+			if record.ApprovedAt == "" {
+				return nil, "approval_pending", errors.New("device approval pending")
+			}
 		}
 	}
 	apps, connected := service.node.ConnectedList()

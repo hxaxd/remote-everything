@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/logline"
 )
 
 // serveGateway serves the two listeners the 443 entrance forwards to: the status
@@ -20,7 +21,7 @@ func (service *publicService) serveGateway() error {
 	stopped := make(chan error, 2)
 	start := func(name string, server *http.Server) {
 		go func() {
-			logLine(name, "info", "listening", "path", server.Addr)
+			logline.Log(name, "info", "listening", "path", server.Addr)
 			stopped <- server.ListenAndServe()
 		}()
 	}
@@ -50,7 +51,7 @@ func main() {
 			}
 			if args[0] == "serve" && flags.NArg() == 0 {
 				if err := service.serveGateway(); err != nil {
-					logLine("gateway", "error", "server stopped", "code", err.Error())
+					logline.Log("gateway", "error", "server stopped", "code", err.Error())
 					os.Exit(1)
 				}
 				return

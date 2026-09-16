@@ -123,6 +123,25 @@ func (service *Trust) issueInvitation(ttl time.Duration, name, origin, qrFile st
 	return service.issueInvitationReplacing(ttl, name, origin, qrFile, "", output)
 }
 
+// setupURI renders the URI an invitation is delivered in. The gateway renders
+// it because it describes the gateway: which certificate its clients must
+// expect is a property of the entrance, not of the invitation.
+func (service *Trust) setupURI(name, origin, invitation string) (string, error) {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		origin = service.origin
+	}
+	if origin == "" {
+		return "", errors.New("the invitation needs an origin")
+	}
+	fingerprint, keyPin := "", ""
+	if service.certificate != nil {
+		fingerprint = CertificateFingerprint(service.certificate)
+		keyPin = PublicKeyPin(service.certificate)
+	}
+	return setupcodec.Build(service.mode, service.installationID, name, origin, invitation, fingerprint, keyPin)
+}
+
 func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, qrFile, replaces string, output io.Writer) error {
 	if err := service.cleanupExpiredState(); err != nil {
 		return err
@@ -140,7 +159,7 @@ func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, 
 		Schema: recordSchema, TokenHash: invitationHash(token),
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := setupcodec.Build("public", service.installationID, name, origin, token, "", "")
+	setupURI, err := service.setupURI(name, origin, token)
 	if err != nil {
 		return err
 	}

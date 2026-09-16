@@ -36,7 +36,7 @@ func TestLoadIssuerRejectsTamperedSelfSignature(t *testing.T) {
 func TestOpenCreatesTheTrustAndRefusesHalfAnIdentity(t *testing.T) {
 	root := t.TempDir()
 	node := newNodeStub(t)
-	trust, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Node: node})
+	trust, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "public", Node: node})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,5 +52,19 @@ func TestOpenCreatesTheTrustAndRefusesHalfAnIdentity(t *testing.T) {
 	// A gateway without an installation id has nothing to bind devices to.
 	if _, err := Open(Config{Root: root, Node: node}); err == nil {
 		t.Fatal("a trust without an installation id was opened")
+	}
+	// The mode is the admission model, and it has to come with what it needs.
+	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Node: node}); err == nil {
+		t.Fatal("a trust without an admission mode was opened")
+	}
+	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "lan", Node: node}); err == nil {
+		t.Fatal("a LAN trust without the certificate its clients pin was opened")
+	}
+	entranceCertificate, err := EnsureIssuer(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "public", Certificate: entranceCertificate, Node: node}); err == nil {
+		t.Fatal("a public trust was given a certificate of its own")
 	}
 }

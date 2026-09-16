@@ -44,7 +44,7 @@ func newNodeStub(t *testing.T) *gatewaycore.Gateway {
 func setupPublicTest(t *testing.T) *Trust {
 	t.Helper()
 	trust, err := Open(Config{
-		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Node: newNodeStub(t),
+		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Mode: "public", Node: newNodeStub(t),
 	})
 	if err != nil {
 		t.Fatal(err)

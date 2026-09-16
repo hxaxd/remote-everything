@@ -116,11 +116,14 @@ func TestInitializeLAN(t *testing.T) {
 	if repairedOrigin.Port() == "" || repaired.ListenAddress != "0.0.0.0:"+repairedOrigin.Port() {
 		t.Fatalf("repaired origin does not match listen address: %+v", repaired)
 	}
-	renewed, err := renewLANCertificate(root, 60, "Test PC", "")
+	renewed, err := renewLANCertificate(root, 60)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if renewed.InstallationID != first.InstallationID || renewed.GatewayOrigin != repaired.GatewayOrigin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.SetupURI == "" {
+	// Renewal rotates the certificate clients pinned without touching the identity
+	// the node bound, and it hands out no invitation: a client that has to be told
+	// about the new certificate is told by a new invitation, not by init.
+	if renewed.InstallationID != first.InstallationID || renewed.GatewayOrigin != repaired.GatewayOrigin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.PublicKeyPin == first.PublicKeyPin {
 		t.Fatalf("LAN renewal changed installation or did not rotate trust: %+v", renewed)
 	}
 	afterRenewal, err := loadLANState(root)
