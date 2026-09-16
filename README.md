@@ -40,7 +40,8 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 |---|---|
 | 移动客户端 | Android · iOS · HarmonyOS |
 | 电脑节点 | Windows · Linux · macOS |
-| 访问形态 | LAN / 远程组网 · Linux 公网网关 |
+| LAN 入口（同网 / 已有组网） | Windows · Linux · macOS |
+| 公网网关 | 仅 Linux |
 | 已适配应用 | DSH（DeepSeek Harness）· SillyTavern（酒馆） |
 | 多电脑 | 每台电脑独立实例，客户端多 Profile 切换 |
 
