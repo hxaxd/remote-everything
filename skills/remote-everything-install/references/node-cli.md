@@ -17,7 +17,7 @@ remote-everything-control app remove --state PATH ID
 
 `init` 只创建节点身份（随机 `node_id`、loopback `listen_address`、空注册表与日志目录），不产生任何网关绑定；`serve` 不接受端口参数。
 
-网关通过 `binding add` 绑定到节点：bootstrap 目录由网关侧生成，节点严格校验证书链、客户端私钥、令牌和 manifest，材料写入 `bindings/<installation_id>/` 子目录（控制令牌、FRPS token、隧道 CA 与客户端证书各就各位）。重复添加同一 `installation_id` 幂等；已有材料与 bundle 不一致时报错，不覆盖成另一个安装。一个节点可绑定多个网关（如 LAN 入口 + 公网网关），控制接口接受任一绑定的控制令牌。绑定的增删对运行中的 `serve` 立即生效，无需重启。LAN 入口在自身 `init` 时自动建立绑定，无需手动 `binding add`。`binding remove` 删除绑定及其材料，`binding list` 列出现有绑定。
+网关通过 `binding add` 绑定到节点：bootstrap 目录由网关侧生成，节点校验 manifest 与令牌格式，把控制令牌写入 `bindings/<installation_id>/` 子目录。一个绑定只含身份——安装 ID 与控制令牌——节点不接收也不保管任何证书或隧道材料；网关自己拥有的一切留在网关侧，节点不思考它。重复添加同一 `installation_id` 幂等；同一安装换了控制令牌时报错，不覆盖成另一个安装。一个节点可绑定多个网关（如 LAN 入口 + 公网网关），控制接口接受任一绑定的控制令牌。绑定的增删对运行中的 `serve` 立即生效，无需重启。LAN 入口在自身 `init` 时自动建立绑定，无需手动 `binding add`。`binding remove` 删除绑定及其令牌，`binding list` 列出现有绑定。
 
 `init` 输出 `ok`、`state`、`node_id`、`listen_address`；`binding add` 另输出 `installation_id`。
 

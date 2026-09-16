@@ -21,15 +21,13 @@ import (
 
 var validToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-// GatewayBinding represents one gateway-to-node relationship.
-// All context for a binding lives in its own subdirectory under bindings/.
+// GatewayBinding is one gateway as the node knows it: the installation identity
+// it is bound by and the control token it authenticates with. Everything else a
+// gateway owns — its certificates, its tunnel — stays on the gateway side.
+// Each binding keeps its own subdirectory under bindings/.
 type GatewayBinding struct {
 	InstallationID   string `json:"installation_id"`
 	ControlTokenFile string `json:"control_token_file"`
-	FRPSTokenFile    string `json:"frps_token_file,omitempty"`
-	CACertFile       string `json:"ca_cert_file,omitempty"`
-	ClientCertFile   string `json:"client_cert_file,omitempty"`
-	ClientKeyFile    string `json:"client_key_file,omitempty"`
 }
 
 type State struct {
@@ -51,7 +49,7 @@ func writeBootstrapFile(path string, contents []byte, mode os.FileMode) error {
 	existing, err := os.ReadFile(path)
 	if err == nil {
 		if string(existing) != string(contents) {
-			return errors.New("existing tunnel material does not match bootstrap")
+			return errors.New("existing binding material does not match bootstrap")
 		}
 		return nil
 	}
@@ -235,10 +233,10 @@ func Initialize(root string) (BindingResult, error) {
 	}, nil
 }
 
-// AddBinding reads a bootstrap bundle and registers a gateway binding.
-// Re-adding the same installation is idempotent: writeBootstrapFile rejects
-// existing materials that differ from the bundle, and identical materials
-// leave every file and the state entry unchanged.
+// AddBinding reads an identity bundle and registers a gateway binding.
+// Re-adding the same installation is idempotent: writeBootstrapFile rejects an
+// existing token file that differs from the bundle, and an identical token
+// leaves both the file and the state entry unchanged.
 func AddBinding(root, bootstrapRoot string) (BindingResult, error) {
 	bundle, err := deploymentbootstrap.ReadNodeBundle(bootstrapRoot)
 	if err != nil {
@@ -256,33 +254,12 @@ func AddBinding(root, bootstrapRoot string) (BindingResult, error) {
 	if err := os.MkdirAll(bindingDir, 0o700); err != nil {
 		return BindingResult{}, err
 	}
-	fingerprint, err := deploymentbootstrap.Fingerprint(bundle.ClientCert)
-	if err != nil {
-		return BindingResult{}, err
-	}
 	binding := GatewayBinding{
 		InstallationID:   bundle.InstallationID,
 		ControlTokenFile: filepath.Join(bindingDir, "control-token"),
-		FRPSTokenFile:    filepath.Join(bindingDir, deploymentbootstrap.FRPSTokenName),
-		CACertFile:       filepath.Join(bindingDir, deploymentbootstrap.TunnelCACertName),
-		ClientCertFile:   filepath.Join(bindingDir, "tunnel-client-"+fingerprint+".crt.pem"),
-		ClientKeyFile:    filepath.Join(bindingDir, "tunnel-client-"+fingerprint+".key.pem"),
 	}
-	files := []struct {
-		path     string
-		contents []byte
-		mode     os.FileMode
-	}{
-		{binding.ControlTokenFile, []byte(bundle.ControlToken + "\n"), 0o600},
-		{binding.FRPSTokenFile, []byte(bundle.FRPSToken + "\n"), 0o600},
-		{binding.CACertFile, bundle.CACertificate, 0o644},
-		{binding.ClientCertFile, bundle.ClientCert, 0o644},
-		{binding.ClientKeyFile, bundle.ClientKey, 0o600},
-	}
-	for _, f := range files {
-		if err := writeBootstrapFile(f.path, f.contents, f.mode); err != nil {
-			return BindingResult{}, err
-		}
+	if err := writeBootstrapFile(binding.ControlTokenFile, []byte(bundle.ControlToken+"\n"), 0o600); err != nil {
+		return BindingResult{}, err
 	}
 	found := false
 	for i, b := range state.Bindings {

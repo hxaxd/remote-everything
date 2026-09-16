@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/pem"
 	"os"
 	"path/filepath"
@@ -46,42 +47,62 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil || strings.TrimSpace(string(nodeToken)) != bundle.ControlToken {
 		t.Fatalf("node did not import gateway control token: %v", err)
 	}
-	for _, path := range []string{binding.FRPSTokenFile, binding.CACertFile, binding.ClientCertFile, binding.ClientKeyFile} {
+	// The node is bound by identity alone: the tunnel material stays with the
+	// gateway that owns the tunnel, and none of it travels in the node bundle.
+	bindingEntries, err := os.ReadDir(filepath.Join(nodeRoot, "bindings", first.InstallationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindingEntries) != 1 || bindingEntries[0].Name() != "control-token" {
+		t.Fatalf("node binding holds %v, want only control-token", bindingEntries)
+	}
+	for _, path := range []string{first.TunnelCAFile, first.FRPSTokenFile, first.TunnelClientCert, first.TunnelClientKey} {
 		if _, err := os.Stat(path); err != nil {
-			t.Fatalf("node did not import tunnel material %s: %v", path, err)
+			t.Fatalf("gateway does not hold its own tunnel material %s: %v", path, err)
+		}
+		if _, err := os.Stat(filepath.Join(bundleRoot, filepath.Base(path))); !os.IsNotExist(err) {
+			t.Fatalf("tunnel material %s travelled in the node bundle: %v", filepath.Base(path), err)
 		}
 	}
-	oldClientCertificate, err := os.ReadFile(binding.ClientCertFile)
+	clientCertificate, err := os.ReadFile(first.TunnelClientCert)
 	if err != nil {
 		t.Fatal(err)
 	}
-	renewedBundleRoot := filepath.Join(t.TempDir(), "renewed-bundle")
+	tunnelCA, err := os.ReadFile(first.TunnelCAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := initializePublicState(root, bundleRoot)
+	if err != nil || second.InstallationID != first.InstallationID || second.StatusListen != first.StatusListen || second.NodeTunnelListen != first.NodeTunnelListen {
+		t.Fatalf("init is not idempotent: %+v %v", second, err)
+	}
+	reissued, err := os.ReadFile(second.TunnelClientCert)
+	if err != nil || !bytes.Equal(reissued, clientCertificate) {
+		t.Fatalf("re-running init replaced the identity a running tunnel agent authenticates with: %v", err)
+	}
 	var renewalOutput bytes.Buffer
-	if err := renewTunnelIdentity(root, renewedBundleRoot, &renewalOutput); err != nil {
+	if err := renewTunnelIdentity(root, &renewalOutput); err != nil {
 		t.Fatal(err)
 	}
-	renewedBundle, err := deploymentbootstrap.ReadNodeBundle(renewedBundleRoot)
-	if err != nil {
+	var renewal tunnelRenewResult
+	if err := json.Unmarshal(renewalOutput.Bytes(), &renewal); err != nil {
 		t.Fatal(err)
 	}
-	if bytes.Equal(renewedBundle.ClientCert, bundle.ClientCert) || !bytes.Equal(renewedBundle.CACertificate, bundle.CACertificate) || renewedBundle.FRPSToken != bundle.FRPSToken {
-		t.Fatal("tunnel renewal did not rotate only the client identity")
+	if !renewal.OK || renewal.InstallationID != first.InstallationID || renewal.TunnelClientCert != first.TunnelClientCert || renewal.TunnelClientFingerprint == "" {
+		t.Fatalf("unexpected tunnel renewal result: %+v", renewal)
 	}
-	if _, err := nodecore.AddBinding(nodeRoot, renewedBundleRoot); err != nil {
-		t.Fatal(err)
+	renewedCertificate, err := os.ReadFile(renewal.TunnelClientCert)
+	if err != nil || bytes.Equal(renewedCertificate, clientCertificate) {
+		t.Fatalf("renewal did not rotate the tunnel client identity: %v", err)
 	}
-	renewedState, err := nodecore.LoadState(nodeRoot)
-	if err != nil || len(renewedState.Bindings) != 1 {
-		t.Fatalf("renewal changed the binding count: %+v %v", renewedState, err)
+	unchangedCA, err := os.ReadFile(renewal.TunnelCAFile)
+	if err != nil || !bytes.Equal(unchangedCA, tunnelCA) {
+		t.Fatalf("renewal changed the tunnel CA: %v", err)
 	}
-	renewedBinding := renewedState.Bindings[0]
-	newClientCertificate, err := os.ReadFile(renewedBinding.ClientCertFile)
-	if err != nil || renewedBinding.ClientCertFile == binding.ClientCertFile || bytes.Equal(newClientCertificate, oldClientCertificate) || !bytes.Equal(newClientCertificate, renewedBundle.ClientCert) {
-		t.Fatalf("node did not import renewed tunnel identity: %v", err)
-	}
-	unchangedOldCertificate, err := os.ReadFile(binding.ClientCertFile)
-	if err != nil || !bytes.Equal(unchangedOldCertificate, oldClientCertificate) {
-		t.Fatalf("renewal damaged the still-referenced old tunnel identity: %v", err)
+	// Renewal is gateway-side only: the node keeps the binding it already had.
+	unchangedNode, err := nodecore.LoadState(nodeRoot)
+	if err != nil || len(unchangedNode.Bindings) != 1 || unchangedNode.Bindings[0] != binding {
+		t.Fatalf("tunnel renewal changed the node binding: %+v %v", unchangedNode.Bindings, err)
 	}
 	addresses := []string{first.StatusListen, first.PairingListen, first.FRPSListen, first.NodeTunnelListen}
 	seen := map[string]bool{}
@@ -104,10 +125,6 @@ func TestInitializePublicState(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, obsolete)); !os.IsNotExist(err) {
 			t.Fatalf("obsolete state was created: %s", obsolete)
 		}
-	}
-	second, err := initializePublicState(root, bundleRoot)
-	if err != nil || second.InstallationID != first.InstallationID || second.StatusListen != first.StatusListen || second.NodeTunnelListen != first.NodeTunnelListen {
-		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}
 	var output bytes.Buffer
 	if err := repairPublicPorts(root, &output); err != nil {

@@ -36,16 +36,19 @@ const (
 
 var hex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+// Manifest describes the identity bundle a gateway hands to a node. It carries
+// the installation identity and the control token and nothing else: a node
+// knows its gateways by identity alone, and everything else a gateway owns —
+// its certificates, its tunnel — stays on the gateway side.
 type Manifest struct {
-	Schema              int    `json:"schema"`
-	InstallationID      string `json:"installation_id"`
-	ControlToken        string `json:"control_token_file"`
-	FRPSToken           string `json:"frps_token_file"`
-	TunnelCACertificate string `json:"tunnel_ca_certificate_file"`
-	TunnelClientCert    string `json:"tunnel_client_certificate_file"`
-	TunnelClientKey     string `json:"tunnel_client_key_file"`
+	Schema         int    `json:"schema"`
+	InstallationID string `json:"installation_id"`
+	ControlToken   string `json:"control_token_file"`
 }
 
+// GatewayMaterial is the tunnel material a gateway owns: the token it
+// authenticates to the tunnel server with and the tunnel CA it issues client
+// identities from. None of it is delivered to a node.
 type GatewayMaterial struct {
 	InstallationID string
 	ControlToken   string
@@ -57,13 +60,17 @@ type GatewayMaterial struct {
 	CAKeyFile      string
 }
 
+// TunnelClientIdentity is the certificate and key the tunnel's local agent
+// authenticates with. It lives on the gateway side; the node never reads it.
+type TunnelClientIdentity struct {
+	CertificateFile string
+	KeyFile         string
+	Fingerprint     string
+}
+
 type NodeBundle struct {
 	InstallationID string
 	ControlToken   string
-	FRPSToken      string
-	CACertificate  []byte
-	ClientCert     []byte
-	ClientKey      []byte
 }
 
 func randomHex(size int) (string, error) {
@@ -235,37 +242,88 @@ func EnsureGatewayMaterial(root, installationID, controlToken string) (GatewayMa
 	return material, nil
 }
 
-func WriteNodeBundle(root string, material GatewayMaterial) error {
+func tunnelIdentityRoot(root string, material GatewayMaterial) (string, error) {
 	if !filepath.IsAbs(root) {
-		return errors.New("bootstrap output path must be absolute")
+		return "", errors.New("tunnel identity output path must be absolute")
 	}
-	root = filepath.Clean(root)
-	if _, err := os.Stat(filepath.Join(root, ManifestName)); err == nil {
-		existing, readErr := ReadNodeBundle(root)
-		if readErr != nil {
-			return readErr
+	if material.CACertificate == nil || material.CAKey == nil {
+		return "", errors.New("tunnel CA is required to issue a client identity")
+	}
+	return filepath.Clean(root), nil
+}
+
+// validTunnelClient reports whether a certificate is a current client identity
+// issued by this tunnel CA.
+func validTunnelClient(certificate *x509.Certificate, material GatewayMaterial, now time.Time) bool {
+	if certificate.IsCA || certificate.Subject.CommonName != "remote-everything-tunnel-"+material.InstallationID ||
+		certificate.KeyUsage&x509.KeyUsageDigitalSignature == 0 ||
+		now.Before(certificate.NotBefore) || now.After(certificate.NotAfter) {
+		return false
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(material.CACertificate)
+	_, err := certificate.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	return err == nil
+}
+
+// EnsureTunnelClientIdentity returns the gateway's tunnel client identity,
+// issuing one only when the gateway does not have it yet. It never rotates an
+// identity that already exists: a tunnel agent already running has to keep
+// authenticating with the files it was started with.
+func EnsureTunnelClientIdentity(root string, material GatewayMaterial) (TunnelClientIdentity, error) {
+	root, err := tunnelIdentityRoot(root, material)
+	if err != nil {
+		return TunnelClientIdentity{}, err
+	}
+	identity := TunnelClientIdentity{
+		CertificateFile: filepath.Join(root, TunnelClientCertName),
+		KeyFile:         filepath.Join(root, TunnelClientKeyName),
+	}
+	certPEM, certErr := os.ReadFile(identity.CertificateFile)
+	keyPEM, keyErr := os.ReadFile(identity.KeyFile)
+	if certErr == nil || keyErr == nil {
+		if certErr != nil || keyErr != nil {
+			return TunnelClientIdentity{}, errors.New("incomplete tunnel client identity")
 		}
-		if existing.InstallationID != material.InstallationID || existing.ControlToken != material.ControlToken || existing.FRPSToken != material.FRPSToken {
-			return errors.New("existing node bootstrap does not match gateway")
+		certificate, err := parseCertificate(certPEM)
+		if err != nil {
+			return TunnelClientIdentity{}, err
 		}
-		existingCA, parseErr := parseCertificate(existing.CACertificate)
-		if parseErr != nil || !bytes.Equal(existingCA.Raw, material.CACertificate.Raw) {
-			return errors.New("existing node bootstrap uses a different tunnel CA")
+		key, err := parsePrivateKey(keyPEM)
+		if err != nil {
+			return TunnelClientIdentity{}, err
 		}
-		return nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		if !publicKeysMatch(certificate, key) || !validTunnelClient(certificate, material, time.Now()) {
+			return TunnelClientIdentity{}, errors.New("tunnel client identity does not match the tunnel CA")
+		}
+		identity.Fingerprint = fingerprint(certificate.Raw)
+		return identity, nil
+	}
+	if !errors.Is(certErr, os.ErrNotExist) || !errors.Is(keyErr, os.ErrNotExist) {
+		return TunnelClientIdentity{}, errors.New("cannot read tunnel client identity")
+	}
+	return RenewTunnelClientIdentity(root, material)
+}
+
+// RenewTunnelClientIdentity issues a fresh tunnel client identity from the same
+// tunnel CA, replacing both files. The CA is unchanged, so the identity being
+// replaced stays valid until the tunnel agent is pointed at the new files and
+// restarted.
+func RenewTunnelClientIdentity(root string, material GatewayMaterial) (TunnelClientIdentity, error) {
+	root, err := tunnelIdentityRoot(root, material)
+	if err != nil {
+		return TunnelClientIdentity{}, err
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return err
+		return TunnelClientIdentity{}, err
 	}
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		return TunnelClientIdentity{}, err
 	}
 	serial, err := serialNumber()
 	if err != nil {
-		return err
+		return TunnelClientIdentity{}, err
 	}
 	now := time.Now().UTC()
 	template := &x509.Certificate{
@@ -277,30 +335,52 @@ func WriteNodeBundle(root string, material GatewayMaterial) error {
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, material.CACertificate, &clientKey.PublicKey, material.CAKey)
 	if err != nil {
-		return err
+		return TunnelClientIdentity{}, err
 	}
-	files := map[string]struct {
-		contents []byte
-		mode     os.FileMode
-	}{
-		ControlTokenName:     {[]byte(material.ControlToken + "\n"), 0o600},
-		FRPSTokenName:        {[]byte(material.FRPSToken + "\n"), 0o600},
-		TunnelCACertName:     {pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: material.CACertificate.Raw}), 0o644},
-		TunnelClientCertName: {pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644},
+	identity := TunnelClientIdentity{
+		CertificateFile: filepath.Join(root, TunnelClientCertName),
+		KeyFile:         filepath.Join(root, TunnelClientKeyName),
+		Fingerprint:     fingerprint(der),
 	}
-	for name, file := range files {
-		if err := atomicfile.Write(filepath.Join(root, name), file.contents, file.mode); err != nil {
-			return err
+	if err := atomicfile.Write(identity.CertificateFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644); err != nil {
+		return TunnelClientIdentity{}, err
+	}
+	if err := writePrivateKey(identity.KeyFile, clientKey); err != nil {
+		return TunnelClientIdentity{}, err
+	}
+	return identity, nil
+}
+
+// WriteNodeBundle writes the identity bundle an operator carries to a node.
+// Writing the same identity twice is idempotent; a bundle that already holds
+// another identity is refused rather than overwritten.
+func WriteNodeBundle(root, installationID, controlToken string) error {
+	if !filepath.IsAbs(root) {
+		return errors.New("bootstrap output path must be absolute")
+	}
+	if !hex64.MatchString(installationID) || !hex64.MatchString(controlToken) {
+		return errors.New("invalid bootstrap identity")
+	}
+	root = filepath.Clean(root)
+	if _, err := os.Stat(filepath.Join(root, ManifestName)); err == nil {
+		existing, readErr := ReadNodeBundle(root)
+		if readErr != nil {
+			return readErr
 		}
-	}
-	if err := writePrivateKey(filepath.Join(root, TunnelClientKeyName), clientKey); err != nil {
+		if existing.InstallationID != installationID || existing.ControlToken != controlToken {
+			return errors.New("existing node bootstrap does not match gateway")
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	manifest := Manifest{
-		Schema: Schema, InstallationID: material.InstallationID,
-		ControlToken: ControlTokenName, FRPSToken: FRPSTokenName,
-		TunnelCACertificate: TunnelCACertName, TunnelClientCert: TunnelClientCertName, TunnelClientKey: TunnelClientKeyName,
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return err
 	}
+	if err := atomicfile.Write(filepath.Join(root, ControlTokenName), []byte(controlToken+"\n"), 0o600); err != nil {
+		return err
+	}
+	manifest := Manifest{Schema: Schema, InstallationID: installationID, ControlToken: ControlTokenName}
 	contents, err := json.Marshal(manifest)
 	if err != nil {
 		return err
@@ -335,63 +415,21 @@ func ReadNodeBundle(root string) (NodeBundle, error) {
 		return NodeBundle{}, err
 	}
 	if manifest.Schema != Schema || !hex64.MatchString(manifest.InstallationID) ||
-		manifest.ControlToken != ControlTokenName || manifest.FRPSToken != FRPSTokenName ||
-		manifest.TunnelCACertificate != TunnelCACertName || manifest.TunnelClientCert != TunnelClientCertName || manifest.TunnelClientKey != TunnelClientKeyName {
+		manifest.ControlToken != ControlTokenName {
 		return NodeBundle{}, errors.New("invalid bootstrap manifest")
 	}
-	read := func(name string) ([]byte, error) { return os.ReadFile(filepath.Join(root, name)) }
-	control, err := read(ControlTokenName)
+	contents, err := os.ReadFile(filepath.Join(root, ControlTokenName))
 	if err != nil {
 		return NodeBundle{}, err
 	}
-	frps, err := read(FRPSTokenName)
-	if err != nil {
-		return NodeBundle{}, err
-	}
-	bundle := NodeBundle{InstallationID: manifest.InstallationID, ControlToken: strings.TrimRight(string(control), "\r\n"), FRPSToken: strings.TrimRight(string(frps), "\r\n")}
-	if !hex64.MatchString(bundle.ControlToken) || !hex64.MatchString(bundle.FRPSToken) {
+	bundle := NodeBundle{InstallationID: manifest.InstallationID, ControlToken: strings.TrimRight(string(contents), "\r\n")}
+	if !hex64.MatchString(bundle.ControlToken) {
 		return NodeBundle{}, errors.New("invalid bootstrap token")
-	}
-	bundle.CACertificate, err = read(TunnelCACertName)
-	if err != nil {
-		return NodeBundle{}, err
-	}
-	bundle.ClientCert, err = read(TunnelClientCertName)
-	if err != nil {
-		return NodeBundle{}, err
-	}
-	bundle.ClientKey, err = read(TunnelClientKeyName)
-	if err != nil {
-		return NodeBundle{}, err
-	}
-	ca, err := parseCertificate(bundle.CACertificate)
-	if err != nil || validateTunnelCA(ca, bundle.InstallationID) != nil {
-		return NodeBundle{}, errors.New("invalid bootstrap tunnel CA")
-	}
-	client, err := parseCertificate(bundle.ClientCert)
-	if err != nil {
-		return NodeBundle{}, err
-	}
-	if client.IsCA || client.Subject.CommonName != "remote-everything-tunnel-"+bundle.InstallationID || client.KeyUsage&x509.KeyUsageDigitalSignature == 0 {
-		return NodeBundle{}, errors.New("invalid tunnel client certificate")
-	}
-	key, err := parsePrivateKey(bundle.ClientKey)
-	if err != nil || !publicKeysMatch(client, key) {
-		return NodeBundle{}, errors.New("tunnel client key does not match certificate")
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(ca)
-	if _, err := client.Verify(x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return NodeBundle{}, errors.New("tunnel client certificate is not valid for bootstrap CA")
 	}
 	return bundle, nil
 }
 
-func Fingerprint(contents []byte) (string, error) {
-	certificate, err := parseCertificate(contents)
-	if err != nil {
-		return "", err
-	}
-	value := sha256.Sum256(certificate.Raw)
-	return hex.EncodeToString(value[:]), nil
+func fingerprint(certificateDER []byte) string {
+	value := sha256.Sum256(certificateDER)
+	return hex.EncodeToString(value[:])
 }

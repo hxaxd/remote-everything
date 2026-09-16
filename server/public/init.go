@@ -37,16 +37,20 @@ type publicInitResult struct {
 	NodeBootstrap    string `json:"node_bootstrap"`
 	FRPSTokenFile    string `json:"frps_token_file"`
 	TunnelCAFile     string `json:"tunnel_ca_file"`
+	TunnelClientCert string `json:"tunnel_client_certificate_file"`
+	TunnelClientKey  string `json:"tunnel_client_key_file"`
 	DeviceIssuerDN   string `json:"device_issuer_dn"`
 	TunnelIssuerDN   string `json:"tunnel_issuer_dn"`
 }
 
 type tunnelRenewResult struct {
-	OK             bool   `json:"ok"`
-	InstallationID string `json:"installation_id"`
-	NodeBootstrap  string `json:"node_bootstrap"`
-	TunnelCAFile   string `json:"tunnel_ca_file"`
-	TunnelIssuerDN string `json:"tunnel_issuer_dn"`
+	OK                      bool   `json:"ok"`
+	InstallationID          string `json:"installation_id"`
+	TunnelCAFile            string `json:"tunnel_ca_file"`
+	TunnelClientCert        string `json:"tunnel_client_certificate_file"`
+	TunnelClientKey         string `json:"tunnel_client_key_file"`
+	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
+	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
 
 func randomHex(size int) (string, error) {
@@ -214,15 +218,20 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 			return publicInitResult{}, err
 		}
 	}
-	controlToken, err := os.ReadFile(paths.controlTokenFile)
+	controlTokenContents, err := os.ReadFile(paths.controlTokenFile)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, strings.TrimSpace(string(controlToken)))
+	controlToken := strings.TrimSpace(string(controlTokenContents))
+	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, controlToken)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	if err := deploymentbootstrap.WriteNodeBundle(nodeBootstrap, material); err != nil {
+	tunnelIdentity, err := deploymentbootstrap.EnsureTunnelClientIdentity(paths.root, material)
+	if err != nil {
+		return publicInitResult{}, err
+	}
+	if err := deploymentbootstrap.WriteNodeBundle(nodeBootstrap, state.InstallationID, controlToken); err != nil {
 		return publicInitResult{}, err
 	}
 	return publicInitResult{
@@ -231,6 +240,7 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
 		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
 		NodeBootstrap: filepath.Clean(nodeBootstrap), FRPSTokenFile: material.FRPSTokenFile, TunnelCAFile: material.CACertFile,
+		TunnelClientCert: tunnelIdentity.CertificateFile, TunnelClientKey: tunnelIdentity.KeyFile,
 		DeviceIssuerDN: deviceIssuer.Subject.String(), TunnelIssuerDN: material.CACertificate.Subject.String(),
 	}, nil
 }
@@ -250,10 +260,10 @@ func runPublicInit(parts []string, output io.Writer) error {
 	return json.NewEncoder(output).Encode(result)
 }
 
-func renewTunnelIdentity(root, nodeBootstrap string, output io.Writer) error {
-	if !filepath.IsAbs(nodeBootstrap) {
-		return errors.New("node bootstrap path must be absolute")
-	}
+// renewTunnelIdentity rotates the tunnel client identity the gateway issues.
+// The node takes no part in it: the identity the gateway is bound by does not
+// change, so renewal is entirely a gateway-side operation.
+func renewTunnelIdentity(root string, output io.Writer) error {
 	paths, err := newPublicPaths(root)
 	if err != nil {
 		return err
@@ -270,12 +280,15 @@ func renewTunnelIdentity(root, nodeBootstrap string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := deploymentbootstrap.WriteNodeBundle(nodeBootstrap, material); err != nil {
+	identity, err := deploymentbootstrap.RenewTunnelClientIdentity(paths.root, material)
+	if err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(tunnelRenewResult{
-		OK: true, InstallationID: state.InstallationID, NodeBootstrap: filepath.Clean(nodeBootstrap),
+		OK: true, InstallationID: state.InstallationID,
 		TunnelCAFile: material.CACertFile, TunnelIssuerDN: material.CACertificate.Subject.String(),
+		TunnelClientCert: identity.CertificateFile, TunnelClientKey: identity.KeyFile,
+		TunnelClientFingerprint: identity.Fingerprint,
 	})
 }
 
