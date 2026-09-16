@@ -197,9 +197,6 @@ struct AppRoot {
   }
 
   async hasUsableCredential(profile: ConnectionConfig): Promise<boolean> {
-    if (profile.mode !== ConnectionMode.PUBLIC) {
-      return true;
-    }
     try {
       if (!(await CredentialStore.hasCredential(profile.installationId))) {
         return false;

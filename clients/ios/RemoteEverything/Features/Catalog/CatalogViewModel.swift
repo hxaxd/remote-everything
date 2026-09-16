@@ -51,7 +51,6 @@ final class CatalogViewModel {
 
         // Check for pending activation recovery
         if let staged = profileStore.stagedProfile(),
-           staged.mode == .public,
            (try? identityStore.hasStagedCredential(installationId: staged.installationId)) == true {
             // Pending activation — handled by AppRoot
             activeProfile = nil
@@ -63,8 +62,8 @@ final class CatalogViewModel {
             .flatMap { selectedId in profiles.first { $0.installationId == selectedId } }
             ?? profiles.first
         if let first = selected {
-            // Verify credential exists for public profiles
-            if first.mode == .public && !KeychainStore.hasCredential(installationId: first.installationId) {
+            // A profile is usable once the credential its device was issued is here.
+            if !KeychainStore.hasCredential(installationId: first.installationId) {
                 try? await profileStore.remove(installationId: first.installationId)
                 profiles = profileStore.profiles
                 activeProfile = nil
@@ -141,7 +140,7 @@ final class CatalogViewModel {
                 url: config.appActionUrl(id: appId, action: action),
                 method: "POST",
                 identity: identity,
-                headers: config.authorizationHeaders(),
+                headers: ["Accept": "application/json"],
                 body: nil
             )
             if body.status != 200 { throw RemoteAPI.APIError.httpStatus(body.status) }
@@ -196,7 +195,7 @@ final class CatalogViewModel {
             url: config.appsUrl,
             method: "GET",
             identity: identity,
-            headers: ["Accept": "application/json"].merging(config.authorizationHeaders()) { _, new in new },
+            headers: ["Accept": "application/json"],
             body: nil
         )
         if result.status == 401 || result.status == 403 {
@@ -209,7 +208,6 @@ final class CatalogViewModel {
     }
 
     private func clientIdentity(for config: ConnectionConfig) -> ClientIdentity? {
-        guard config.mode == .public else { return nil }
         guard let identity = try? KeychainStore.loadIdentity(
             installationId: config.installationId, state: .active
         ) else { return nil }

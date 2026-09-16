@@ -38,7 +38,6 @@ export interface SetupIdentityStore {
 }
 
 export interface SetupTransport {
-  verifyCatalog(config: ConnectionConfig): Promise<void>;
   request(
     config: ConnectionConfig,
     url: string,
@@ -115,14 +114,6 @@ export class SetupState {
 // MARK: - Production Transport
 
 export class ProductionSetupTransport implements SetupTransport {
-  async verifyCatalog(config: ConnectionConfig): Promise<void> {
-    const response = await this.request(config, config.appsUrl, 'GET', null, config.authorizationHeaders(), null);
-    if (response.status !== 200) {
-      throw new Error(`目录服务返回 ${response.status}`);
-    }
-    RemoteApiDecoder.decodeCatalog(config, JSON.parse(response.body) as object);
-  }
-
   async request(
     config: ConnectionConfig,
     url: string,
@@ -159,8 +150,8 @@ export class ProductionSetupTransport implements SetupTransport {
         requestOptions.extraData = body;
       }
 
-      // mTLS client certificate for public mode
-      if (identity !== null && config.mode === ConnectionMode.PUBLIC) {
+      // The certificate a device was issued is its credential in every mode.
+      if (identity !== null) {
         requestOptions.clientCert = {
           certPath: identity.certPath,
           certType: http.CertType.P12,
@@ -318,7 +309,8 @@ export class SetupTransaction {
   }
 
   /**
-   * Recover a partially-completed public setup.
+   * Recover a partially-completed setup: the staged profile is worth keeping
+   * while the credential it pairs for survived.
    */
   async recover(): Promise<ConnectionConfig | null> {
     const staged = this.settings.stagedProfile();
@@ -332,8 +324,7 @@ export class SetupTransaction {
       profileCommitted
     );
 
-    if (staged.mode === ConnectionMode.PUBLIC &&
-        await this.identity.hasStagedCredential(staged.installationId)) {
+    if (await this.identity.hasStagedCredential(staged.installationId)) {
       return staged;
     }
 
@@ -357,11 +348,7 @@ export class SetupTransaction {
         return await this.cancelledState(setup.profile, operation);
       }
 
-      if (setup.profile.mode === ConnectionMode.LAN) {
-        return await this.connectLAN(setup.profile, operation);
-      } else {
-        return await this.pair(setup, operation);
-      }
+      return await this.pair(setup, operation);
     } finally {
       this.finishOperation(operation);
     }
@@ -487,34 +474,6 @@ export class SetupTransaction {
   }
 
   // MARK: - Private Steps
-
-  private async connectLAN(config: ConnectionConfig, operation: number): Promise<SetupState> {
-    try {
-      await this.transport.verifyCatalog(config);
-      if (!this.isOperationCurrent(operation)) {
-        return await this.cancelledState(config, operation);
-      }
-
-      await this.settings.stageProfile(config);
-      // This synchronous check is the final cancellation gate. The current path
-      // does not await between the check and entering durable finalization.
-      if (!this.isOperationCurrent(operation)) {
-        return await this.cancelledState(config, operation);
-      }
-      const committed = await this.finalizeLAN(config);
-      return SetupState.ready(committed);
-    } catch (err) {
-      if (!this.isOperationCurrent(operation)) {
-        return await this.cancelledState(config, operation);
-      }
-      await this.discardArtifacts(config);
-      return SetupState.failed(
-        config,
-        failureDetail(err as Error, '局域网连接验证失败'),
-        SetupAction.RESTART_SETUP
-      );
-    }
-  }
 
   private async pair(setup: SetupPayload, operation: number): Promise<SetupState> {
     const config = setup.profile;
@@ -643,22 +602,6 @@ export class SetupTransaction {
     return await this.activate(config, credential.pendingExpiresAt, operation);
   }
 
-  private async finalizeLAN(config: ConnectionConfig): Promise<ConnectionConfig> {
-    let committed: ConnectionConfig;
-    try {
-      committed = await this.settings.commitStagedProfile();
-    } catch (error) {
-      // A storage error after the append-only generation was renamed is a
-      // committed result, not a reason to report failure and delete staging.
-      if (!(await this.settings.isProfileCommitted(config))) {
-        throw error as Error;
-      }
-      committed = config;
-    }
-    try { await this.settings.discardStagedProfile(); } catch {}
-    return committed;
-  }
-
   private async activate(
     config: ConnectionConfig,
     pendingExpiresAt: string | null,
@@ -771,7 +714,7 @@ export class SetupTransaction {
     // of deleting the pending identity out from under promotion.
     let committed: ConnectionConfig;
     try {
-      committed = await this.finalizePublic(config);
+      committed = await this.finalize(config);
     } catch (err) {
       return SetupState.failed(
         config,
@@ -783,7 +726,7 @@ export class SetupTransaction {
     return SetupState.ready(committed);
   }
 
-  private async finalizePublic(config: ConnectionConfig): Promise<ConnectionConfig> {
+  private async finalize(config: ConnectionConfig): Promise<ConnectionConfig> {
     const alreadyCommitted = await this.settings.isProfileCommitted(config);
     await this.identity.reconcileCredentialPromotion(
       config.installationId,

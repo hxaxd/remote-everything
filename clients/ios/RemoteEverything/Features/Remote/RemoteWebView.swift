@@ -504,7 +504,7 @@ private struct WebViewContainer: UIViewRepresentable {
                 return
             }
 
-            // Client certificate (mTLS for public mode)
+            // Client certificate: the credential a paired device holds
             if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
                 if GatewaySecurityPolicy.allowsClientCertificate(
                     config: config,

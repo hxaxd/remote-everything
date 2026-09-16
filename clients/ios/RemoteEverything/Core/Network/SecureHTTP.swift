@@ -51,7 +51,7 @@ private final class GatewaySessionDelegate: NSObject, URLSessionTaskDelegate {
         }
 
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodClientCertificate {
-            guard config.mode == .public, let identity else {
+            guard let identity else {
                 completionHandler(.cancelAuthenticationChallenge, nil)
                 return
             }
@@ -111,7 +111,7 @@ enum SecureHTTP {
 
     /// Perform an HTTP request to the gateway with appropriate TLS configuration.
     /// - For LAN mode: pins the server certificate to the expected fingerprint.
-    /// - For public mode: presents mTLS client certificate + system trust.
+    /// - For the public mode: presents the device certificate + system trust.
     /// - Never follows redirects. Enforces same-origin-only requests.
     static func request(
         config: ConnectionConfig,

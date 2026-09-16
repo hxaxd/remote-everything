@@ -71,7 +71,8 @@ enum GatewaySecurityPolicy {
     }
 
     /// Determine whether to offer a client certificate for a given authentication challenge.
-    /// Only for public mode, only when identity is available, only for the gateway host/port.
+    /// A device is admitted by the certificate it was issued in every mode: what
+    /// differs between them is who signs the entrance, not who the client is.
     /// Mirrors Android's `allowsClientCertificate()`.
     static func allowsClientCertificate(
         config: ConnectionConfig,
@@ -79,7 +80,7 @@ enum GatewaySecurityPolicy {
         host: String?,
         port: Int
     ) -> Bool {
-        return config.mode == .public && identityPresent && config.isGatewayEndpoint(host: host, port: port)
+        return identityPresent && config.isGatewayEndpoint(host: host, port: port)
     }
 
     /// Determine whether a URL should open inside the WebView or be sent to the system browser.

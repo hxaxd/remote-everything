@@ -5,6 +5,7 @@ final class SetupParserTests: XCTestCase {
     private let installationId = String(repeating: "ab", count: 32)
 
     func testParsesStrictLanSetup() throws {
+        let invitation = String(repeating: "B", count: 43)
         let uri = buildURI([
             "v": "2",
             "id": installationId,
@@ -13,12 +14,13 @@ final class SetupParserTests: XCTestCase {
             "origin": "https://192.168.1.5:60001",
             "fingerprint": String(repeating: "cd", count: 32),
             "public_key_pin": String(repeating: "A", count: 43) + "=",
-            "token": String(repeating: "01", count: 32),
+            "invitation": invitation,
         ])
         let setup = try SetupParser.parse(uri)
         XCTAssertEqual(setup.profile.installationId, installationId)
         XCTAssertEqual(setup.profile.gatewayOrigin, "https://192.168.1.5:60001")
-        XCTAssertEqual(setup.invitation, "")
+        XCTAssertEqual(setup.profile.gatewayFingerprint, String(repeating: "cd", count: 32))
+        XCTAssertEqual(setup.invitation, invitation)
     }
 
     func testParsesStrictPublicSetup() throws {
@@ -45,7 +47,7 @@ final class SetupParserTests: XCTestCase {
             "origin": "http://127.0.0.1:58626",
             "fingerprint": String(repeating: "cd", count: 32),
             "public_key_pin": String(repeating: "A", count: 43) + "=",
-            "token": String(repeating: "01", count: 32),
+            "invitation": String(repeating: "B", count: 43),
         ])
         XCTAssertThrowsError(try SetupParser.parse(base))
 

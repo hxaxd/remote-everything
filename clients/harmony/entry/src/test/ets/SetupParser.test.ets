@@ -7,7 +7,7 @@ const INSTALLATION_ID = 'ab'.repeat(32);
 export default function setupParserTest() {
   describe('SetupParser', () => {
     it('parses_strict_lan_setup', DEFAULT, () => {
-      const token = '01'.repeat(32);
+      const invitation = 'B'.repeat(43);
       const uri = buildURI({
         'v': '2',
         'id': INSTALLATION_ID,
@@ -16,16 +16,14 @@ export default function setupParserTest() {
         'origin': 'https://192.168.1.5:60001',
         'fingerprint': 'cd'.repeat(32),
         'public_key_pin': 'A'.repeat(43) + '=',
-        'token': token
+        'invitation': invitation
       });
       const setup = SetupParser.parse(uri);
       expect(setup.profile.installationId).assertEqual(INSTALLATION_ID);
       expect(setup.profile.gatewayOrigin).assertEqual('https://192.168.1.5:60001');
       expect(setup.profile.mode).assertEqual(ConnectionMode.LAN);
-      expect(setup.profile.accessToken).assertEqual(token);
-      expect(setup.profile.authorizationHeaders()['Authorization'])
-        .assertEqual(`Bearer ${token}`);
-      expect(setup.invitation).assertEqual('');
+      expect(setup.profile.gatewayFingerprint).assertEqual('cd'.repeat(32));
+      expect(setup.invitation).assertEqual(invitation);
     });
 
     it('lan_token_is_required_and_public_must_omit_it', DEFAULT, () => {
@@ -40,14 +38,16 @@ export default function setupParserTest() {
       });
       expect(() => SetupParser.parse(missingToken)).assertThrowError(Error);
 
+      // A LAN entrance pins the certificate it serves itself, and a public one
+      // has nothing of its own to pin.
       expect(() => SetupParser.create(
         INSTALLATION_ID, 'PC', 'lan', 'https://192.168.1.5:60001',
-        'cd'.repeat(32), 'A'.repeat(43) + '=', 'not-hex-token'
+        'not-a-fingerprint', 'A'.repeat(43) + '='
       )).assertThrowError(Error);
 
       expect(() => SetupParser.create(
         INSTALLATION_ID, 'Public', 'public', 'https://remote.example.com',
-        '', '', '01'.repeat(32)
+        'cd'.repeat(32), 'A'.repeat(43) + '='
       )).assertThrowError(Error);
 
       const publicSetup = SetupParser.parse(buildURI({
@@ -58,24 +58,22 @@ export default function setupParserTest() {
         'origin': 'https://remote.example.com',
         'invitation': 'A'.repeat(43)
       }));
-      expect(publicSetup.profile.accessToken).assertEqual('');
-      expect(Object.keys(publicSetup.profile.authorizationHeaders()).length).assertEqual(0);
+      expect(publicSetup.profile.gatewayFingerprint).assertEqual('');
     });
 
-    it('parses_contract_valid_lan_fixture_token', DEFAULT, () => {
-      const expectedToken =
-        'abababababababababababababababababababababababababababababababab';
+    it('parses_contract_valid_lan_fixture', DEFAULT, () => {
+      const expectedInvitation = 'ab'.repeat(21) + 'a';
       const uri =
         'remote-everything://setup?v=2&id=abababababababababababababababababababababababababababababababab' +
         '&name=Home+PC&mode=lan&origin=https%3A%2F%2F192.168.1.5%3A60001' +
         '&fingerprint=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd' +
         '&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%3D' +
-        '&token=' + expectedToken;
+        '&invitation=' + expectedInvitation;
       const setup = SetupParser.parse(uri);
-      expect(setup.profile.accessToken).assertEqual(expectedToken);
-      expect(setup.profile.accessToken.length).assertEqual(64);
-      const headers = setup.profile.authorizationHeaders();
-      expect(headers['Authorization'] === `Bearer ${expectedToken}`).assertTrue();
+      expect(setup.invitation).assertEqual(expectedInvitation);
+      expect(setup.invitation.length).assertEqual(43);
+      expect(setup.profile.gatewayPublicKeyPin)
+        .assertEqual('A'.repeat(43) + '=');
     });
 
     it('parses_strict_public_setup', DEFAULT, () => {
@@ -102,7 +100,7 @@ export default function setupParserTest() {
         'origin': 'http://127.0.0.1:58626',
         'fingerprint': 'cd'.repeat(32),
         'public_key_pin': 'A'.repeat(43) + '=',
-        'token': '01'.repeat(32)
+        'invitation': 'B'.repeat(43)
       });
       expect(() => SetupParser.parse(base)).assertThrowError(Error);
 
@@ -146,7 +144,7 @@ export default function setupParserTest() {
       )).assertThrowError(Error);
       expect(() => SetupParser.create(
         INSTALLATION_ID, 'LAN', 'lan', 'https://999.1.1.1:60001',
-        'cd'.repeat(32), 'A'.repeat(43) + '=', '01'.repeat(32)
+        'cd'.repeat(32), 'A'.repeat(43) + '='
       )).assertThrowError(Error);
     });
 
@@ -157,7 +155,7 @@ export default function setupParserTest() {
         'lan',
         'https://[fd00::1]:60001',
         'cd'.repeat(32),
-        'A'.repeat(43) + '=', '01'.repeat(32)
+        'A'.repeat(43) + '='
       );
       expect(config.gatewayOrigin).assertEqual('https://[fd00::1]:60001');
       expect(config.isGatewayEndpoint('fd00::1', 60001)).assertTrue();

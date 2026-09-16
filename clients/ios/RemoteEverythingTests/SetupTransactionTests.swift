@@ -6,18 +6,24 @@ final class SetupTransactionTests: XCTestCase {
 
     // MARK: - LAN Tests
 
-    func testLANConnectionVerifiesBeforeCommitting() async throws {
+    // A LAN entrance admits devices the way the public one does: the client
+    // redeems its invitation for a credential and then activates it. Only the
+    // approval differs, and that is the server's answer to make.
+    func testLANConnectionPairsAndActivatesLikeThePublicOne() async throws {
         let store = FakeProfileStore()
+        let identityStore = FakeIdentityStore()
         let transport = FakeTransport()
-        var verifyCalled = false
-        transport.verifyCatalogHandler = { config in
-            verifyCalled = true
-            XCTAssertNil(store.committedProfile)
+        transport.requestHandler = { url, _, _ in
+            if url.contains("pair") {
+                return HTTPResult(status: 200, body: FakeTransport.pairedResponse().data(using: .utf8)!)
+            } else {
+                return HTTPResult(status: 200, body: FakeTransport.readyResponse().data(using: .utf8)!)
+            }
         }
 
         let transaction = SetupTransaction(
             settings: store,
-            identity: FakeIdentityStore(),
+            identity: identityStore,
             deviceName: "Test Device",
             transport: transport
         )
@@ -28,16 +34,18 @@ final class SetupTransactionTests: XCTestCase {
             mode: "lan",
             origin: "https://192.168.1.5:60001",
             fingerprint: String(repeating: "cd", count: 32),
-            publicKeyPin: String(repeating: "A", count: 43) + "=",
-            accessToken: String(repeating: "01", count: 32)
+            publicKeyPin: String(repeating: "A", count: 43) + "="
         )
 
-        let result = await transaction.begin(SetupPayload(profile: config, invitation: ""))
+        let result = await transaction.begin(
+            SetupPayload(profile: config, invitation: String(repeating: "B", count: 43))
+        )
         guard case .ready = result else {
             XCTFail("Expected ready, got \(result)")
             return
         }
-        XCTAssertTrue(verifyCalled)
+        XCTAssertTrue(identityStore.promoted)
+        XCTAssertFalse(identityStore.staged)
         XCTAssertNotNil(store.committedProfile)
     }
 
@@ -239,20 +247,21 @@ final class SetupTransactionTests: XCTestCase {
         let recovered = transaction.recover()
         XCTAssertNotNil(recovered)
 
-        // LAN staged profile should not be recoverable
+        // Every mode pairs for a credential, so every mode recovers the same way.
         let lanConfig = try SetupParser.create(
             installationId: installationId,
             name: "LAN",
             mode: "lan",
             origin: "https://192.168.1.5:60001",
             fingerprint: String(repeating: "cd", count: 32),
-            publicKeyPin: String(repeating: "A", count: 43) + "=",
-            accessToken: String(repeating: "01", count: 32)
+            publicKeyPin: String(repeating: "A", count: 43) + "="
         )
         store.stagedProfileValue = lanConfig
+        XCTAssertNotNil(transaction.recover())
+
+        // Without its credential the staged profile cannot be activated.
         identityStore.staged = false
-        let lanRecovered = transaction.recover()
-        XCTAssertNil(lanRecovered)
+        XCTAssertNil(transaction.recover())
     }
 }
 
@@ -309,12 +318,7 @@ final class FakeIdentityStore: SetupIdentityStore {
 }
 
 final class FakeTransport: SetupTransport {
-    var verifyCatalogHandler: ((ConnectionConfig) -> Void)?
     var requestHandler: ((String, [String: String], String?) -> HTTPResult)?
-
-    func verifyCatalog(config: ConnectionConfig) async throws {
-        verifyCatalogHandler?(config)
-    }
 
     func request(
         config: ConnectionConfig,

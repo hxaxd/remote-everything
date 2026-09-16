@@ -12,37 +12,44 @@ import org.junit.Test
 
 class SetupTransactionTest {
     private val installationId = "ab".repeat(32)
-    private val lanConfig = AppConfig.create(installationId, "LAN", "lan", "https://192.0.2.1:60000", "cd".repeat(32), "A".repeat(43) + "=", "01".repeat(32))
+    private val lanConfig = AppConfig.create(installationId, "LAN", "lan", "https://192.0.2.1:60000", "cd".repeat(32), "A".repeat(43) + "=")
+    private val lanSetup = SetupPayload(lanConfig, "B".repeat(43))
     private val publicConfig = AppConfig.create(installationId, "Public", "public", "https://remote.example.com")
     private val setup = SetupPayload(publicConfig, "A".repeat(43))
 
     @Test
-    fun recoveryReturnsOnlyAnActivatablePublicTransaction() {
+    fun recoveryReturnsAStagedTransactionWhileItsCredentialSurvived() {
         val profileStore = FakeProfileStore(publicConfig)
         val identityStore = FakeIdentityStore(staged = true)
         assertSame(publicConfig, SetupTransaction(profileStore, identityStore, "device", FakeTransport()).recover())
         assertSame(publicConfig, profileStore.staged)
 
+        // Both modes pair for a credential now, so both survive an interruption.
         profileStore.staged = lanConfig
-        assertNull(SetupTransaction(profileStore, identityStore, "device", FakeTransport()).recover())
+        assertSame(lanConfig, SetupTransaction(profileStore, identityStore, "device", FakeTransport()).recover())
+
+        // A staged profile whose credential is gone cannot be activated.
+        val lostCredential = FakeIdentityStore()
+        assertNull(SetupTransaction(profileStore, lostCredential, "device", FakeTransport()).recover())
         assertNull(profileStore.staged)
-        assertTrue(identityStore.discarded)
     }
 
+    // A LAN entrance admits devices the way the public one does: the client
+    // redeems its invitation for a credential and then activates it. Only the
+    // approval differs, and that is the server's answer to make.
     @Test
-    fun lanConnectionVerifiesBeforeCommitting() {
+    fun lanConnectionPairsAndActivatesLikeThePublicOne() {
         val profileStore = FakeProfileStore()
-        val transport = FakeTransport().apply {
-            verify = { config ->
-                assertSame(lanConfig, config)
-                assertNull(profileStore.committed)
-            }
-        }
-        val result = SetupTransaction(profileStore, FakeIdentityStore(), "device", transport)
-            .begin(SetupPayload(lanConfig, ""))
+        val identityStore = FakeIdentityStore()
+        val states = mutableListOf<SetupState>()
+        val result = SetupTransaction(profileStore, identityStore, "device", successfulTransport(identityStore, lanConfig, lanSetup.invitation))
+            .begin(lanSetup, states::add)
+
         assertTrue(result is SetupState.Ready)
+        assertEquals(listOf(SetupState.Pairing(lanConfig), SetupState.Activating(lanConfig, "2027-01-01T00:00:00Z")), states)
         assertSame(lanConfig, profileStore.committed)
         assertNull(profileStore.staged)
+        assertTrue(identityStore.promoted)
     }
 
     @Test
@@ -51,7 +58,7 @@ class SetupTransactionTest {
         val profileStore = FakeProfileStore(order = order)
         val identityStore = FakeIdentityStore(order = order)
         val states = mutableListOf<SetupState>()
-        val transport = successfulTransport(identityStore)
+        val transport = successfulTransport(identityStore, sentName = "😀".repeat(80))
         val result = SetupTransaction(profileStore, identityStore, "😀".repeat(81), transport)
             .begin(setup, states::add)
 
@@ -163,12 +170,16 @@ class SetupTransactionTest {
         assertFalse(identityStore.promoted)
     }
 
-    private fun successfulTransport(identityStore: FakeIdentityStore) = FakeTransport().apply {
+    private fun successfulTransport(
+        identityStore: FakeIdentityStore,
+        config: ConnectionConfig = publicConfig,
+        invitation: String = "A".repeat(43),
+        sentName: String = "device",
+    ) = FakeTransport().apply {
         respond = { url, headers, body ->
-            if (url == publicConfig.pairUrl) {
-                assertEquals("Invitation ${"A".repeat(43)}", headers["Authorization"])
-                val sentName = JSONObject(body!!).getString("device_name")
-                assertEquals(80, sentName.codePointCount(0, sentName.length))
+            if (url == config.pairUrl) {
+                assertEquals("Invitation $invitation", headers["Authorization"])
+                assertEquals(sentName, JSONObject(body!!).getString("device_name"))
                 paired()
             } else {
                 assertTrue(identityStore.staged)
@@ -230,9 +241,7 @@ class SetupTransactionTest {
     }
 
     private class FakeTransport : SetupTransport {
-        var verify: (ConnectionConfig) -> Unit = {}
         var respond: (String, Map<String, String>, String?) -> HttpResult = { _, _, _ -> error("unexpected request") }
-        override fun verifyCatalog(config: ConnectionConfig) = verify(config)
         override fun request(
             config: ConnectionConfig,
             url: String,
