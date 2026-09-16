@@ -16,6 +16,7 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/nodeadapter"
 )
 
 var validToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -69,6 +70,8 @@ type Node struct {
 	bindingsRoot string
 	platform     Platform
 	logMu        sync.Mutex
+	adapters     map[string]*nodeadapter.Adapter
+	adaptersMu   sync.RWMutex
 }
 
 func statePaths(root string) (*Node, error) {
@@ -344,6 +347,7 @@ func Open(root string, platform Platform) (*Node, error) {
 		return nil, err
 	}
 	node.platform = platform
+	node.adapters = map[string]*nodeadapter.Adapter{}
 	if _, err := node.loadRegistry(); err != nil {
 		return nil, err
 	}

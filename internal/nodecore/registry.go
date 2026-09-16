@@ -37,6 +37,7 @@ type AppDefinition struct {
 	StopCommand    string   `json:"stop_command"`
 	StopArgs       []string `json:"stop_arguments"`
 	WorkDir        string   `json:"workdir"`
+	Adapter        string   `json:"adapter"`
 }
 
 type Registry struct {
@@ -146,6 +147,9 @@ func (node *Node) validateRegistry(value Registry) error {
 		if app.StopArgs == nil {
 			return errors.New("application stop_arguments must be a list")
 		}
+		if len(app.Adapter) > 64*1024 {
+			return errors.New("application adapter too large")
+		}
 		seen[app.ID] = true
 	}
 	return nil
@@ -183,6 +187,11 @@ func (node *Node) readAppDefinition(path string) (AppDefinition, error) {
 	if err := decodeSingleJSON(path, &app); err != nil {
 		return AppDefinition{}, err
 	}
+	// Auto-discover adapter.js alongside definition.json
+	adapterPath := filepath.Join(filepath.Dir(path), "adapter.js")
+	if adapterData, err := os.ReadFile(adapterPath); err == nil {
+		app.Adapter = string(adapterData)
+	}
 	if err := node.validateRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{app}}); err != nil {
 		return AppDefinition{}, err
 	}
@@ -202,12 +211,53 @@ func (node *Node) findApp(id string) (AppDefinition, error) {
 	return AppDefinition{}, os.ErrNotExist
 }
 
+// listedApp keeps adapter source out of app list output: an empty shadowing
+// field with the same JSON name dominates the embedded AppDefinition.Adapter
+// and omitempty drops it. A json:"-" field cannot do this — the encoder skips
+// such fields before resolving embedding, which would promote the embedded one.
+type listedApp struct {
+	AppDefinition
+	Adapter string `json:"adapter,omitempty"`
+}
+
+type listedRegistry struct {
+	Schema int         `json:"schema"`
+	Apps   []listedApp `json:"apps"`
+}
+
 func (node *Node) listRegistry(output io.Writer) error {
 	value, err := node.loadRegistry()
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(value)
+	listed := listedRegistry{Schema: value.Schema, Apps: make([]listedApp, 0, len(value.Apps))}
+	for _, app := range value.Apps {
+		listed.Apps = append(listed.Apps, listedApp{AppDefinition: app})
+	}
+	return json.NewEncoder(output).Encode(listed)
+}
+
+// showAdapter writes the registered adapter source for one app, the explicit
+// way to read it from the CLI since app list keeps it out of its output.
+func (node *Node) showAdapter(id string, output io.Writer) error {
+	app, err := node.findApp(id)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("application not found")
+		}
+		return err
+	}
+	if app.Adapter == "" {
+		return errors.New("application has no adapter")
+	}
+	if _, err := io.WriteString(output, app.Adapter); err != nil {
+		return err
+	}
+	if !strings.HasSuffix(app.Adapter, "\n") {
+		_, err := io.WriteString(output, "\n")
+		return err
+	}
+	return nil
 }
 
 func (node *Node) setApp(definition string, output io.Writer) error {
@@ -264,6 +314,13 @@ func (node *Node) removeApp(id string, output io.Writer) error {
 	if err := os.Remove(node.enabledPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	// Clean up adapter if present
+	node.adaptersMu.Lock()
+	if adapter := node.adapters[id]; adapter != nil {
+		adapter.OnStop(id)
+		delete(node.adapters, id)
+	}
+	node.adaptersMu.Unlock()
 	return json.NewEncoder(output).Encode(AppMutationResult{OK: true, Action: "remove", ID: id, Changed: changed})
 }
 
