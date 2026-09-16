@@ -132,7 +132,7 @@ class RenderTests(unittest.TestCase):
             "public_host": "remote.example.com",
             "tunnel_client_cert": "/state/client.pem", "tunnel_client_key": "/state/client-key.pem",
             "frps_token_file": "/state/frps-token", "frpc_log": "/state/frpc.log",
-            "installation_id": INSTALLATION_ID, "node_port": 58627, "node_tunnel_port": 58628,
+            "installation_id": INSTALLATION_ID, "node_host": "192.168.1.10", "node_port": 58627, "node_tunnel_port": 58628,
         }
         result, _, _ = self.render("frpc", frpc)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -140,6 +140,9 @@ class RenderTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         result, _, _ = self.render("frpc", {**frpc, "tunnel_client_key": "client-key.pem"})
         self.assertNotEqual(result.returncode, 0)
+        for host in ("0.0.0.0", "remote.example.com", "::1"):
+            result, _, _ = self.render("frpc", {**frpc, "node_host": host})
+            self.assertNotEqual(result.returncode, 0, host)
 
     def test_renderer_accepts_agent_values_on_standard_input(self):
         values = {"frps_port": 58630, "frps_token_file": "/state/frps-token", "frps_log": "/state/frps.log"}

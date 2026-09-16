@@ -17,13 +17,15 @@ class DeploymentContractTests(unittest.TestCase):
         replacements = {
             "PUBLIC_HOST": "remote.example.com", "TUNNEL_CLIENT_CERT": "/client.pem",
             "TUNNEL_CLIENT_KEY": "/client.key", "FRPS_TOKEN_FILE": "/token", "FRPC_LOG": "/frpc.log",
-            "INSTALLATION_ID": "a" * 64, "NODE_PORT": "5001", "NODE_TUNNEL_PORT": "5002",
+            "INSTALLATION_ID": "a" * 64, "NODE_HOST": "192.168.1.10", "NODE_PORT": "5001", "NODE_TUNNEL_PORT": "5002",
         }
         for key, value in replacements.items(): client = client.replace("{{" + key + "}}", value)
         server = (ASSETS / "frps.toml.tmpl").read_text(encoding="utf-8").replace("{{FRPS_PORT}}", "5003").replace("{{FRPS_TOKEN_FILE}}", "/token").replace("{{FRPS_LOG}}", "/frps.log")
         validator.validate_frp_contract(client, server)
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client.replace("transport.poolCount = 32", "transport.poolCount = 15"), server)
+        with self.assertRaises(ValueError):
+            validator.validate_frp_contract(client.replace('localIP = "192.168.1.10"', 'localIP = "0.0.0.0"'), server)
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client, server.replace("transport.maxPoolCount = 32", "transport.maxPoolCount = 15"))
         with self.assertRaises(ValueError):

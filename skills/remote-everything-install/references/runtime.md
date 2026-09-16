@@ -6,12 +6,14 @@
 .runtime/
 ├── bin/
 ├── config/
-├── state/node/、state/lan/ 或 state/server/
+├── state/node/、state/lan/、state/server/ 或 state/frpc/<installation_id>/
 ├── logs/
 └── runtime.json
 ```
 
-每个服务使用自己的状态目录，目录路径记在 `runtime.json` 里该组件的 `arguments`（`--state`）与 `out` 位置，没有任何服务读写另一个服务的状态目录。节点与入口可以在同一台机器上，也可以在同一局域网内的不同机器上；不在同一台机器时两台机器各有自己的 `.runtime/`。
+每个服务使用自己的状态目录，目录路径记在 `runtime.json` 里该组件的 `arguments` 与配置位置，没有任何服务读写另一个服务的状态目录。节点与入口可以在同一台机器上，也可以在同一局域网内的不同机器上；不在同一台机器时两台机器各有自己的 `.runtime/`。
+
+隧道代理（`frpc`）也按安装分开：一条隧道一个进程、一份配置、一个 `state/frpc/<installation_id>/` 材料目录，因此一个节点绑定多个网关时，`frpc` 在运行记录里是多条组件。它读的 token 与客户端身份由网关交付，见 [server-cli.md](server-cli.md)。
 
 `runtime.json` 使用严格 schema 1。用 `python skills/remote-everything-install/scripts/runtime.py init ...` 创建；用 `put` 更新组件、依赖或集成；用 `verify` 写入验收结果；用 `validate` 检查。工具拒绝旧/未知字段并原子替换文件。
 
