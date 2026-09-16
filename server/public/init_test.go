@@ -18,7 +18,7 @@ import (
 func TestInitializePublicState(t *testing.T) {
 	root := t.TempDir()
 	bundleRoot := filepath.Join(t.TempDir(), "bundle")
-	first, err := initializePublicState(root, bundleRoot)
+	first, err := initializePublicState(root, bundleRoot, "https://remote.example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := initializePublicState(root, bundleRoot)
+	second, err := initializePublicState(root, bundleRoot, "https://remote.example.com")
 	if err != nil || second.InstallationID != first.InstallationID || second.StatusListen != first.StatusListen || second.NodeTunnelListen != first.NodeTunnelListen {
 		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}

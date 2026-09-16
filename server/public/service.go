@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+
 	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
@@ -12,6 +14,25 @@ type publicService struct {
 	paths  publicPaths
 	config gatewaycore.State
 	trust  *devicecore.Trust
+}
+
+// State is what this gateway recorded about itself.
+func (service *publicService) State() gatewaycore.State {
+	return service.config
+}
+
+// Trust is how this gateway admits devices.
+func (service *publicService) Trust() *devicecore.Trust {
+	return service.trust
+}
+
+// Servers is what this gateway answers on. It terminates nothing itself: the 443
+// entrance authenticates its clients and forwards to these two addresses, which
+// is why the set of surfaces it serves is what a client can observe about it.
+func (service *publicService) Servers() ([]*http.Server, error) {
+	status := gatewaycore.NewServer(service.listen("status"), service.trust.StatusHandler())
+	pairing := gatewaycore.NewServer(service.listen("pairing"), service.trust.PairHandler())
+	return []*http.Server{status, pairing}, nil
 }
 
 // listen returns the address of a named listener. The state is validated when
@@ -49,7 +70,8 @@ func openPublicService(root string) (*publicService, error) {
 		return nil, err
 	}
 	trust, err := devicecore.Open(devicecore.Config{
-		Root: paths.root, InstallationID: state.InstallationID, Mode: "public", Node: gateway,
+		Root: paths.root, InstallationID: state.InstallationID, Mode: "public",
+		Origin: state.Origin, Node: gateway,
 		Log: logline.Log, Audit: logline.Audit,
 	})
 	if err != nil {

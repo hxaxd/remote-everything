@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/hxaxd/remote-everything/internal/jsonfile"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
@@ -29,12 +32,32 @@ type ListenerPreference struct {
 }
 
 // State is what every gateway records about itself: the identity a node binds it
-// by and the listeners it serves. A gateway whose trust material needs more than
-// that keeps it in its own part of its own state file.
+// by, the origin its clients dial, and the listeners it serves. A gateway whose
+// trust material needs more than that keeps it in its own part of its own state
+// file.
 type State struct {
 	Schema         int        `json:"schema"`
 	InstallationID string     `json:"installation_id"`
+	Origin         string     `json:"origin"`
 	Listeners      []Listener `json:"listeners"`
+}
+
+// NormalizeOrigin checks an origin and returns it in the one form a gateway
+// records and hands out: the scheme and authority a client dials, with nothing
+// else in it. It is the origin's only definition, so the URI an invitation is
+// delivered in and the state a gateway keeps cannot disagree about it.
+func NormalizeOrigin(value string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.EscapedPath() != "" && parsed.EscapedPath() != "/") {
+		return "", errors.New("origin must be an HTTPS origin")
+	}
+	if portText := parsed.Port(); portText != "" {
+		port, portErr := strconv.Atoi(portText)
+		if portErr != nil || port < 1 || port > 65535 {
+			return "", errors.New("origin must use a valid port")
+		}
+	}
+	return "https://" + parsed.Host, nil
 }
 
 // LoadState reads a gateway state file.
@@ -53,6 +76,9 @@ func LoadState(path string) (State, error) {
 // keeps more in its own file validates that itself.
 func (state State) Validate() error {
 	if state.Schema != StateSchema || !validToken.MatchString(state.InstallationID) || len(state.Listeners) == 0 {
+		return errors.New("invalid gateway state")
+	}
+	if origin, err := NormalizeOrigin(state.Origin); err != nil || origin != state.Origin {
 		return errors.New("invalid gateway state")
 	}
 	seenNames := map[string]bool{}
@@ -82,16 +108,32 @@ func (state State) Address(name string) (string, error) {
 	return "", errors.New("gateway state has no listener named " + name)
 }
 
-// NewState allocates the listeners of a fresh gateway.
-func NewState(installationID string, preferences []ListenerPreference) (State, error) {
-	if !validToken.MatchString(installationID) || len(preferences) == 0 {
+// AllocateListeners reserves the addresses a gateway serves on. It comes before
+// NewState because an origin may be what the allocated addresses say it is: a
+// gateway that dials itself by its own host and port derives its origin from the
+// listeners, while one served by an entrance in front of it is told its origin.
+func AllocateListeners(preferences []ListenerPreference) ([]Listener, error) {
+	if len(preferences) == 0 {
+		return nil, errors.New("invalid gateway identity")
+	}
+	return allocate(preferences)
+}
+
+// NewState records a gateway: the identity a node binds it by, the origin its
+// clients dial, and the addresses it serves on.
+func NewState(installationID, origin string, listeners []Listener) (State, error) {
+	if !validToken.MatchString(installationID) || len(listeners) == 0 {
 		return State{}, errors.New("invalid gateway identity")
 	}
-	listeners, err := allocate(preferences)
+	normalizedOrigin, err := NormalizeOrigin(origin)
 	if err != nil {
 		return State{}, err
 	}
-	return State{Schema: StateSchema, InstallationID: installationID, Listeners: listeners}, nil
+	state := State{Schema: StateSchema, InstallationID: installationID, Origin: normalizedOrigin, Listeners: listeners}
+	if err := state.Validate(); err != nil {
+		return State{}, err
+	}
+	return state, nil
 }
 
 // Repair reallocates every listener, keeping each one's name and host: the
@@ -109,7 +151,7 @@ func (state State) Repair(preferred map[string]int) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	return State{Schema: state.Schema, InstallationID: state.InstallationID, Listeners: listeners}, nil
+	return State{Schema: state.Schema, InstallationID: state.InstallationID, Origin: state.Origin, Listeners: listeners}, nil
 }
 
 func allocate(preferences []ListenerPreference) ([]Listener, error) {

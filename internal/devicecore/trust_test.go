@@ -36,7 +36,7 @@ func TestLoadIssuerRejectsTamperedSelfSignature(t *testing.T) {
 func TestOpenCreatesTheTrustAndRefusesHalfAnIdentity(t *testing.T) {
 	root := t.TempDir()
 	node := newNodeStub(t)
-	trust, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "public", Node: node})
+	trust, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "public", Origin: "https://remote.example.com", Node: node})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,8 +57,11 @@ func TestOpenCreatesTheTrustAndRefusesHalfAnIdentity(t *testing.T) {
 	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Node: node}); err == nil {
 		t.Fatal("a trust without an admission mode was opened")
 	}
-	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "lan", Node: node}); err == nil {
+	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "lan", Origin: "https://remote.example.com", Node: node}); err == nil {
 		t.Fatal("a LAN trust without the certificate its clients pin was opened")
+	}
+	if _, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Mode: "public", Node: node}); err == nil {
+		t.Fatal("a trust without the origin its clients dial was opened")
 	}
 	entranceCertificate, err := EnsureIssuer(root)
 	if err != nil {

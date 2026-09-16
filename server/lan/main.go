@@ -7,9 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/hxaxd/remote-everything/internal/entrance"
+	"github.com/hxaxd/remote-everything/internal/logline"
 )
 
-const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST [--valid-days DAYS] | certificate renew --state ABSOLUTE_PATH [--valid-days DAYS] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | revoke FINGERPRINT | invite --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
+const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST [--valid-days DAYS] | certificate renew --state ABSOLUTE_PATH [--valid-days DAYS] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | revoke FINGERPRINT | invite --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
 
 func main() {
 	args := os.Args[1:]
@@ -31,14 +34,14 @@ func main() {
 				os.Exit(1)
 			}
 			if args[0] == "serve" && flags.NArg() == 0 {
-				if err := service.serveGateway(); err != nil {
+				if err := entrance.Serve(service, logline.Log); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
 				return
 			}
 			if args[0] == "device" {
-				if err := service.trust.RunCLI(flags.Args(), os.Stdout); err != nil {
+				if err := service.Trust().RunCLI(flags.Args(), os.Stdout); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}

@@ -28,7 +28,7 @@ func openLANService(root string) (*lanService, error) {
 	if err != nil {
 		return nil, err
 	}
-	certificate, err := loadLANCertificate(root, state.LAN.Host, state)
+	certificate, err := loadLANCertificate(root, state)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func openLANService(root string) (*lanService, error) {
 	}
 	trust, err := devicecore.Open(devicecore.Config{
 		Root: root, InstallationID: state.InstallationID, Mode: "lan",
-		Origin: state.LAN.GatewayOrigin, Certificate: certificate, Node: gateway,
+		Origin: state.Origin, Certificate: certificate, Node: gateway,
 		Log: logline.Log, Audit: logline.Audit,
 	})
 	if err != nil {
@@ -65,12 +65,26 @@ func (service *lanService) gatewayHandler() http.Handler {
 	})
 }
 
-// gatewayServer is what this entrance serves on one address. It terminates TLS
-// with the certificate its clients pinned, and asks for the device certificate
-// they were issued: the fingerprint of a verified one is what the device trust
-// admits a request by. A client that has no certificate yet is the one redeeming
-// an invitation, which is exactly the request pairing answers.
-func (service *lanService) gatewayServer(address string) (*http.Server, error) {
+// State is what this entrance recorded about itself.
+func (service *lanService) State() gatewaycore.State {
+	return service.state.State
+}
+
+// Trust is how this entrance admits devices.
+func (service *lanService) Trust() *devicecore.Trust {
+	return service.trust
+}
+
+// Servers is what this entrance answers on: one address that terminates TLS with
+// the certificate its clients pinned and asks for the device certificate they
+// were issued, whose fingerprint is what the device trust admits a request by. A
+// client that has no certificate yet is the one redeeming an invitation, which
+// is exactly the request pairing answers.
+func (service *lanService) Servers() ([]*http.Server, error) {
+	listenAddress, err := service.state.listener()
+	if err != nil {
+		return nil, errors.New("LAN state is missing its listener")
+	}
 	certificatePair, err := tls.LoadX509KeyPair(
 		filepath.Join(service.root, service.state.LAN.CertificateFile),
 		filepath.Join(service.root, service.state.LAN.PrivateKeyFile),
@@ -80,25 +94,12 @@ func (service *lanService) gatewayServer(address string) (*http.Server, error) {
 	}
 	deviceIssuers := x509.NewCertPool()
 	deviceIssuers.AddCert(service.trust.Issuer())
-	server := gatewaycore.NewServer(address, devicecore.WithClientFingerprint(service.gatewayHandler()))
+	server := gatewaycore.NewServer(listenAddress, devicecore.WithClientFingerprint(service.gatewayHandler()))
 	server.TLSConfig = &tls.Config{
 		MinVersion:   tls.VersionTLS12,
 		Certificates: []tls.Certificate{certificatePair},
 		ClientAuth:   tls.VerifyClientCertIfGiven,
 		ClientCAs:    deviceIssuers,
 	}
-	return server, nil
-}
-
-func (service *lanService) serveGateway() error {
-	listenAddress, err := service.state.listener()
-	if err != nil {
-		return errors.New("LAN state is missing its listener")
-	}
-	server, err := service.gatewayServer(listenAddress)
-	if err != nil {
-		return err
-	}
-	logline.Log("lan-server", "info", "listening", "path", listenAddress)
-	return server.ListenAndServeTLS("", "")
+	return []*http.Server{server}, nil
 }

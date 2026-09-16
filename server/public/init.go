@@ -17,6 +17,7 @@ type publicInitResult struct {
 	OK                      bool   `json:"ok"`
 	State                   string `json:"state"`
 	InstallationID          string `json:"installation_id"`
+	Origin                  string `json:"origin"`
 	ControlTokenFile        string `json:"control_token_file"`
 	DeviceCAFile            string `json:"device_ca_file"`
 	StatusListen            string `json:"status_listen"`
@@ -60,11 +61,19 @@ func listen(state gatewaycore.State, name string) string {
 	return address
 }
 
-func initializePublicState(root, nodeBootstrap string) (publicInitResult, error) {
+// initializePublicState creates or reuses the gateway's own state. The origin is
+// where the 443 entrance serves this gateway and therefore what every invitation
+// this gateway hands out points at, so the operator states it once here rather
+// than repeating it for every device.
+func initializePublicState(root, nodeBootstrap, origin string) (publicInitResult, error) {
 	if !filepath.IsAbs(nodeBootstrap) {
 		return publicInitResult{}, errors.New("node bootstrap path must be absolute")
 	}
 	paths, err := newPublicPaths(root)
+	if err != nil {
+		return publicInitResult{}, err
+	}
+	normalizedOrigin, err := gatewaycore.NormalizeOrigin(origin)
 	if err != nil {
 		return publicInitResult{}, err
 	}
@@ -75,12 +84,18 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		if randomErr != nil {
 			return publicInitResult{}, randomErr
 		}
-		state, err = gatewaycore.NewState(installationID, allocationPreferences())
+		listeners, allocateErr := gatewaycore.AllocateListeners(allocationPreferences())
+		if allocateErr != nil {
+			return publicInitResult{}, allocateErr
+		}
+		state, err = gatewaycore.NewState(installationID, normalizedOrigin, listeners)
 		if err != nil {
 			return publicInitResult{}, err
 		}
 	} else if err != nil {
 		return publicInitResult{}, err
+	} else if state.Origin != normalizedOrigin {
+		return publicInitResult{}, errors.New("existing gateway serves another origin")
 	}
 	controlToken, err := gatewaycore.EnsureControlToken(paths.root)
 	if err != nil {
@@ -108,7 +123,7 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		return publicInitResult{}, err
 	}
 	return publicInitResult{
-		OK: true, State: paths.root, InstallationID: state.InstallationID,
+		OK: true, State: paths.root, InstallationID: state.InstallationID, Origin: state.Origin,
 		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: devicecore.IssuerCertPath(paths.root),
 		StatusListen: listen(state, "status"), PairingListen: listen(state, "pairing"),
 		FRPSListen: listen(state, "frps"), NodeTunnelListen: listen(state, "node_tunnel"),
@@ -123,10 +138,11 @@ func runPublicInit(parts []string, output io.Writer) error {
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "")
 	nodeBootstrap := flags.String("node-bootstrap", "", "")
+	origin := flags.String("origin", "", "")
 	if flags.Parse(parts) != nil || flags.NArg() != 0 {
 		return errors.New("invalid init arguments")
 	}
-	result, err := initializePublicState(*state, *nodeBootstrap)
+	result, err := initializePublicState(*state, *nodeBootstrap, *origin)
 	if err != nil {
 		return err
 	}
@@ -184,7 +200,7 @@ func repairPublicPorts(root string, output io.Writer) error {
 		return err
 	}
 	return json.NewEncoder(output).Encode(publicInitResult{
-		OK: true, State: paths.root, InstallationID: state.InstallationID,
+		OK: true, State: paths.root, InstallationID: state.InstallationID, Origin: state.Origin,
 		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: devicecore.IssuerCertPath(paths.root),
 		StatusListen: listen(state, "status"), PairingListen: listen(state, "pairing"),
 		FRPSListen: listen(state, "frps"), NodeTunnelListen: listen(state, "node_tunnel"),

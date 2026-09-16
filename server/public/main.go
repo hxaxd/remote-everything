@@ -4,31 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/logline"
 )
-
-// serveGateway serves the two listeners the 443 entrance forwards to: the status
-// surface (device activation, admission, then the gateway) and the pairing
-// surface an invitation is redeemed at.
-func (service *publicService) serveGateway() error {
-	statusServer := gatewaycore.NewServer(service.listen("status"), service.trust.StatusHandler())
-	pairingServer := gatewaycore.NewServer(service.listen("pairing"), service.trust.PairHandler())
-
-	stopped := make(chan error, 2)
-	start := func(name string, server *http.Server) {
-		go func() {
-			logline.Log(name, "info", "listening", "path", server.Addr)
-			stopped <- server.ListenAndServe()
-		}()
-	}
-	start("status-server", statusServer)
-	start("pairing-server", pairingServer)
-	return <-stopped
-}
 
 func main() {
 	args := os.Args[1:]
@@ -50,14 +30,14 @@ func main() {
 				os.Exit(1)
 			}
 			if args[0] == "serve" && flags.NArg() == 0 {
-				if err := service.serveGateway(); err != nil {
+				if err := entrance.Serve(service, logline.Log); err != nil {
 					logline.Log("gateway", "error", "server stopped", "code", err.Error())
 					os.Exit(1)
 				}
 				return
 			}
 			if args[0] == "device" {
-				if err := service.trust.RunCLI(flags.Args(), os.Stdout); err != nil {
+				if err := service.Trust().RunCLI(flags.Args(), os.Stdout); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
@@ -92,6 +72,6 @@ func main() {
 			}
 		}
 	}
-	fmt.Fprintln(os.Stderr, "usage: remote-everything-gateway init --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | invite --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH | revoke FINGERPRINT)")
+	fmt.Fprintln(os.Stderr, "usage: remote-everything-gateway init --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH --origin HTTPS_ORIGIN | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | invite --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH | revoke FINGERPRINT)")
 	os.Exit(64)
 }

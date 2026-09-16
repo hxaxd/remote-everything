@@ -119,30 +119,24 @@ func (service *Trust) writeInvitation(record invitationRecord) error {
 	return atomicfile.MatchDirectoryOwner(path)
 }
 
-func (service *Trust) issueInvitation(ttl time.Duration, name, origin, qrFile string, output io.Writer) error {
-	return service.issueInvitationReplacing(ttl, name, origin, qrFile, "", output)
+func (service *Trust) issueInvitation(ttl time.Duration, name, qrFile string, output io.Writer) error {
+	return service.issueInvitationReplacing(ttl, name, qrFile, "", output)
 }
 
 // setupURI renders the URI an invitation is delivered in. The gateway renders
-// it because it describes the gateway: which certificate its clients must
-// expect is a property of the entrance, not of the invitation.
-func (service *Trust) setupURI(name, origin, invitation string) (string, error) {
-	origin = strings.TrimSpace(origin)
-	if origin == "" {
-		origin = service.origin
-	}
-	if origin == "" {
-		return "", errors.New("the invitation needs an origin")
-	}
+// it because it describes the gateway: where its clients dial it is what it
+// recorded for itself, and which certificate they must expect is a property of
+// the entrance, not of the invitation.
+func (service *Trust) setupURI(name, invitation string) (string, error) {
 	fingerprint, keyPin := "", ""
 	if service.certificate != nil {
 		fingerprint = CertificateFingerprint(service.certificate)
 		keyPin = PublicKeyPin(service.certificate)
 	}
-	return setupcodec.Build(service.mode, service.installationID, name, origin, invitation, fingerprint, keyPin)
+	return setupcodec.Build(service.mode, service.installationID, name, service.origin, invitation, fingerprint, keyPin)
 }
 
-func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, qrFile, replaces string, output io.Writer) error {
+func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, replaces string, output io.Writer) error {
 	if err := service.cleanupExpiredState(); err != nil {
 		return err
 	}
@@ -159,7 +153,7 @@ func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, 
 		Schema: recordSchema, TokenHash: invitationHash(token),
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := service.setupURI(name, origin, token)
+	setupURI, err := service.setupURI(name, token)
 	if err != nil {
 		return err
 	}
@@ -176,13 +170,13 @@ func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, origin, 
 	})
 }
 
-func (service *Trust) issueRenewalInvitation(ttl time.Duration, name, origin, qrFile, fingerprint string, output io.Writer) error {
+func (service *Trust) issueRenewalInvitation(ttl time.Duration, name, qrFile, fingerprint string, output io.Writer) error {
 	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || record.Status != "approved" {
 		return errors.New("approved device not found")
 	}
-	return service.issueInvitationReplacing(ttl, name, origin, qrFile, fingerprint, output)
+	return service.issueInvitationReplacing(ttl, name, qrFile, fingerprint, output)
 }
 
 func (service *Trust) restoreReplacedDevice(record invitationRecord) error {

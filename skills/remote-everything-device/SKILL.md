@@ -7,7 +7,7 @@ description: 管理 Remote Everything 移动客户端信任。用于在两种形
 
 两种形态的准入是同一件事：设备兑换一条邀请、拿到只属于自己的证书，之后由这张证书被准入。公网入口在它前面由 443 终止 mTLS，LAN 入口自己终止；除此之外只差谁批准设备。
 
-- 发邀请：用户可操作时执行 `device invite --name <显示名> --ttl 10m [--origin <HTTPS入口>] [--qr <本次邀请唯一的绝对路径>]`，交付二维码或 setup URI 并说明失效时间。不覆盖旧二维码路径，不保存或复用邀请明文。LAN 入口自己知道端口，`--origin` 可省；公网网关必须给。状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
+- 发邀请：用户可操作时执行 `device invite --name <显示名> --ttl 10m [--qr <本次邀请唯一的绝对路径>]`，交付二维码或 setup URI 并说明失效时间。不覆盖旧二维码路径，不保存或复用邀请明文。入口的 origin 在 `init` 时就写进状态了，发邀请不需要再给地址；状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
 - 批准：公网邀请跨网旅行，必须由人确认——客户端申请后从 `device list` 取设备名与完整指纹，用户确认后 `device approve <指纹>`。LAN 邀请是操作者当面交出去的，兑换即批准，不需要这一步。
 - 邀请：`device invitation list`；取消用 `invitation cancel`（按 hash）。
 - 查看：`device list`（设备名、完整指纹、状态、时间）。

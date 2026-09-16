@@ -72,8 +72,8 @@ type Config struct {
 	// confirms each device after it pairs, because an invitation travels over a
 	// network the operator does not watch.
 	Mode string
-	// Origin is the HTTPS origin this gateway's clients dial. Invitations default
-	// to it; a gateway that does not know its own origin needs it per invitation.
+	// Origin is the origin this gateway recorded for itself, which is where its
+	// clients dial it and what every invitation points at.
 	Origin string
 	// Certificate is the gateway's own certificate. The LAN mode pins it in the
 	// setup URI; the public mode has none, because an authority signs the
@@ -114,7 +114,7 @@ type Trust struct {
 // directories when they are not there yet, and clearing state that no live
 // invitation references any more.
 func Open(config Config) (*Trust, error) {
-	if config.Root == "" || !filepath.IsAbs(config.Root) || config.InstallationID == "" || config.Node == nil {
+	if config.Root == "" || !filepath.IsAbs(config.Root) || config.InstallationID == "" || config.Origin == "" || config.Node == nil {
 		return nil, errors.New("invalid device trust configuration")
 	}
 	switch config.Mode {

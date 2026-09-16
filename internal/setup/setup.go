@@ -5,10 +5,10 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -17,20 +17,6 @@ var (
 	invitationPattern   = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
 	publicKeyPinPattern = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
 )
-
-func normalizeOrigin(value string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(value))
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.EscapedPath() != "" && parsed.EscapedPath() != "/") {
-		return "", errors.New("origin must be an HTTPS origin")
-	}
-	if portText := parsed.Port(); portText != "" {
-		port, portErr := strconv.Atoi(portText)
-		if portErr != nil || port < 1 || port > 65535 {
-			return "", errors.New("origin must use a valid port")
-		}
-	}
-	return "https://" + parsed.Host, nil
-}
 
 // Build renders the URI a gateway delivers an invitation in. The invitation is
 // what both modes carry: it is the secret a device redeems for a credential, and
@@ -45,7 +31,7 @@ func Build(mode, installationID, name, origin, invitation, certificateFingerprin
 	if name == "" || len([]rune(name)) > 80 || strings.IndexFunc(name, func(character rune) bool { return character < 32 || character == 127 }) >= 0 {
 		return "", errors.New("invalid installation name")
 	}
-	normalizedOrigin, err := normalizeOrigin(origin)
+	normalizedOrigin, err := gatewaycore.NormalizeOrigin(origin)
 	if err != nil {
 		return "", err
 	}

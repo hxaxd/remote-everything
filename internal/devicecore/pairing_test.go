@@ -44,7 +44,8 @@ func newNodeStub(t *testing.T) *gatewaycore.Gateway {
 func setupPublicTest(t *testing.T) *Trust {
 	t.Helper()
 	trust, err := Open(Config{
-		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Mode: "public", Node: newNodeStub(t),
+		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Mode: "public",
+		Origin: "https://remote.example.com", Node: newNodeStub(t),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +57,7 @@ func setupPublicTest(t *testing.T) *Trust {
 func createInvitation(t *testing.T, service *Trust) string {
 	t.Helper()
 	var output bytes.Buffer
-	if err := service.issueInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", &output); err != nil {
+	if err := service.issueInvitation(10*time.Minute, "Test PC", "", &output); err != nil {
 		t.Fatal(err)
 	}
 	var result invitationResult
@@ -353,7 +354,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	oldCredential := pairFixture(t, service)
 	activateApproved(t, service, oldCredential.CertificateFingerprint)
 	var renewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", oldCredential.CertificateFingerprint, &renewal); err != nil {
+	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", oldCredential.CertificateFingerprint, &renewal); err != nil {
 		t.Fatal(err)
 	}
 	var invitation invitationResult
@@ -379,7 +380,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	}
 
 	var retryRenewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", replacement.CertificateFingerprint, &retryRenewal); err != nil {
+	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", replacement.CertificateFingerprint, &retryRenewal); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(retryRenewal.Bytes(), &invitation); err != nil {
@@ -403,7 +404,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	}
 
 	var cancelledRenewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "https://remote.example.com", "", recovered.CertificateFingerprint, &cancelledRenewal); err != nil {
+	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", recovered.CertificateFingerprint, &cancelledRenewal); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(cancelledRenewal.Bytes(), &invitation); err != nil {
