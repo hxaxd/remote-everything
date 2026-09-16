@@ -3,13 +3,15 @@
 ## LAN：Windows、Linux、macOS
 
 ```text
-remote-everything-lan-server init --state PATH --host HOST --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH]
+remote-everything-lan-server init --state PATH --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH --host HOST --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH]
 remote-everything-lan-server certificate renew --state PATH --name NAME [--valid-days DAYS] [--qr ABSOLUTE_PATH]
 remote-everything-lan-server ports repair --state PATH
 remote-everything-lan-server serve --state PATH
 ```
 
-先初始化同一状态目录中的节点。`init` 创建 schema 1 的 `lan.json`，把 LAN 入口注册为节点的一个 binding，自动选择入口端口并输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹、setup URI 和可选二维码。`serve` 只读取持久化地址。
+LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`control-token`、`lan.json`、自己的服务器证书都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与访问令牌，自动选择入口端口，并把节点要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到节点执行 `binding add --bootstrap`，绑定才成立。`--node-address` 是入口拨号用的节点地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，即移动客户端 Profile 的 origin。`init` 输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹、setup URI 和可选二维码。`serve` 只读取持久化地址与自身状态。
+
+节点换地址后重跑一次入口 `init` 并把 `--node-address` 指到新地址即可：入口身份、证书与访问令牌都沿用现有的，客户端无需重新配对。
 
 续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；移动客户端扫描输出载荷，以相同 `installation_id` 原子替换该 Profile 的指纹，不新建实例。入口端口即客户端 Profile 的 origin：`ports repair` 改变端口后原 Profile 全部失效，必须再执行一次 `certificate renew` 让移动客户端重扫替换。
 

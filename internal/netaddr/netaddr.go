@@ -32,6 +32,25 @@ func ValidLoopback(address string) bool {
 	return Valid(address, "127.0.0.1")
 }
 
+// ValidUnicastHost reports whether host is an IPv4 address a peer can dial.
+func ValidUnicastHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.To4() != nil && !ip.IsUnspecified() && !ip.IsMulticast()
+}
+
+// ValidUnicast reports whether address is a specific address a peer can dial: an
+// IPv4 address that is neither unspecified nor multicast, with a port in the
+// range this project allocates from. A node that a gateway on another machine
+// has to reach listens on such an address, and the exact value is what the
+// gateway is configured with.
+func ValidUnicast(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	return ValidUnicastHost(host) && Valid(address, host)
+}
+
 // Reserve returns an available address on host. Each preferred port is tried in
 // order; when none of them is available the operating system picks one.
 func Reserve(host string, preferred ...int) (string, error) {

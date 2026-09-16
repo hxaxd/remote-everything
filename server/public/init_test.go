@@ -30,7 +30,7 @@ func TestInitializePublicState(t *testing.T) {
 		t.Fatal(err)
 	}
 	nodeRoot := filepath.Join(t.TempDir(), "node")
-	if _, err := nodecore.Initialize(nodeRoot); err != nil {
+	if _, err := nodecore.Initialize(nodeRoot, "127.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
 	bindResult, err := nodecore.AddBinding(nodeRoot, bundleRoot)

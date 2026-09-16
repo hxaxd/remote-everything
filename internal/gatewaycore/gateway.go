@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
 
@@ -93,10 +94,14 @@ func stripRoutingSetCookie(header http.Header) {
 	}
 }
 
+// New returns the gateway that reaches the node at nodeURL. The node is
+// wherever it is: a gateway on another machine in the same network dials that
+// machine's address, and the tunnel form dials the local port the tunnel
+// forwards from, so any concrete address is accepted.
 func New(nodeURL, controlToken string) (*Gateway, error) {
 	target, err := url.Parse(nodeURL)
-	if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" || target.Port() == "" || target.User != nil {
-		return nil, errors.New("invalid local node URL")
+	if err != nil || target.Scheme != "http" || target.User != nil || !netaddr.ValidUnicast(target.Host) {
+		return nil, errors.New("invalid node URL")
 	}
 	token := strings.TrimSpace(controlToken)
 	if !validToken.MatchString(token) {
