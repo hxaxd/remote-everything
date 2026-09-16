@@ -360,7 +360,7 @@ func RepairPorts(root string) (InitResult, error) {
 	}
 	chosen := ""
 	preferred := 58627
-	for attempts := 0; attempts < 8 && chosen == ""; attempts++ {
+	for attempts := 0; attempts < 3 && chosen == ""; attempts++ {
 		candidate, err := allocateLoopback(preferred)
 		if err != nil {
 			return InitResult{}, err

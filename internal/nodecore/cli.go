@@ -68,6 +68,34 @@ func runApp(parts []string, platform Platform, output io.Writer) error {
 	}
 }
 
+func runPorts(parts []string, output io.Writer) error {
+	flags := flag.NewFlagSet("ports repair", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state", "", "")
+	if len(parts) < 1 || parts[0] != "repair" || flags.Parse(parts[1:]) != nil || flags.NArg() != 0 {
+		return errors.New("invalid ports repair arguments")
+	}
+	result, err := RepairPorts(*state)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(result)
+}
+
+func runServe(parts []string, platform Platform) error {
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state", "", "")
+	if flags.Parse(parts) != nil || flags.NArg() != 0 {
+		return errors.New("invalid serve arguments")
+	}
+	node, err := Open(*state, platform)
+	if err != nil {
+		return err
+	}
+	return node.Serve()
+}
+
 func Run(parts []string, platform Platform, stdout, stderr io.Writer) int {
 	if len(parts) == 0 {
 		fmt.Fprintln(stderr, Usage)
@@ -80,31 +108,9 @@ func Run(parts []string, platform Platform, stdout, stderr io.Writer) int {
 	case "app":
 		err = runApp(parts[1:], platform, stdout)
 	case "ports":
-		flags := flag.NewFlagSet("ports repair", flag.ContinueOnError)
-		flags.SetOutput(io.Discard)
-		state := flags.String("state", "", "")
-		if len(parts) < 2 || parts[1] != "repair" || flags.Parse(parts[2:]) != nil || flags.NArg() != 0 {
-			err = errors.New("invalid ports repair arguments")
-			break
-		}
-		var result InitResult
-		result, err = RepairPorts(*state)
-		if err == nil {
-			err = json.NewEncoder(stdout).Encode(result)
-		}
+		err = runPorts(parts[1:], stdout)
 	case "serve":
-		flags := flag.NewFlagSet("serve", flag.ContinueOnError)
-		flags.SetOutput(io.Discard)
-		state := flags.String("state", "", "")
-		if flags.Parse(parts[1:]) != nil || flags.NArg() != 0 {
-			err = errors.New("invalid serve arguments")
-			break
-		}
-		var node *Node
-		node, err = Open(*state, platform)
-		if err == nil {
-			err = node.Serve()
-		}
+		err = runServe(parts[1:], platform)
 	default:
 		fmt.Fprintln(stderr, Usage)
 		return 64
