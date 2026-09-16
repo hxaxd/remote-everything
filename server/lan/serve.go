@@ -40,8 +40,10 @@ func openLANService(root string) (*lanService, error) {
 		return nil, err
 	}
 	trust, err := devicecore.Open(devicecore.Config{
-		Root: root, InstallationID: state.InstallationID, Mode: "lan",
-		Origin: state.Origin, Certificate: certificate, Node: gateway,
+		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
+		// This entrance hands its invitations over in person, so redeeming one is
+		// the whole of the admission, and the certificate it serves is its own.
+		Certificate: certificate, ApproveOnRedemption: true, Node: gateway,
 		Log: logline.Log, Audit: logline.Audit,
 	})
 	if err != nil {

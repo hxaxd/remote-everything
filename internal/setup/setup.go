@@ -18,12 +18,16 @@ var (
 	publicKeyPinPattern = regexp.MustCompile(`^[A-Za-z0-9+/]{43}=$`)
 )
 
-// Build renders the URI a gateway delivers an invitation in. The invitation is
-// what both modes carry: it is the secret a device redeems for a credential, and
-// it is the only thing that admits one. The LAN mode carries the entrance's own
-// certificate beside it, because no authority signs that entrance and its
-// clients have nowhere else to learn which certificate to expect.
-func Build(mode, installationID, name, origin, invitation, certificateFingerprint, publicKeyPin string) (string, error) {
+// Build renders the URI a gateway delivers an invitation in.
+//
+// The invitation is what every URI carries: it is the secret a device redeems for
+// a credential, and it is the only thing that admits one. Beside it, a gateway
+// that serves a certificate of its own states it, because nothing else signs that
+// gateway and its clients have nowhere else to learn which certificate to expect.
+// Which of the two a client is looking at is that fact and nothing else, so the
+// mode it reads is derived here from the pins rather than handed in: an entrance
+// does not have to name itself for the two to agree.
+func Build(installationID, name, origin, invitation, certificateFingerprint, publicKeyPin string) (string, error) {
 	if !hex64.MatchString(installationID) {
 		return "", errors.New("invalid installation id")
 	}
@@ -42,23 +46,21 @@ func Build(mode, installationID, name, origin, invitation, certificateFingerprin
 		"v":          {"2"},
 		"id":         {installationID},
 		"name":       {name},
-		"mode":       {mode},
+		"mode":       {"public"},
 		"origin":     {normalizedOrigin},
 		"invitation": {invitation},
 	}
-	switch mode {
-	case "lan":
+	// A gateway that serves a certificate of its own pins it, and both halves of
+	// that pin are required together: a client that is told to expect a
+	// certificate it cannot check would be worse off than one told to trust the
+	// system.
+	if certificateFingerprint != "" || publicKeyPin != "" {
 		if !hex64.MatchString(certificateFingerprint) || !publicKeyPinPattern.MatchString(publicKeyPin) {
-			return "", errors.New("invalid LAN setup parameters")
+			return "", errors.New("invalid setup certificate pins")
 		}
+		values.Set("mode", "lan")
 		values.Set("fingerprint", certificateFingerprint)
 		values.Set("public_key_pin", publicKeyPin)
-	case "public":
-		if certificateFingerprint != "" || publicKeyPin != "" {
-			return "", errors.New("invalid public setup parameters")
-		}
-	default:
-		return "", errors.New("invalid setup mode")
 	}
 	return (&url.URL{Scheme: "remote-everything", Host: "setup", RawQuery: values.Encode()}).String(), nil
 }

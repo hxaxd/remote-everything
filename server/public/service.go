@@ -70,9 +70,11 @@ func openPublicService(root string) (*publicService, error) {
 		return nil, err
 	}
 	trust, err := devicecore.Open(devicecore.Config{
-		Root: paths.root, InstallationID: state.InstallationID, Mode: "public",
-		Origin: state.Origin, Node: gateway,
-		Log: logline.Log, Audit: logline.Audit,
+		Root: paths.root, InstallationID: state.InstallationID, Origin: state.Origin,
+		// This gateway's invitations travel over a network nobody watches, so its
+		// operator confirms the device that redeemed one, and an authority signs
+		// the entrance in front of it rather than the gateway signing itself.
+		Node: gateway, Log: logline.Log, Audit: logline.Audit,
 	})
 	if err != nil {
 		return nil, err
