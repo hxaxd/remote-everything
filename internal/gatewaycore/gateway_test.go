@@ -56,13 +56,55 @@ func TestConnectedListRejectsUnknownAndInconsistentNodeCatalogs(t *testing.T) {
 	}
 }
 
-func TestOfflineActionUsesTheSameProtocolShape(t *testing.T) {
+// A gateway that cannot reach its node says so the same way whichever endpoint
+// is asked: a client reading the catalog and a client asking for an action see
+// one offline answer, not two.
+func TestOfflineAnswerIsTheSameOnEveryEndpoint(t *testing.T) {
 	gateway, node := newTestGateway(t, func(writer http.ResponseWriter, request *http.Request) {})
 	node.Close()
 	response := httptest.NewRecorder()
+	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/__remote_everything/apps", nil))
+	if response.Body.String() != `{"ok":true,"computer_connected":false,"code":"computer_offline","apps":[]}` {
+		t.Fatalf("unexpected offline catalog: %s", response.Body.String())
+	}
+	response = httptest.NewRecorder()
 	gateway.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/__remote_everything/apps/demo/start", nil))
 	if response.Body.String() != `{"ok":false,"action":"start","computer_connected":false,"enabled":false,"running":false,"code":"computer_offline"}` {
 		t.Fatalf("unexpected offline action: %s", response.Body.String())
+	}
+}
+
+// Every control endpoint a client has is answered by the node in the order it
+// was asked, so a gateway that reordered or dropped one would show here.
+func TestClientRequestsReachTheNodeInOrder(t *testing.T) {
+	var calls []string
+	node := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var command map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&command); err != nil {
+			t.Error(err)
+			return
+		}
+		calls = append(calls, command["action"]+"/"+command["id"])
+		WriteJSON(writer, http.StatusOK, ControlResponse{OK: true, ComputerConnected: true, Code: "ready", Apps: []ApplicationState{}})
+	}))
+	defer node.Close()
+	gateway, err := New(node.URL, testToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, asked := range []struct{ method, target string }{
+		{http.MethodGet, "/__remote_everything/apps"},
+		{http.MethodGet, "/__remote_everything/apps/demo/status"},
+		{http.MethodPost, "/__remote_everything/apps/demo/start"},
+	} {
+		response := httptest.NewRecorder()
+		gateway.ServeHTTP(response, httptest.NewRequest(asked.method, asked.target, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s %s: %d %s", asked.method, asked.target, response.Code, response.Body.String())
+		}
+	}
+	if strings.Join(calls, ",") != "list/,status/demo,start/demo" {
+		t.Fatalf("the node was asked for %v", calls)
 	}
 }
 
