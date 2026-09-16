@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 )
 
 type testPlatform struct{ commandErr error }
@@ -26,9 +28,9 @@ func (testPlatform) Launch(AppDefinition, io.Writer) (ManagedProcess, error) {
 	panic("not used")
 }
 
-func initializeTestNode(t *testing.T) (*Node, InitResult) {
+func initializeTestNode(t *testing.T) (*Node, BindingResult) {
 	t.Helper()
-	result, err := Initialize(t.TempDir(), "")
+	result, err := Initialize(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,22 +58,22 @@ func TestInitializeAllocatesStableAvailableLoopbackAddress(t *testing.T) {
 		defer listener.Close()
 	}
 	root := t.TempDir()
-	first, err := Initialize(root, "")
+	first, err := Initialize(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !validLoopbackAddress(first.ListenAddress) || (listener != nil && first.ListenAddress == "127.0.0.1:58627") || len(first.InstallationID) != 64 {
+	if !validLoopbackAddress(first.ListenAddress) || (listener != nil && first.ListenAddress == "127.0.0.1:58627") || len(first.NodeID) != 64 {
 		t.Fatalf("unexpected init result: %+v", first)
 	}
-	second, err := Initialize(root, "")
-	if err != nil || second.ListenAddress != first.ListenAddress || second.InstallationID != first.InstallationID {
+	second, err := Initialize(root)
+	if err != nil || second.ListenAddress != first.ListenAddress || second.NodeID != first.NodeID {
 		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}
 }
 
-func TestRepairPortsPreservesInstallationIdentity(t *testing.T) {
+func TestRepairPortsPreservesNodeIdentity(t *testing.T) {
 	root := t.TempDir()
-	first, err := Initialize(root, "")
+	first, err := Initialize(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +81,7 @@ func TestRepairPortsPreservesInstallationIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repaired.InstallationID != first.InstallationID || !validLoopbackAddress(repaired.ListenAddress) {
+	if repaired.NodeID != first.NodeID || !validLoopbackAddress(repaired.ListenAddress) {
 		t.Fatalf("unexpected repaired state: %+v", repaired)
 	}
 }
@@ -90,7 +92,7 @@ func TestRepairPortsSkipsRegisteredApplicationAddress(t *testing.T) {
 		t.Skip("preferred port unavailable on this machine")
 	}
 	root := t.TempDir()
-	if _, err := Initialize(root, ""); err != nil {
+	if _, err := Initialize(root); err != nil {
 		t.Fatal(err)
 	}
 	node, err := Open(root, testPlatform{})
@@ -290,11 +292,45 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	}
 }
 
+// writeTestBundle generates a gateway material and node bundle for the given
+// installation ID and control token, returning the bootstrap directory.
+func writeTestBundle(t *testing.T, installationID, controlToken string) string {
+	t.Helper()
+	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
+	material, err := deploymentbootstrap.EnsureGatewayMaterial(
+		filepath.Join(t.TempDir(), "gateway"), installationID, controlToken,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := deploymentbootstrap.WriteNodeBundle(bootstrapDir, material); err != nil {
+		t.Fatal(err)
+	}
+	return bootstrapDir
+}
+
 func TestControlRejectsTrailingJSON(t *testing.T) {
-	node, _ := initializeTestNode(t)
-	token, _ := os.ReadFile(node.controlTokenFile)
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	token := strings.Repeat("a", 64)
+	if _, err := AddBinding(root, writeTestBundle(t, strings.Repeat("b", 64), token)); err != nil {
+		t.Fatal(err)
+	}
+	node, err := Open(root, testPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := httptest.NewRequest(http.MethodPost, "/__local_remote_control", bytes.NewBufferString(`{"action":"list"}`))
+	accepted.Header.Set("Authorization", "Bearer "+token)
+	acceptedRecorder := httptest.NewRecorder()
+	node.localControlHandler(acceptedRecorder, accepted)
+	if acceptedRecorder.Code != http.StatusOK || !strings.Contains(acceptedRecorder.Body.String(), `"ok":true`) {
+		t.Fatalf("well-formed request status = %d body = %s", acceptedRecorder.Code, acceptedRecorder.Body.String())
+	}
 	request := httptest.NewRequest(http.MethodPost, "/__local_remote_control", bytes.NewBufferString(`{"action":"list"}{}`))
-	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+	request.Header.Set("Authorization", "Bearer "+token)
 	recorder := httptest.NewRecorder()
 	node.localControlHandler(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
@@ -351,5 +387,136 @@ func TestStopCommandFailureIsObservableWithoutLosingState(t *testing.T) {
 	result := node.stopApp(app.ID)
 	if result.OK || result.ErrorCode != "stop_command_failed" || result.Enabled || result.Code != "stopped" {
 		t.Fatalf("stop failure was hidden or state was lost: %+v", result)
+	}
+}
+
+func TestAddBindingCreatesMaterialsInSubdirectory(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	controlToken := strings.Repeat("a", 64)
+	installationID := strings.Repeat("b", 64)
+	result, err := AddBinding(root, writeTestBundle(t, installationID, controlToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.InstallationID != installationID {
+		t.Fatalf("expected installation_id %s, got %s", installationID, result.InstallationID)
+	}
+	bindingDir := filepath.Join(root, "bindings", installationID)
+	if _, err := os.Stat(filepath.Join(bindingDir, "control-token")); err != nil {
+		t.Fatalf("control-token not created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(bindingDir, "frps-token")); err != nil {
+		t.Fatalf("frps-token not created: %v", err)
+	}
+	// Verify state has the binding
+	state, err := LoadState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Bindings) != 1 || state.Bindings[0].InstallationID != installationID {
+		t.Fatalf("binding not in state: %+v", state.Bindings)
+	}
+}
+
+func TestAddBindingIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	bootstrapDir := writeTestBundle(t, strings.Repeat("b", 64), strings.Repeat("a", 64))
+	if _, err := AddBinding(root, bootstrapDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AddBinding(root, bootstrapDir); err != nil {
+		t.Fatalf("second AddBinding should be idempotent: %v", err)
+	}
+	state, _ := LoadState(root)
+	if len(state.Bindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(state.Bindings))
+	}
+}
+
+func TestRemoveBindingDeletesMaterials(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	installationID := strings.Repeat("b", 64)
+	if _, err := AddBinding(root, writeTestBundle(t, installationID, strings.Repeat("a", 64))); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveBinding(root, installationID); err != nil {
+		t.Fatal(err)
+	}
+	bindingDir := filepath.Join(root, "bindings", installationID)
+	if _, err := os.Stat(bindingDir); !os.IsNotExist(err) {
+		t.Fatalf("binding directory should be deleted")
+	}
+	state, _ := LoadState(root)
+	if len(state.Bindings) != 0 {
+		t.Fatalf("expected 0 bindings, got %d", len(state.Bindings))
+	}
+	// Idempotent: removing again should not error
+	if err := RemoveBinding(root, installationID); err != nil {
+		t.Fatalf("remove non-existent binding should be idempotent: %v", err)
+	}
+}
+
+// Control auth follows the tokens bound on disk: with none bound every request
+// is rejected, any bound gateway's token is accepted, a foreign token is not,
+// and binding add/remove reach a running node without a restart. Asserted
+// through the control endpoint's status codes, not the auth helper.
+func TestControlAuthFollowsBoundTokens(t *testing.T) {
+	root := t.TempDir()
+	if _, err := Initialize(root); err != nil {
+		t.Fatal(err)
+	}
+	node, err := Open(root, testPlatform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := func(token string) int {
+		t.Helper()
+		request := httptest.NewRequest(http.MethodPost, "/__local_remote_control", strings.NewReader(`{"action":"list"}`))
+		request.Header.Set("Authorization", "Bearer "+token)
+		recorder := httptest.NewRecorder()
+		node.localControlHandler(recorder, request)
+		return recorder.Code
+	}
+
+	controlToken1 := strings.Repeat("a", 64)
+	installationID1 := strings.Repeat("b", 64)
+	controlToken2 := strings.Repeat("c", 64)
+	if code := status(controlToken1); code != http.StatusUnauthorized {
+		t.Fatalf("status without bindings = %d", code)
+	}
+	for _, tc := range []struct{ control, install string }{
+		{controlToken1, installationID1},
+		{controlToken2, strings.Repeat("d", 64)},
+	} {
+		if _, err := AddBinding(root, writeTestBundle(t, tc.install, tc.control)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if code := status(controlToken1); code != http.StatusOK {
+		t.Fatalf("status for a bound token = %d", code)
+	}
+	if code := status(controlToken2); code != http.StatusOK {
+		t.Fatalf("status for a token bound after Open = %d", code)
+	}
+	if code := status(strings.Repeat("e", 64)); code != http.StatusUnauthorized {
+		t.Fatalf("status for an unbound token = %d", code)
+	}
+	if err := RemoveBinding(root, installationID1); err != nil {
+		t.Fatal(err)
+	}
+	if code := status(controlToken1); code != http.StatusUnauthorized {
+		t.Fatalf("status for a removed binding = %d", code)
+	}
+	if code := status(controlToken2); code != http.StatusOK {
+		t.Fatalf("status for the remaining binding = %d", code)
 	}
 }

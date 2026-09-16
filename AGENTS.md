@@ -17,11 +17,12 @@
 ## 架构
 
 ```
-一台电脑 = Node + Gateway（LAN 或 public）= 一个 installationId = 手机一个 Profile
-多台电脑 = 多个 installationId / Profile，手动切换
+一台电脑 = Node（一个 node_id，可绑定多个 Gateway：LAN 入口 / 公网网关）
+每个 Gateway 绑定 = 一个 installationId = 手机一个 Profile（多 Profile 手动切换）
+多台电脑 = 多个 node_id / Profile
 ```
 
-公网多机可共用 Caddy，各 gateway 分路由。没有「一个安装下选多节点」。
+LAN 入口在自身 `init` 时自动建立 binding；公网网关的 bundle 经节点 `binding add` 注册。公网多机可共用 Caddy，各 gateway 分路由。没有「一个安装下选多节点」。
 
 ## Skill
 

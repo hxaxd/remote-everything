@@ -8,28 +8,68 @@ import (
 	"io"
 )
 
-const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH [--control-token-file ABSOLUTE_PATH | --bootstrap ABSOLUTE_PATH] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
+const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH | binding add --state ABSOLUTE_PATH --bootstrap ABSOLUTE_PATH | binding remove --state ABSOLUTE_PATH INSTALLATION_ID | binding list --state ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
 
 func runInit(parts []string, output io.Writer) error {
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "")
-	tokenFile := flags.String("control-token-file", "", "")
-	bootstrapRoot := flags.String("bootstrap", "", "")
-	if flags.Parse(parts) != nil || flags.NArg() != 0 || (*tokenFile != "" && *bootstrapRoot != "") {
+	if flags.Parse(parts) != nil || flags.NArg() != 0 {
 		return errors.New("invalid init arguments")
 	}
-	var result InitResult
-	var err error
-	if *bootstrapRoot != "" {
-		result, err = InitializeFromBootstrap(*state, *bootstrapRoot)
-	} else {
-		result, err = Initialize(*state, *tokenFile)
-	}
+	result, err := Initialize(*state)
 	if err != nil {
 		return err
 	}
 	return json.NewEncoder(output).Encode(result)
+}
+
+func runBinding(parts []string, output io.Writer) error {
+	if len(parts) == 0 {
+		return errors.New("missing binding action")
+	}
+	flags := flag.NewFlagSet("binding "+parts[0], flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state", "", "")
+	bootstrap := flags.String("bootstrap", "", "")
+	if flags.Parse(parts[1:]) != nil {
+		return errors.New("invalid binding arguments")
+	}
+	switch parts[0] {
+	case "add":
+		if flags.NArg() != 0 || *bootstrap == "" {
+			return errors.New("invalid binding add arguments")
+		}
+		result, err := AddBinding(*state, *bootstrap)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(output).Encode(result)
+	case "remove":
+		if flags.NArg() != 1 || *bootstrap != "" {
+			return errors.New("invalid binding remove arguments")
+		}
+		if err := RemoveBinding(*state, flags.Arg(0)); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintf(output, `{"ok":true,"action":"remove","installation_id":%q}`+"\n", flags.Arg(0))
+		return err
+	case "list":
+		if flags.NArg() != 0 || *bootstrap != "" {
+			return errors.New("invalid binding list arguments")
+		}
+		node, err := statePaths(*state)
+		if err != nil {
+			return err
+		}
+		current, err := node.currentState()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(output).Encode(current.Bindings)
+	default:
+		return errors.New("unknown binding action")
+	}
 }
 
 func runApp(parts []string, platform Platform, output io.Writer) error {
@@ -105,6 +145,8 @@ func Run(parts []string, platform Platform, stdout, stderr io.Writer) int {
 	switch parts[0] {
 	case "init":
 		err = runInit(parts[1:], stdout)
+	case "binding":
+		err = runBinding(parts[1:], stdout)
 	case "app":
 		err = runApp(parts[1:], platform, stdout)
 	case "ports":

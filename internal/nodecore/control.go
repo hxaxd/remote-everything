@@ -108,10 +108,28 @@ func (node *Node) statusApp(id string) actionResponse {
 	return node.stateResponse(app, "status")
 }
 
+func (node *Node) authorize(request *http.Request) bool {
+	auth := request.Header.Get("Authorization")
+	state, err := node.currentState()
+	if err != nil {
+		node.log("control auth state unavailable: %v", err)
+		return false
+	}
+	for _, binding := range state.Bindings {
+		contents, err := os.ReadFile(binding.ControlTokenFile)
+		if err != nil {
+			continue
+		}
+		expected := strings.TrimSpace(string(contents))
+		if validToken.MatchString(expected) && subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+expected)) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func (node *Node) localControlHandler(writer http.ResponseWriter, request *http.Request) {
-	contents, err := os.ReadFile(node.controlTokenFile)
-	expected := strings.TrimSpace(string(contents))
-	if err != nil || !validToken.MatchString(expected) || subtle.ConstantTimeCompare([]byte(request.Header.Get("Authorization")), []byte("Bearer "+expected)) != 1 {
+	if !node.authorize(request) {
 		node.log("control auth failed remote=%s", request.RemoteAddr)
 		writer.WriteHeader(http.StatusUnauthorized)
 		return
