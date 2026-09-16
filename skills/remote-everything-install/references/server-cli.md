@@ -1,8 +1,8 @@
 # 入口与网关 CLI
 
-两种入口记录的是同一件事：**身份 + 具名监听**。`installation_id` 决定节点把它绑成谁，监听列表说的是它在哪些地址上服务，每条都有名字（LAN 是 `lan`；公网网关是 `status`、`pairing`、`frps`、`node_tunnel`），因为渲染模板、运行记录和操作者都是按角色而不是按位置来引用它们的。
+两种入口记录的是同一件事：**身份 + 对外 origin + 具名监听**。`installation_id` 决定节点把它绑成谁；`origin` 是客户端拨它的地址，也是每条邀请指向的地址，初始化时写一次，之后所有 `device invite` 都从状态里取，不再需要操作者每次手敲；监听列表说的是它在哪些地址上服务，每条都有名字（LAN 是 `lan`；公网网关是 `status`、`pairing`、`frps`、`node_tunnel`），因为渲染模板、运行记录和操作者都是按角色而不是按位置来引用它们的。
 
-文件因此也只差一点：`server.json` 就是这份状态本身；`lan.json` 是同一份状态再加一个 `lan` 块（节点地址、对外主机、客户端钉住的证书）。`ports repair` 是同一套实现——保住每条监听的名字与主机，只把端口搬走。CLI 输出仍然用具名字段（`status_listen`、`listen_address`……），部署模板与运行记录按这些名字取值，不受状态文件内部结构影响。
+文件因此也只差一点：`server.json` 就是这份状态本身；`lan.json` 是同一份状态再加一个 `lan` 块（节点地址、入口自己的证书文件与指纹）。`ports repair` 是同一套实现——保住每条监听的名字与主机，只把端口搬走（LAN 的 origin 含端口，所以搬端口时 origin 跟着变）。CLI 输出仍然用具名字段（`status_listen`、`listen_address`……），部署模板与运行记录按这些名字取值，不受状态文件内部结构影响。
 
 ## LAN：Windows、Linux、macOS
 
@@ -12,14 +12,14 @@ remote-everything-lan-server certificate renew --state PATH [--valid-days DAYS]
 remote-everything-lan-server ports repair --state PATH
 remote-everything-lan-server serve --state PATH
 remote-everything-lan-server device --state PATH list
-remote-everything-lan-server device --state PATH invite --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH]
-remote-everything-lan-server device --state PATH renew --name NAME [--origin HTTPS_ORIGIN] [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT
+remote-everything-lan-server device --state PATH invite --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH]
+remote-everything-lan-server device --state PATH renew --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT
 remote-everything-lan-server device --state PATH invitation list
 remote-everything-lan-server device --state PATH invitation cancel TOKEN_HASH
 remote-everything-lan-server device --state PATH revoke FINGERPRINT
 ```
 
-LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`control-token`、`lan.json`、自己的服务器证书、设备 CA 与设备记录都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并把节点要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到节点执行 `binding add --bootstrap`，绑定才成立。`--node-address` 是入口拨号用的节点地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，即移动客户端 Profile 的 origin。`init` 输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：控制面（`/__remote_everything*`）只对已批准设备开放，应用页面流量仍由节点按路由 Cookie 授权，因为 WebView 的一次页面加载带不了凭据。
+LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`control-token`、`lan.json`、自己的服务器证书、设备 CA 与设备记录都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin（客户端就拨这个地址，所以它必须与证书覆盖的主机一致），再把节点要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到节点执行 `binding add --bootstrap`，绑定才成立。`--node-address` 是入口拨号用的节点地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`gateway_origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：控制面（`/__remote_everything*`）只对已批准设备开放，应用页面流量仍由节点按路由 Cookie 授权，因为 WebView 的一次页面加载带不了凭据。
 
 节点换地址后重跑一次入口 `init` 并把 `--node-address` 指到新地址即可：入口身份与证书都沿用现有的，客户端无需重新配对。
 
@@ -30,20 +30,20 @@ LAN 的邀请是操作者当面交出去的，兑换即批准，没有需要人�
 以下命令必须以网关 systemd unit 的 `User` 账户执行，使 `0600` 状态文件与运行中的网关同属一人；先从真实 unit 读取账户，不以 root 直接运行管理命令。`init` 先于 unit 存在：Agent 必须先创建或选定该服务账户并以之执行，使初始状态文件与后续 unit 的 `User` 一致。
 
 ```text
-remote-everything-gateway init --state PATH --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY
+remote-everything-gateway init --state PATH --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY --origin HTTPS_ORIGIN
 remote-everything-gateway ports repair --state PATH
 remote-everything-gateway tunnel renew --state PATH --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY
 remote-everything-gateway serve --state PATH
 remote-everything-gateway device --state PATH list
 remote-everything-gateway device --state PATH approve FINGERPRINT
-remote-everything-gateway device --state PATH invite --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH]
-remote-everything-gateway device --state PATH renew --name NAME --origin HTTPS_ORIGIN [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT
+remote-everything-gateway device --state PATH invite --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH]
+remote-everything-gateway device --state PATH renew --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT
 remote-everything-gateway device --state PATH invitation list
 remote-everything-gateway device --state PATH invitation cancel TOKEN_HASH
 remote-everything-gateway device --state PATH revoke FINGERPRINT
 ```
 
-`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、控制令牌，以及四个互不相同的动态 loopback 地址。
+`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、控制令牌，以及四个互不相同的动态 loopback 地址；`--origin` 是 443 入口对外服务的那个地址（例如 `https://remote.example.com`），写进状态后就是这份网关发出去的每条邀请指向的地址。
 
 隧道材料分两堆，按"谁读它"分开：
 

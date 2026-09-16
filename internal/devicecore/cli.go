@@ -34,7 +34,6 @@ func (service *Trust) runDeviceCLI(args []string, output io.Writer) error {
 		flags.SetOutput(io.Discard)
 		ttlText := flags.String("ttl", "10m", "")
 		name := flags.String("name", "", "")
-		origin := flags.String("origin", "", "")
 		qrFile := flags.String("qr", "", "")
 		if flags.Parse(args[1:]) != nil || flags.NArg() != 0 || strings.TrimSpace(*name) == "" {
 			return errors.New("invalid device invite arguments")
@@ -43,13 +42,12 @@ func (service *Trust) runDeviceCLI(args []string, output io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("invalid invite ttl: %w", err)
 		}
-		return service.issueInvitation(ttl, *name, *origin, *qrFile, output)
+		return service.issueInvitation(ttl, *name, *qrFile, output)
 	case "renew":
 		flags := flag.NewFlagSet("device renew", flag.ContinueOnError)
 		flags.SetOutput(io.Discard)
 		ttlText := flags.String("ttl", "10m", "")
 		name := flags.String("name", "", "")
-		origin := flags.String("origin", "", "")
 		qrFile := flags.String("qr", "", "")
 		if flags.Parse(args[1:]) != nil || flags.NArg() != 1 || strings.TrimSpace(*name) == "" {
 			return errors.New("invalid device renew arguments")
@@ -58,7 +56,7 @@ func (service *Trust) runDeviceCLI(args []string, output io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("invalid renewal ttl: %w", err)
 		}
-		return service.issueRenewalInvitation(ttl, *name, *origin, *qrFile, flags.Arg(0), output)
+		return service.issueRenewalInvitation(ttl, *name, *qrFile, flags.Arg(0), output)
 	case "invitation":
 		if len(args) == 2 && args[1] == "list" {
 			return service.invitationList(output)
