@@ -113,16 +113,13 @@ func (state State) Address(name string) (string, error) {
 // gateway that dials itself by its own host and port derives its origin from the
 // listeners, while one served by an entrance in front of it is told its origin.
 func AllocateListeners(preferences []ListenerPreference) ([]Listener, error) {
-	if len(preferences) == 0 {
-		return nil, errors.New("invalid gateway identity")
-	}
 	return allocate(preferences)
 }
 
 // NewState records a gateway: the identity a node binds it by, the origin its
 // clients dial, and the addresses it serves on.
 func NewState(installationID, origin string, listeners []Listener) (State, error) {
-	if !validToken.MatchString(installationID) || len(listeners) == 0 {
+	if !validToken.MatchString(installationID) {
 		return State{}, errors.New("invalid gateway identity")
 	}
 	normalizedOrigin, err := NormalizeOrigin(origin)

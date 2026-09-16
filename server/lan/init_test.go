@@ -40,7 +40,7 @@ func TestInitializeLAN(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	origin, parseErr := url.Parse(first.GatewayOrigin)
+	origin, parseErr := url.Parse(first.Origin)
 	if !first.OK || parseErr != nil || origin.Scheme != "https" || origin.Hostname() != "127.0.0.1" || origin.Port() == "" || len(first.CertificateFingerprint) != 64 || len(first.InstallationID) != 64 {
 		t.Fatalf("unexpected init result: %+v", first)
 	}
@@ -112,7 +112,7 @@ func TestInitializeLAN(t *testing.T) {
 	if err != nil || repaired.InstallationID != first.InstallationID || repaired.CertificateFingerprint != first.CertificateFingerprint {
 		t.Fatalf("unexpected port repair: %+v %v", repaired, err)
 	}
-	repairedOrigin, _ := url.Parse(repaired.GatewayOrigin)
+	repairedOrigin, _ := url.Parse(repaired.Origin)
 	if repairedOrigin.Port() == "" || repaired.ListenAddress != "0.0.0.0:"+repairedOrigin.Port() {
 		t.Fatalf("repaired origin does not match listen address: %+v", repaired)
 	}
@@ -123,7 +123,7 @@ func TestInitializeLAN(t *testing.T) {
 	// Renewal rotates the certificate clients pinned without touching the identity
 	// the node bound, and it hands out no invitation: a client that has to be told
 	// about the new certificate is told by a new invitation, not by init.
-	if renewed.InstallationID != first.InstallationID || renewed.GatewayOrigin != repaired.GatewayOrigin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.PublicKeyPin == first.PublicKeyPin {
+	if renewed.InstallationID != first.InstallationID || renewed.Origin != repaired.Origin || renewed.CertificateFingerprint == first.CertificateFingerprint || renewed.PublicKeyPin == first.PublicKeyPin {
 		t.Fatalf("LAN renewal changed installation or did not rotate trust: %+v", renewed)
 	}
 	afterRenewal, err := loadLANState(root)

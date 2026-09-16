@@ -16,9 +16,9 @@ var (
 	auditOut io.Writer = os.Stderr
 )
 
-// Line writes one structured line to a stream. Callers must never pass tokens,
+// line writes one structured line to a stream. Callers must never pass tokens,
 // passwords, private keys or PKCS#12 material as values.
-func Line(writer io.Writer, component, level, message string, keyValues ...string) {
+func line(writer io.Writer, component, level, message string, keyValues ...string) {
 	entry := map[string]string{
 		"ts":        time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 		"level":     level,
@@ -39,11 +39,11 @@ func Line(writer io.Writer, component, level, message string, keyValues ...strin
 
 // Log writes one operational line where the rest of a command's output goes.
 func Log(component, level, message string, keyValues ...string) {
-	Line(logOut, component, level, message, keyValues...)
+	line(logOut, component, level, message, keyValues...)
 }
 
 // Audit writes one line of the device audit trail beside rather than among a
 // command's output, so a JSON document on stdout stays parseable on its own.
 func Audit(message string, keyValues ...string) {
-	Line(auditOut, "device", "info", message, keyValues...)
+	line(auditOut, "device", "info", message, keyValues...)
 }

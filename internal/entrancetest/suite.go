@@ -11,6 +11,7 @@
 package entrancetest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -61,13 +62,6 @@ func Run(t *testing.T, harness Harness) {
 	t.Helper()
 	gateway := harness.Gateway()
 	trust := gateway.Trust()
-
-	t.Run("an invitation pairs a device and the credential chains to the entrance", func(t *testing.T) {
-		fingerprint, credential := pair(t, harness, issueInvitation(t, harness))
-		if fingerprint == "" || credential == nil {
-			t.Fatal("pairing issued nothing")
-		}
-	})
 
 	t.Run("a device is admitted only once its admission allows it", func(t *testing.T) {
 		fingerprint, credential := pair(t, harness, issueInvitation(t, harness))
@@ -121,8 +115,8 @@ func Run(t *testing.T, harness Harness) {
 		pair(t, harness, invitation)
 		body, _ := json.Marshal(map[string]string{"device_name": "Other Phone", "credential_password": credentialPassword})
 		status, _, err := harness.Dial(nil, http.MethodPost, "/__remote_everything_pair", map[string]string{"Authorization": "Invitation " + invitation}, body)
-		if err != nil || status == http.StatusOK {
-			t.Fatalf("an invitation that was spent paired another device: %d %v", status, err)
+		if err != nil || status != http.StatusUnauthorized {
+			t.Fatalf("a spent invitation was answered with %d, %v", status, err)
 		}
 	})
 
@@ -199,18 +193,11 @@ func issueInvitation(t *testing.T, harness Harness) string {
 }
 
 func runCLI(trust *devicecore.Trust, args ...string) (string, error) {
-	var buffer writeBuffer
+	var buffer bytes.Buffer
 	if err := trust.RunCLI(args, &buffer); err != nil {
 		return "", err
 	}
-	return buffer.value, nil
-}
-
-type writeBuffer struct{ value string }
-
-func (buffer *writeBuffer) Write(contents []byte) (int, error) {
-	buffer.value += string(contents)
-	return len(contents), nil
+	return buffer.String(), nil
 }
 
 // pair redeems an invitation the way a device does: with no credential at all,
@@ -246,6 +233,9 @@ func pair(t *testing.T, harness Harness, invitation string) (string, *tls.Certif
 	if devicecore.CertificateFingerprint(certificate) != result.CertificateFingerprint {
 		t.Fatal("the credential is not the one it was issued under")
 	}
+	// Every case that needs a credential comes through here, so this is where the
+	// credential itself is checked: it is the one it was issued as, and it chains
+	// to this entrance's own authority rather than to anyone else's.
 	if len(chain) != 1 || !chain[0].Equal(harness.Gateway().Trust().Issuer()) {
 		t.Fatal("the credential does not chain to this entrance's device authority")
 	}

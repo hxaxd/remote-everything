@@ -94,6 +94,12 @@ func TestLoadStateRejectsStatesNothingCanServe(t *testing.T) {
 	}
 }
 
+func TestNewStateRefusesAGatewayThatServesNothing(t *testing.T) {
+	if _, err := NewState(strings.Repeat("a1", 32), "https://gateway.example", nil); err == nil {
+		t.Fatal("a gateway with no listeners was recorded")
+	}
+}
+
 // Repair moves the ports and nothing else: a listener's name and host are what
 // the rest of the deployment was pointed at.
 func TestRepairKeepsNamesAndHosts(t *testing.T) {
