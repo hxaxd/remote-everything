@@ -35,6 +35,10 @@ import (
 // a secret.
 const credentialPassword = "credential-password-123"
 
+// pagePath is the node's own traffic rather than its control surface: what an
+// application serves once it was opened.
+const pagePath = "/editor/"
+
 // Harness is what one shape tells the suite so the suite can drive it.
 type Harness interface {
 	// Gateway is the shape under test, opened on a state of its own and serving
@@ -78,16 +82,25 @@ func Run(t *testing.T, harness Harness) {
 		}
 		admit(t, harness, fingerprint, credential)
 
-		// The node is reached through the admitted device.
+		// The node is reached through the admitted device, by the surface that
+		// lists what it runs and by the path that serves it: what an entrance
+		// answers is the node's, and all of it is behind the same admission.
 		if status, body, err := harness.Dial(credential, http.MethodGet, "/__remote_everything/apps", nil, nil); err != nil || status != http.StatusOK || !connected(t, body) {
 			t.Fatalf("the admitted device did not reach the node: %d %s %v", status, body, err)
+		}
+		if status, _, err := harness.Dial(credential, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusOK {
+			t.Fatalf("the admitted device did not reach the page it opened: %d %v", status, err)
 		}
 	})
 
 	t.Run("a request the entrance refuses never reaches the node", func(t *testing.T) {
 		seen := len(harness.NodeSaw())
-		if status, _, err := harness.Dial(nil, http.MethodGet, "/__remote_everything/apps", nil, nil); err != nil || status != http.StatusUnauthorized {
-			t.Fatalf("an unpaired client was answered with %d, %v", status, err)
+		// Neither the control surface nor a page: an entrance that let anything
+		// reach the node before admitting a device would be answering for it.
+		for _, path := range []string{"/__remote_everything/apps", pagePath} {
+			if status, _, err := harness.Dial(nil, http.MethodGet, path, nil, nil); err != nil || status != http.StatusUnauthorized {
+				t.Fatalf("an unpaired client reached %s with %d, %v", path, status, err)
+			}
 		}
 		if len(harness.NodeSaw()) != seen {
 			t.Fatal("a refused request was forwarded to the node")
