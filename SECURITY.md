@@ -14,7 +14,7 @@
 
 配对与设备状态；mTLS / 指纹 / 吊销；网关→节点控制令牌；反向代理路径、Host、Cookie、WebSocket；客户端凭据与 Web 隔离；Skill / 发布链路。
 
-其它问题见 [SUPPORT.md](SUPPORT.md)。
+其它问题见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## English
 
@@ -28,4 +28,4 @@ Target: acknowledge within 7 days; initial assessment or follow-up questions wit
 
 Pairing and device state; mTLS / fingerprints / revocation; gateway→node control tokens; reverse-proxy path, Host, Cookie, WebSocket; client credentials and Web isolation; Skill / release pipeline.
 
-Everything else: [SUPPORT.md](SUPPORT.md).
+Everything else: [CONTRIBUTING.md](CONTRIBUTING.md).
