@@ -22,23 +22,6 @@ func TestLANEntranceBehaviour(t *testing.T) {
 	entrancetest.Run(t, startLANEntrance(t))
 }
 
-// What only a LAN entrance does: application traffic is not a control surface, so
-// it stays with the node's routing cookie — a page load in a WebView cannot carry
-// a credential the way a control call can.
-//
-// That the entrance serves the certificate its clients pinned is not asserted
-// here: this harness trusts nothing but that certificate, so every case the
-// shared suite runs would fail on the handshake if it served another one.
-func TestLANEntranceLeavesApplicationTrafficToTheNode(t *testing.T) {
-	harness := startLANEntrance(t)
-	if status, _, err := harness.Dial(nil, http.MethodGet, "/healthz", nil, nil); err != nil || status != http.StatusOK {
-		t.Fatalf("the entrance is not answering health checks: %d %v", status, err)
-	}
-	if status, _, err := harness.Dial(nil, http.MethodGet, "/editor/", nil, nil); err != nil || status != http.StatusOK {
-		t.Fatalf("application traffic was refused at the entrance: %d %v", status, err)
-	}
-}
-
 // lanHarness is the LAN entrance as the shared suite sees it.
 type lanHarness struct {
 	service      *lanService

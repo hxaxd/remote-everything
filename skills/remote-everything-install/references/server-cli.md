@@ -19,7 +19,7 @@ remote-everything-lan-server device --state PATH invitation cancel TOKEN_HASH
 remote-everything-lan-server device --state PATH revoke FINGERPRINT
 ```
 
-LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`control-token`、`lan.json`、自己的服务器证书、设备 CA 与设备记录都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin（客户端就拨这个地址，所以它必须与证书覆盖的主机一致），再把节点要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到节点执行 `binding add --bootstrap`，绑定才成立。`--node-address` 是入口拨号用的节点地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：控制面（`/__remote_everything*`）只对已批准设备开放，应用页面流量仍由节点按路由 Cookie 授权，因为 WebView 的一次页面加载带不了凭据。
+LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`control-token`、`lan.json`、自己的服务器证书、设备 CA 与设备记录都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin（客户端就拨这个地址，所以它必须与证书覆盖的主机一致），再把节点要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到节点执行 `binding add --bootstrap`，绑定才成立。`--node-address` 是入口拨号用的节点地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：终端发出的每一个请求都落在信任层上，只有兑换邀请那一个不需要凭据，其余（含应用页面流量）都只对已批准设备开放——客户端在 WebView 里出示同一张证书。两种形态因此只差 TLS 在哪终止。
 
 节点换地址后重跑一次入口 `init` 并把 `--node-address` 指到新地址即可：入口身份与证书都沿用现有的，客户端无需重新配对。
 
