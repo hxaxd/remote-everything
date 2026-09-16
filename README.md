@@ -121,8 +121,6 @@ skills/    可执行运维流程
 ```
 
 - [贡献指南](CONTRIBUTING.md)
-- [支持说明](SUPPORT.md)
-- [行为准则](CODE_OF_CONDUCT.md)
 - [安全策略](SECURITY.md)
 
 ## 常见问题

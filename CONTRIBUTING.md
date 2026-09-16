@@ -4,7 +4,7 @@
 
 ## 中文
 
-安全问题走 [SECURITY.md](SECURITY.md)。行为准则见 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
+安全问题走 [SECURITY.md](SECURITY.md)。
 
 ### 目录
 
@@ -34,7 +34,7 @@
 
 ## English
 
-Security: [SECURITY.md](SECURITY.md). Code of Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Security: [SECURITY.md](SECURITY.md).
 
 ### Layout
 

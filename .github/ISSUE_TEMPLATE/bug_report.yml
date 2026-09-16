@@ -87,5 +87,5 @@ body:
           required: true
         - label: I removed credentials and private deployment data. / 我已删除凭据和私有部署信息。
           required: true
-        - label: I agree to follow the Code of Conduct. / 我同意遵守行为准则。
+        - label: I agree to follow the Contributing Guide. / 我同意遵守贡献指南。
           required: true
