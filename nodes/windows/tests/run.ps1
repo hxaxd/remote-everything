@@ -76,14 +76,15 @@ try {
     Assert-True ($initialized.node_id -match '^[0-9a-f]{64}$') 'init creates a stable node id'
     $initializedAgain = (& $controlPath init --state $stateRoot | ConvertFrom-Json)
     Assert-True ($LASTEXITCODE -eq 0 -and $initializedAgain.ok -and $initializedAgain.listen_address -eq $initialized.listen_address -and $initializedAgain.node_id -eq $initialized.node_id) 'init is idempotent'
-    $gatewayDir = Join-Path $temporaryRoot 'gateway'
     $bootstrapDir = Join-Path $temporaryRoot 'bootstrap'
-    & $genBundlePath -gateway $gatewayDir -bootstrap $bootstrapDir -installation-id $installationId -control-token $script:token
-    Assert-True ($LASTEXITCODE -eq 0) 'gateway bundle is generated'
+    & $genBundlePath -bootstrap $bootstrapDir -installation-id $installationId -control-token $script:token
+    Assert-True ($LASTEXITCODE -eq 0) 'identity bundle is generated'
     $binding = (& $controlPath binding add --state $stateRoot --bootstrap $bootstrapDir | ConvertFrom-Json)
     Assert-True ($LASTEXITCODE -eq 0 -and $binding.ok -and $binding.installation_id -eq $installationId) 'binding add registers the gateway'
     $bindings = (& $controlPath binding list --state $stateRoot | ConvertFrom-Json)
     Assert-True (@($bindings).Count -eq 1 -and $bindings[0].installation_id -eq $installationId) 'binding list shows the gateway'
+    $bindingFiles = @(Get-ChildItem -File -Recurse (Join-Path $stateRoot ('bindings\' + $installationId)))
+    Assert-True ($bindingFiles.Count -eq 1 -and $bindingFiles[0].Name -eq 'control-token') 'a binding holds only its control token'
 
     $controlProcess = Start-Process -FilePath $controlPath `
         -ArgumentList @('serve', '--state', ('"' + $stateRoot + '"')) `
