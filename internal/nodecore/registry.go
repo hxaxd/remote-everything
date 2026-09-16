@@ -95,13 +95,52 @@ func validLaunchFragment(value string) bool {
 
 func (node *Node) validateRegistry(value Registry) error {
 	if value.Schema != registrySchema || value.Apps == nil {
-		return errors.New("invalid application registry")
+		return errors.New("invalid application registry schema")
 	}
 	seen := map[string]bool{}
 	for _, app := range value.Apps {
 		address, err := proxyAddress(app.ProxyURL)
-		if err != nil || !validID.MatchString(app.ID) || !validMetadata(app.Name, 80, false) || !validMetadata(app.Description, 240, true) || !validMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || !validLaunchFragment(app.LaunchFragment) || !filepath.IsAbs(app.Command) || seen[app.ID] || address == node.state.ListenAddress || !validDirectory(app.WorkDir) || (app.StopCommand != "" && !filepath.IsAbs(app.StopCommand)) || app.Arguments == nil || app.StopArgs == nil {
-			return errors.New("invalid application registry")
+		if err != nil {
+			return errors.New("invalid application proxy_url")
+		}
+		if !validID.MatchString(app.ID) {
+			return errors.New("invalid application id")
+		}
+		if !validMetadata(app.Name, 80, false) {
+			return errors.New("invalid application name")
+		}
+		if !validMetadata(app.Description, 240, true) {
+			return errors.New("invalid application description")
+		}
+		if !validMetadata(app.Icon, 4, true) {
+			return errors.New("invalid application icon")
+		}
+		if !validAccent.MatchString(app.Accent) {
+			return errors.New("invalid application accent")
+		}
+		if !validLaunchFragment(app.LaunchFragment) {
+			return errors.New("invalid application launch_fragment")
+		}
+		if !filepath.IsAbs(app.Command) {
+			return errors.New("application command must be absolute")
+		}
+		if seen[app.ID] {
+			return errors.New("duplicate application id")
+		}
+		if address == node.state.ListenAddress {
+			return errors.New("application proxy_url conflicts with node listen address")
+		}
+		if !validDirectory(app.WorkDir) {
+			return errors.New("invalid application workdir")
+		}
+		if app.StopCommand != "" && !filepath.IsAbs(app.StopCommand) {
+			return errors.New("application stop_command must be absolute")
+		}
+		if app.Arguments == nil {
+			return errors.New("application arguments must be a list")
+		}
+		if app.StopArgs == nil {
+			return errors.New("application stop_arguments must be a list")
 		}
 		seen[app.ID] = true
 	}

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
@@ -143,10 +144,7 @@ func writePrivateKey(path string, key *ecdsa.PrivateKey) error {
 func ensureToken(path string) (string, error) {
 	contents, err := os.ReadFile(path)
 	if err == nil {
-		value := string(contents)
-		for len(value) > 0 && (value[len(value)-1] == '\n' || value[len(value)-1] == '\r') {
-			value = value[:len(value)-1]
-		}
+		value := strings.TrimRight(string(contents), "\r\n")
 		if !hex64.MatchString(value) {
 			return "", errors.New("invalid existing FRPS token")
 		}
@@ -350,13 +348,7 @@ func ReadNodeBundle(root string) (NodeBundle, error) {
 	if err != nil {
 		return NodeBundle{}, err
 	}
-	trimToken := func(value []byte) string {
-		for len(value) > 0 && (value[len(value)-1] == '\n' || value[len(value)-1] == '\r') {
-			value = value[:len(value)-1]
-		}
-		return string(value)
-	}
-	bundle := NodeBundle{InstallationID: manifest.InstallationID, ControlToken: trimToken(control), FRPSToken: trimToken(frps)}
+	bundle := NodeBundle{InstallationID: manifest.InstallationID, ControlToken: strings.TrimRight(string(control), "\r\n"), FRPSToken: strings.TrimRight(string(frps), "\r\n")}
 	if !hex64.MatchString(bundle.ControlToken) || !hex64.MatchString(bundle.FRPSToken) {
 		return NodeBundle{}, errors.New("invalid bootstrap token")
 	}
