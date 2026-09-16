@@ -14,6 +14,7 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,14 +50,34 @@ type lanState struct {
 }
 
 // lanDetails is the half of the state that is LAN-specific: where the node is,
-// and the TLS identity the entrance's clients pinned when they paired.
+// and the TLS identity the entrance's clients pinned when they paired. The host
+// its clients dial is the origin the shared state records, and the certificate
+// this entrance serves is the one that origin's host has to resolve to.
 type lanDetails struct {
 	NodeAddress            string `json:"node_address"`
-	Host                   string `json:"host"`
-	GatewayOrigin          string `json:"gateway_origin"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	CertificateFile        string `json:"certificate_file"`
 	PrivateKeyFile         string `json:"private_key_file"`
+}
+
+// validLANHost is the shape an entrance's own host may have: the IPv4 address or
+// the name clients reach it by, which is also what its certificate must cover.
+func validLANHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return (ip != nil && ip.To4() != nil) || (ip == nil && validDNSName.MatchString(host))
+}
+
+// host is the hostname or address this entrance serves and its certificate
+// covers: the host half of the origin clients dial.
+func (state lanState) host() (string, error) {
+	parsed, err := url.Parse(state.Origin)
+	if err != nil || parsed.Hostname() == "" {
+		return "", errors.New("invalid LAN state")
+	}
+	return parsed.Hostname(), nil
 }
 
 // listener returns the address the entrance serves its clients on.
@@ -85,13 +106,17 @@ func (state lanState) validate() error {
 	if err != nil {
 		return errors.New("invalid LAN state")
 	}
+	host, err := state.host()
+	if err != nil {
+		return err
+	}
 	_, port, _ := net.SplitHostPort(listenAddress)
-	expectedOrigin := "https://" + net.JoinHostPort(state.LAN.Host, port)
+	expectedOrigin := "https://" + net.JoinHostPort(host, port)
 	expectedCertificate := "lan-server-" + state.LAN.CertificateFingerprint + ".crt.pem"
 	expectedKey := "lan-server-" + state.LAN.CertificateFingerprint + ".key.pem"
-	if !netaddr.ValidUnicast(state.LAN.NodeAddress) || state.LAN.Host == "" ||
+	if !netaddr.ValidUnicast(state.LAN.NodeAddress) || !validLANHost(host) ||
 		!validSHA256.MatchString(state.LAN.CertificateFingerprint) ||
-		state.LAN.GatewayOrigin != expectedOrigin ||
+		state.Origin != expectedOrigin ||
 		state.LAN.CertificateFile != expectedCertificate || state.LAN.PrivateKeyFile != expectedKey ||
 		!validLANCertificateFile.MatchString(state.LAN.CertificateFile) || !validLANKeyFile.MatchString(state.LAN.PrivateKeyFile) {
 		return errors.New("invalid LAN state")
@@ -193,7 +218,7 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	certificate, err := loadLANCertificate(root, state.LAN.Host, state)
+	certificate, err := loadLANCertificate(root, state)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -205,14 +230,20 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
+	// The port is part of the origin clients dial, so moving the port moves the
+	// origin with it.
 	_, port, _ := net.SplitHostPort(listenAddress)
-	repaired.LAN.GatewayOrigin = "https://" + net.JoinHostPort(repaired.LAN.Host, port)
+	host, err := repaired.host()
+	if err != nil {
+		return lanInitResult{}, err
+	}
+	repaired.Origin = "https://" + net.JoinHostPort(host, port)
 	if err := repaired.save(root); err != nil {
 		return lanInitResult{}, err
 	}
 	return lanInitResult{
 		OK: true, InstallationID: repaired.InstallationID, ListenAddress: listenAddress,
-		GatewayOrigin: repaired.LAN.GatewayOrigin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
+		GatewayOrigin: repaired.Origin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
 		PublicKeyPin: devicecore.PublicKeyPin(certificate),
 	}, nil
 }
@@ -250,7 +281,11 @@ func writeLANCertificatePair(root string, certificate *x509.Certificate, certifi
 	return certificateName, keyName, nil
 }
 
-func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, error) {
+func loadLANCertificate(root string, state lanState) (*x509.Certificate, error) {
+	host, err := state.host()
+	if err != nil {
+		return nil, err
+	}
 	certificate, err := parseLANCertificate(filepath.Join(root, state.LAN.CertificateFile), filepath.Join(root, state.LAN.PrivateKeyFile), host)
 	if err != nil {
 		return nil, err
@@ -268,25 +303,30 @@ func loadLANCertificate(root, host string, state lanState) (*x509.Certificate, e
 func reconcileLANState(root, nodeAddress, host, installationID, fingerprint, certificateFile, keyFile string) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
-		shared, allocateErr := gatewaycore.NewState(installationID, []gatewaycore.ListenerPreference{
+		// This entrance is what its clients dial, so its origin is its own host
+		// and the port it just allocated.
+		listeners, allocateErr := gatewaycore.AllocateListeners([]gatewaycore.ListenerPreference{
 			{Name: listenerName, Host: "0.0.0.0", PreferredPort: listenerPort},
 		})
 		if allocateErr != nil {
 			return lanState{}, allocateErr
 		}
-		listenAddress, addressErr := shared.Address(listenerName)
+		listenAddress, addressErr := gatewaycore.State{Listeners: listeners}.Address(listenerName)
 		if addressErr != nil {
 			return lanState{}, addressErr
 		}
 		_, port, _ := net.SplitHostPort(listenAddress)
+		shared, stateErr := gatewaycore.NewState(installationID, "https://"+net.JoinHostPort(host, port), listeners)
+		if stateErr != nil {
+			return lanState{}, stateErr
+		}
 		state = lanState{State: shared, LAN: lanDetails{
-			NodeAddress: nodeAddress, Host: host,
-			GatewayOrigin: "https://" + net.JoinHostPort(host, port), CertificateFingerprint: fingerprint,
+			NodeAddress: nodeAddress, CertificateFingerprint: fingerprint,
 			CertificateFile: certificateFile, PrivateKeyFile: keyFile,
 		}}
 	} else if err != nil {
 		return lanState{}, err
-	} else if state.InstallationID != installationID || state.LAN.Host != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
+	} else if existingHost, hostErr := state.host(); hostErr != nil || existingHost != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
 		return lanState{}, errors.New("existing LAN state does not match host or certificate")
 	} else {
 		state.LAN.NodeAddress = nodeAddress
@@ -302,8 +342,7 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 		return lanInitResult{}, errors.New("state and bootstrap paths must be absolute")
 	}
 	host = strings.TrimSpace(host)
-	ip := net.ParseIP(host)
-	if host == "" || (ip != nil && ip.To4() == nil) || (ip == nil && !validDNSName.MatchString(host)) {
+	if !validLANHost(host) {
 		return lanInitResult{}, errors.New("invalid LAN host")
 	}
 	if !netaddr.ValidUnicast(nodeAddress) {
@@ -316,7 +355,8 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	existing, stateErr := loadLANState(root)
 	installationID := ""
 	if stateErr == nil {
-		if existing.LAN.Host != host {
+		existingHost, hostErr := existing.host()
+		if hostErr != nil || existingHost != host {
 			return lanInitResult{}, errors.New("existing LAN state serves another host")
 		}
 		installationID = existing.InstallationID
@@ -337,7 +377,7 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	var certificateFile, keyFile string
 	createdCertificate := false
 	if stateErr == nil {
-		certificate, err = loadLANCertificate(root, host, existing)
+		certificate, err = loadLANCertificate(root, existing)
 		certificateFile, keyFile = existing.LAN.CertificateFile, existing.LAN.PrivateKeyFile
 	} else if errors.Is(stateErr, os.ErrNotExist) {
 		var certificatePEM, keyPEM []byte
@@ -375,7 +415,7 @@ func initializeLAN(root, nodeAddress, host string, validDays int, bootstrapDir s
 	}
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
-		GatewayOrigin: state.LAN.GatewayOrigin, CertificateFingerprint: state.LAN.CertificateFingerprint,
+		GatewayOrigin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
 		PublicKeyPin: devicecore.PublicKeyPin(certificate),
 	}, nil
 }
@@ -393,7 +433,11 @@ func renewLANCertificate(root string, validDays int) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	certificate, certificatePEM, keyPEM, err := generateLANCertificate(state.LAN.Host, validDays)
+	host, err := state.host()
+	if err != nil {
+		return lanInitResult{}, err
+	}
+	certificate, certificatePEM, keyPEM, err := generateLANCertificate(host, validDays)
 	if err != nil {
 		return lanInitResult{}, err
 	}
@@ -419,7 +463,7 @@ func renewLANCertificate(root string, validDays int) (lanInitResult, error) {
 		return lanInitResult{}, err
 	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, GatewayOrigin: state.LAN.GatewayOrigin,
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, GatewayOrigin: state.Origin,
 		CertificateFingerprint: fingerprint, PublicKeyPin: keyPin,
 	}, nil
 }

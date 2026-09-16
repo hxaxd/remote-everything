@@ -10,6 +10,15 @@ import (
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
+func testListeners(t *testing.T) []Listener {
+	t.Helper()
+	listeners, err := AllocateListeners(testPreferences())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return listeners
+}
+
 func testPreferences() []ListenerPreference {
 	return []ListenerPreference{
 		{Name: "status", Host: "127.0.0.1", PreferredPort: 58629},
@@ -19,10 +28,10 @@ func testPreferences() []ListenerPreference {
 }
 
 // Every gateway records the same thing about itself: the identity a node binds
-// it by and the listeners it serves, each one named.
+// it by, the origin its clients dial, and the listeners it serves, each named.
 func TestStateRoundTripKeepsIdentityAndNamedListeners(t *testing.T) {
 	installationID := strings.Repeat("a1", 32)
-	state, err := NewState(installationID, testPreferences())
+	state, err := NewState(installationID, "https://gateway.example", testListeners(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +43,7 @@ func TestStateRoundTripKeepsIdentityAndNamedListeners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.InstallationID != installationID || len(loaded.Listeners) != len(state.Listeners) {
+	if loaded.InstallationID != installationID || loaded.Origin != "https://gateway.example" || len(loaded.Listeners) != len(state.Listeners) {
 		t.Fatalf("round trip changed the state: %+v", loaded)
 	}
 	for _, preference := range testPreferences() {
@@ -50,15 +59,23 @@ func TestStateRoundTripKeepsIdentityAndNamedListeners(t *testing.T) {
 
 func TestLoadStateRejectsStatesNothingCanServe(t *testing.T) {
 	installationID := strings.Repeat("a1", 32)
-	valid := `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`
+	id := `"installation_id":"` + installationID + `"`
+	origin := `"origin":"https://gateway.example"`
+	valid := `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`
 	for name, contents := range map[string]string{
-		"unknown field":     `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:58626"}],"extra":true}`,
-		"no listeners":      `{"schema":1,"installation_id":"` + installationID + `","listeners":[]}`,
-		"duplicate name":    `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:58626"},{"name":"lan","address":"0.0.0.0:58627"}]}`,
-		"duplicate address": `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:58626"},{"name":"lan2","address":"0.0.0.0:58626"}]}`,
-		"hostname":          `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"node.example:58626"}]}`,
-		"privileged port":   `{"schema":1,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:80"}]}`,
-		"other schema":      `{"schema":2,"installation_id":"` + installationID + `","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		"unknown field":     `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"}],"extra":true}`,
+		"no listeners":      `{"schema":1,` + id + `,` + origin + `,"listeners":[]}`,
+		"duplicate name":    `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"},{"name":"lan","address":"0.0.0.0:58627"}]}`,
+		"duplicate address": `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"},{"name":"lan2","address":"0.0.0.0:58626"}]}`,
+		"hostname":          `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"node.example:58626"}]}`,
+		"privileged port":   `{"schema":1,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:80"}]}`,
+		"other schema":      `{"schema":2,` + id + `,` + origin + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		// The origin is what clients dial, so it is part of what a gateway is.
+		"no origin":    `{"schema":1,` + id + `,"listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		"plain origin": `{"schema":1,` + id + `,"origin":"http://gateway.example","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		"origin path":  `{"schema":1,` + id + `,"origin":"https://gateway.example/apps","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		"origin query": `{"schema":1,` + id + `,"origin":"https://gateway.example?next=evil","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
+		"origin user":  `{"schema":1,` + id + `,"origin":"https://user@gateway.example","listeners":[{"name":"lan","address":"0.0.0.0:58626"}]}`,
 	} {
 		path := filepath.Join(t.TempDir(), "gateway.json")
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -80,7 +97,7 @@ func TestLoadStateRejectsStatesNothingCanServe(t *testing.T) {
 // Repair moves the ports and nothing else: a listener's name and host are what
 // the rest of the deployment was pointed at.
 func TestRepairKeepsNamesAndHosts(t *testing.T) {
-	state, err := NewState(strings.Repeat("a1", 32), testPreferences())
+	state, err := NewState(strings.Repeat("a1", 32), "https://gateway.example", testListeners(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +105,7 @@ func TestRepairKeepsNamesAndHosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if repaired.InstallationID != state.InstallationID || repaired.Schema != state.Schema {
+	if repaired.InstallationID != state.InstallationID || repaired.Schema != state.Schema || repaired.Origin != state.Origin {
 		t.Fatalf("repair changed the identity: %+v", repaired)
 	}
 	before := map[string]string{}
