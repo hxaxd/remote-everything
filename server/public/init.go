@@ -154,55 +154,55 @@ func runPublicInit(parts []string, output io.Writer) error {
 // takes no part in it: neither the identity the gateway is bound by nor the
 // tunnel CA changes, so only the tunnel agent has to be pointed at the newly
 // delivered files and restarted.
-func renewTunnelIdentity(root, nodeBootstrap string, output io.Writer) error {
+func renewTunnelIdentity(root, nodeBootstrap string) (tunnelRenewResult, error) {
 	paths, err := newPublicPaths(root)
 	if err != nil {
-		return err
+		return tunnelRenewResult{}, err
 	}
 	state, err := paths.loadState()
 	if err != nil {
-		return err
+		return tunnelRenewResult{}, err
 	}
 	controlToken, err := gatewaycore.ReadControlToken(paths.root)
 	if err != nil {
-		return err
+		return tunnelRenewResult{}, err
 	}
 	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, controlToken)
 	if err != nil {
-		return err
+		return tunnelRenewResult{}, err
 	}
 	tunnel, err := deploymentbootstrap.RenewTunnelMaterial(nodeBootstrap, material)
 	if err != nil {
-		return err
+		return tunnelRenewResult{}, err
 	}
-	return json.NewEncoder(output).Encode(tunnelRenewResult{
+	return tunnelRenewResult{
 		OK: true, InstallationID: state.InstallationID,
 		NodeBootstrap: filepath.Clean(nodeBootstrap), TunnelCAFile: material.CACertFile,
 		TunnelIssuerDN:    material.CACertificate.Subject.String(),
 		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
-	})
+	}, nil
 }
 
-func repairPublicPorts(root string, output io.Writer) error {
+func repairPublicPorts(root string) (publicInitResult, error) {
 	paths, err := newPublicPaths(root)
 	if err != nil {
-		return err
+		return publicInitResult{}, err
 	}
 	state, err := paths.loadState()
 	if err != nil {
-		return err
+		return publicInitResult{}, err
 	}
 	repaired, err := state.Repair(map[string]int{"status": 58629, "pairing": 58631, "frps": 58630, "node_tunnel": 58628})
 	if err != nil {
-		return err
+		return publicInitResult{}, err
 	}
 	if err := repaired.Save(paths.stateFile); err != nil {
-		return err
+		return publicInitResult{}, err
 	}
-	return json.NewEncoder(output).Encode(publicInitResult{
+	return publicInitResult{
 		OK: true, State: paths.root, InstallationID: state.InstallationID, Origin: state.Origin,
 		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: devicecore.IssuerCertPath(paths.root),
 		StatusListen: listen(state, "status"), PairingListen: listen(state, "pairing"),
 		FRPSListen: listen(state, "frps"), NodeTunnelListen: listen(state, "node_tunnel"),
-	})
+	}, nil
 }

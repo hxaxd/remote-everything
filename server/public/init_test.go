@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,12 +98,8 @@ func TestInitializePublicState(t *testing.T) {
 	if err != nil || !bytes.Equal(reissued, clientCertificate) {
 		t.Fatalf("re-running init replaced the identity a running tunnel agent authenticates with: %v", err)
 	}
-	var renewalOutput bytes.Buffer
-	if err := renewTunnelIdentity(root, bundleRoot, &renewalOutput); err != nil {
-		t.Fatal(err)
-	}
-	var renewal tunnelRenewResult
-	if err := json.Unmarshal(renewalOutput.Bytes(), &renewal); err != nil {
+	renewal, err := renewTunnelIdentity(root, bundleRoot)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if !renewal.OK || renewal.InstallationID != first.InstallationID || renewal.NodeBootstrap != filepath.Clean(bundleRoot) || renewal.TunnelMaterialDir != first.TunnelMaterialDir || len(renewal.TunnelClientFingerprint) != 64 {
@@ -160,9 +155,12 @@ func TestInitializePublicState(t *testing.T) {
 			t.Fatalf("obsolete state was created: %s", obsolete)
 		}
 	}
-	var output bytes.Buffer
-	if err := repairPublicPorts(root, &output); err != nil {
+	repairedPorts, err := repairPublicPorts(root)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if repairedPorts.Origin != first.Origin {
+		t.Fatalf("repairing ports changed where clients dial the gateway: %+v", repairedPorts)
 	}
 	repaired, err := gatewaycore.LoadState(stored)
 	if err != nil || repaired.InstallationID != first.InstallationID {

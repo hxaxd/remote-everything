@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/entrancetest"
 )
@@ -23,20 +22,18 @@ func TestLANEntranceBehaviour(t *testing.T) {
 	entrancetest.Run(t, startLANEntrance(t))
 }
 
-// What only a LAN entrance does: it serves a certificate its clients pin, and
-// application traffic is not a control surface, so it stays with the node's
-// routing cookie — a page load in a WebView cannot carry a credential.
-func TestLANEntranceServesADialableEntranceAndLeavesPagesToTheNode(t *testing.T) {
+// What only a LAN entrance does: application traffic is not a control surface, so
+// it stays with the node's routing cookie — a page load in a WebView cannot carry
+// a credential the way a control call can.
+//
+// That the entrance serves the certificate its clients pinned is not asserted
+// here: this harness trusts nothing but that certificate, so every case the
+// shared suite runs would fail on the handshake if it served another one.
+func TestLANEntranceLeavesApplicationTrafficToTheNode(t *testing.T) {
 	harness := startLANEntrance(t)
-	pinned := devicecore.CertificateFingerprint(harness.pinned)
-	if pinned == "" || devicecore.PublicKeyPin(harness.pinned) == "" {
-		t.Fatal("the entrance serves no certificate its clients could pin")
-	}
 	if status, _, err := harness.Dial(nil, http.MethodGet, "/healthz", nil, nil); err != nil || status != http.StatusOK {
 		t.Fatalf("the entrance is not answering health checks: %d %v", status, err)
 	}
-	// It asks for a certificate, does not insist on one, and lets a page load
-	// through: what is not a control call is the node's to authorize.
 	if status, _, err := harness.Dial(nil, http.MethodGet, "/editor/", nil, nil); err != nil || status != http.StatusOK {
 		t.Fatalf("application traffic was refused at the entrance: %d %v", status, err)
 	}
