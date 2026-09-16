@@ -65,6 +65,9 @@ func (node *Node) startApp(id string) actionResponse {
 	if err := os.WriteFile(node.enabledPath(id), []byte("enabled\n"), 0o600); err != nil {
 		return actionResponse{OK: false, Action: "start", ComputerConnected: true, Code: "state_update_failed"}
 	}
+	// Give the supervisor (2s poll cycle) a window to notice the enabled flag and
+	// either relaunch the process or confirm the port is already open, so the
+	// response reflects a starting/ready state instead of always stopped.
 	time.Sleep(800 * time.Millisecond)
 	return node.stateResponse(app, "start")
 }
@@ -106,9 +109,9 @@ func (node *Node) statusApp(id string) actionResponse {
 }
 
 func (node *Node) localControlHandler(writer http.ResponseWriter, request *http.Request) {
-	token, err := os.ReadFile(node.controlTokenFile)
-	expected := "Bearer " + strings.TrimSpace(string(token))
-	if err != nil || !validToken.MatchString(strings.TrimSpace(string(token))) || subtle.ConstantTimeCompare([]byte(request.Header.Get("Authorization")), []byte(expected)) != 1 {
+	contents, err := os.ReadFile(node.controlTokenFile)
+	expected := strings.TrimSpace(string(contents))
+	if err != nil || !validToken.MatchString(expected) || subtle.ConstantTimeCompare([]byte(request.Header.Get("Authorization")), []byte("Bearer "+expected)) != 1 {
 		node.log("control auth failed remote=%s", request.RemoteAddr)
 		writer.WriteHeader(http.StatusUnauthorized)
 		return
