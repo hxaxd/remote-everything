@@ -64,18 +64,26 @@ command -v curl >/dev/null || fail 'curl is required'
 
 app_port=$(free_port)
 state_root="$temp_root/state"
+repo_root=$(CDPATH= cd -- "$harness_dir/../../.." && pwd)
 token=$(printf '01%.0s' {1..32})
+installation_id=$(printf '02%.0s' {1..32})
+command -v go >/dev/null || fail 'Go compiler is required (genbundle is built alongside the control binary)'
 if [[ -n "${CONTROL_BINARY:-}" ]]; then
   cp "$CONTROL_BINARY" "$temp_root/control"
   chmod +x "$temp_root/control"
 else
-  command -v go >/dev/null || fail 'Go compiler is required when CONTROL_BINARY is unset'
   (cd "$node_root" && go build -o "$temp_root/control" .)
 fi
-printf '%s' "$token" > "$temp_root/control-token"
-init_json=$("$temp_root/control" init --state "$state_root" --control-token-file "$temp_root/control-token")
-printf '%s' "$init_json" | assert_json 'value["ok"] and value["control_token_file"].endswith("control-token") and len(value["installation_id"]) == 64' 'init creates node state'
-"$temp_root/control" init --state "$state_root" --control-token-file "$temp_root/control-token" | assert_json 'value["ok"]' 'init is idempotent'
+(cd "$repo_root" && go build -o "$temp_root/genbundle" ./internal/nodecore/testharness/genbundle)
+init_json=$("$temp_root/control" init --state "$state_root")
+printf '%s' "$init_json" | assert_json 'value["ok"] and len(value["node_id"]) == 64' 'init creates node state'
+"$temp_root/control" init --state "$state_root" | assert_json 'value["ok"]' 'init is idempotent'
+"$temp_root/genbundle" -gateway "$temp_root/gateway" -bootstrap "$temp_root/bootstrap" \
+  -installation-id "$installation_id" -control-token "$token"
+"$temp_root/control" binding add --state "$state_root" --bootstrap "$temp_root/bootstrap" \
+  | assert_json 'value["ok"] and value["installation_id"] == "'"$installation_id"'"' 'binding add registers a gateway'
+"$temp_root/control" binding list --state "$state_root" \
+  | assert_json 'len(value) == 1 and value[0]["installation_id"] == "'"$installation_id"'"' 'binding list shows the gateway'
 control_port=$(printf '%s' "$init_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["listen_address"].rsplit(":",1)[1])')
 "$temp_root/control" serve --state "$state_root" &
 control_pid=$!

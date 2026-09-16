@@ -3,7 +3,10 @@
 三个平台共用以下接口；路径均为绝对路径。
 
 ```text
-remote-everything-control init --state PATH [--control-token-file FILE | --bootstrap DIRECTORY]
+remote-everything-control init --state PATH
+remote-everything-control binding add --state PATH --bootstrap DIRECTORY
+remote-everything-control binding remove --state PATH INSTALLATION_ID
+remote-everything-control binding list --state PATH
 remote-everything-control ports repair --state PATH
 remote-everything-control serve --state PATH
 remote-everything-control app list --state PATH
@@ -11,12 +14,15 @@ remote-everything-control app set --state PATH --file DEFINITION.json
 remote-everything-control app remove --state PATH ID
 ```
 
-LAN 用无 bootstrap 的 `init` 创建节点身份；同目录的 LAN 入口读取其控制令牌。public 必须使用网关生成的 `--bootstrap`：节点严格校验证书链、客户端私钥、令牌和 manifest，导入网关创建的 `installation_id` 与隧道材料。已有节点状态或控制令牌不匹配时失败，不覆盖成另一个安装实例。两种形态都会自动选择并持久化 loopback `listen_address`，创建空注册表与日志目录；`serve` 不接受端口参数。`init` 输出 `ok`、`state`、`installation_id`、`listen_address`、`control_token_file`；public bootstrap 另输出 `frps_token_file`、`tunnel_ca_certificate_file`、`tunnel_client_certificate_file`、`tunnel_client_key_file`。
+`init` 只创建节点身份（随机 `node_id`、loopback `listen_address`、空注册表与日志目录），不产生任何网关绑定；`serve` 不接受端口参数。
 
-端口冲突时先停服务，执行 `ports repair` 原子重分配并保持 `installation_id`（自动避开已注册应用的 `proxy_url` 端口），同步运行记录后重启；public 形态还需按新节点地址重渲染 FRPC 配置并重启 FRPC。
+网关通过 `binding add` 绑定到节点：bootstrap 目录由网关侧生成，节点严格校验证书链、客户端私钥、令牌和 manifest，材料写入 `bindings/<installation_id>/` 子目录（控制令牌、FRPS token、隧道 CA 与客户端证书各就各位）。重复添加同一 `installation_id` 幂等；已有材料与 bundle 不一致时报错，不覆盖成另一个安装。一个节点可绑定多个网关（如 LAN 入口 + 公网网关），控制接口接受任一绑定的控制令牌。绑定的增删对运行中的 `serve` 立即生效，无需重启。LAN 入口在自身 `init` 时自动建立绑定，无需手动 `binding add`。`binding remove` 删除绑定及其材料，`binding list` 列出现有绑定。
+
+`init` 输出 `ok`、`state`、`node_id`、`listen_address`；`binding add` 另输出 `installation_id`。
+
+端口冲突时先停服务，执行 `ports repair` 原子重分配并保持 `node_id`（自动避开已注册应用的 `proxy_url` 端口），同步运行记录后重启；public 形态还需按新节点地址重渲染 FRPC 配置并重启 FRPC。
 
 应用定义拒绝未知字段和尾随 JSON：
-
 ```json
 {"id":"demo","name":"Demo","description":"","icon":"D","accent":"#2563eb","launch_fragment":"","proxy_url":"http://127.0.0.1:3000","command":"/absolute/app","arguments":[],"stop_command":"","stop_arguments":[],"workdir":"/absolute/workdir"}
 ```

@@ -11,9 +11,13 @@ func (node *Node) Serve() error {
 		return err
 	}
 	defer cleanup()
+	state, err := node.currentState()
+	if err != nil {
+		return err
+	}
 	go node.supervise()
 	server := &http.Server{
-		Addr:              node.state.ListenAddress,
+		Addr:              state.ListenAddress,
 		Handler:           http.HandlerFunc(node.gatewayHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,

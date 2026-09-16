@@ -12,33 +12,38 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 )
 
-const stateSchema = 1
-
 var validToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-type State struct {
-	Schema         int    `json:"schema"`
-	InstallationID string `json:"installation_id"`
-	ListenAddress  string `json:"listen_address"`
-}
-
-type InitResult struct {
-	OK               bool   `json:"ok"`
-	State            string `json:"state"`
+// GatewayBinding represents one gateway-to-node relationship.
+// All context for a binding lives in its own subdirectory under bindings/.
+type GatewayBinding struct {
 	InstallationID   string `json:"installation_id"`
-	ListenAddress    string `json:"listen_address"`
 	ControlTokenFile string `json:"control_token_file"`
 	FRPSTokenFile    string `json:"frps_token_file,omitempty"`
-	TunnelCACertFile string `json:"tunnel_ca_certificate_file,omitempty"`
-	TunnelClientCert string `json:"tunnel_client_certificate_file,omitempty"`
-	TunnelClientKey  string `json:"tunnel_client_key_file,omitempty"`
+	CACertFile       string `json:"ca_cert_file,omitempty"`
+	ClientCertFile   string `json:"client_cert_file,omitempty"`
+	ClientKeyFile    string `json:"client_key_file,omitempty"`
+}
+
+type State struct {
+	NodeID        string           `json:"node_id"`
+	ListenAddress string           `json:"listen_address"`
+	Bindings      []GatewayBinding `json:"bindings"`
+}
+
+// BindingResult is returned by Initialize and AddBinding.
+type BindingResult struct {
+	OK             bool   `json:"ok"`
+	State          string `json:"state"`
+	NodeID         string `json:"node_id"`
+	ListenAddress  string `json:"listen_address"`
+	InstallationID string `json:"installation_id,omitempty"`
 }
 
 func writeBootstrapFile(path string, contents []byte, mode os.FileMode) error {
@@ -55,53 +60,15 @@ func writeBootstrapFile(path string, contents []byte, mode os.FileMode) error {
 	return atomicfile.Write(path, contents, mode)
 }
 
-func installNodeBundle(root string, bundle deploymentbootstrap.NodeBundle) (InitResult, error) {
-	tunnelRoot := filepath.Join(root, "tunnel")
-	if err := os.MkdirAll(tunnelRoot, 0o700); err != nil {
-		return InitResult{}, err
-	}
-	fingerprint, err := deploymentbootstrap.Fingerprint(bundle.ClientCert)
-	if err != nil {
-		return InitResult{}, err
-	}
-	result := InitResult{
-		FRPSTokenFile:    filepath.Join(tunnelRoot, deploymentbootstrap.FRPSTokenName),
-		TunnelCACertFile: filepath.Join(tunnelRoot, deploymentbootstrap.TunnelCACertName),
-		TunnelClientCert: filepath.Join(tunnelRoot, "tunnel-client-"+fingerprint+".crt.pem"),
-		TunnelClientKey:  filepath.Join(tunnelRoot, "tunnel-client-"+fingerprint+".key.pem"),
-	}
-	immutableFiles := []struct {
-		path     string
-		contents []byte
-		mode     os.FileMode
-	}{
-		{result.FRPSTokenFile, []byte(bundle.FRPSToken + "\n"), 0o600},
-		{result.TunnelCACertFile, bundle.CACertificate, 0o644},
-	}
-	for _, file := range immutableFiles {
-		if err := writeBootstrapFile(file.path, file.contents, file.mode); err != nil {
-			return InitResult{}, err
-		}
-	}
-	if err := writeBootstrapFile(result.TunnelClientKey, bundle.ClientKey, 0o600); err != nil {
-		return InitResult{}, err
-	}
-	if err := writeBootstrapFile(result.TunnelClientCert, bundle.ClientCert, 0o644); err != nil {
-		return InitResult{}, err
-	}
-	return result, nil
-}
-
 type Node struct {
-	root             string
-	appsFile         string
-	enabledRoot      string
-	logsRoot         string
-	controlTokenFile string
-	stateFile        string
-	state            State
-	platform         Platform
-	logMu            sync.Mutex
+	root         string
+	appsFile     string
+	enabledRoot  string
+	logsRoot     string
+	stateFile    string
+	bindingsRoot string
+	platform     Platform
+	logMu        sync.Mutex
 }
 
 func statePaths(root string) (*Node, error) {
@@ -110,12 +77,12 @@ func statePaths(root string) (*Node, error) {
 	}
 	root = filepath.Clean(root)
 	return &Node{
-		root:             root,
-		appsFile:         filepath.Join(root, "apps.json"),
-		enabledRoot:      filepath.Join(root, "enabled"),
-		logsRoot:         filepath.Join(root, "logs"),
-		controlTokenFile: filepath.Join(root, "control-token"),
-		stateFile:        filepath.Join(root, "node.json"),
+		root:         root,
+		appsFile:     filepath.Join(root, "apps.json"),
+		enabledRoot:  filepath.Join(root, "enabled"),
+		logsRoot:     filepath.Join(root, "logs"),
+		stateFile:    filepath.Join(root, "node.json"),
+		bindingsRoot: filepath.Join(root, "bindings"),
 	}, nil
 }
 
@@ -176,8 +143,18 @@ func loadStateFile(path string) (State, error) {
 	if err := decodeSingleJSON(path, &state); err != nil {
 		return State{}, err
 	}
-	if state.Schema != stateSchema || !validToken.MatchString(state.InstallationID) || !validLoopbackAddress(state.ListenAddress) {
+	if !validToken.MatchString(state.NodeID) || !validLoopbackAddress(state.ListenAddress) {
 		return State{}, errors.New("invalid node state")
+	}
+	seen := map[string]bool{}
+	for _, b := range state.Bindings {
+		if !validToken.MatchString(b.InstallationID) {
+			return State{}, errors.New("invalid binding installation_id")
+		}
+		if seen[b.InstallationID] {
+			return State{}, errors.New("duplicate binding installation_id")
+		}
+		seen[b.InstallationID] = true
 	}
 	return state, nil
 }
@@ -187,139 +164,175 @@ func LoadState(root string) (State, error) {
 	if err != nil {
 		return State{}, err
 	}
+	return node.currentState()
+}
+
+// currentState reads node.json on every call. The state file is the single
+// source of truth for bindings and listen address, so binding add/remove take
+// effect on the running serve without a restart.
+func (node *Node) currentState() (State, error) {
 	return loadStateFile(node.stateFile)
 }
 
-func readRequestedToken(path string) (string, error) {
-	if path == "" {
-		return "", nil
-	}
-	if !filepath.IsAbs(path) {
-		return "", errors.New("control token file must be absolute")
-	}
-	contents, err := os.ReadFile(path)
+func saveState(path string, state State) error {
+	contents, err := json.Marshal(state)
 	if err != nil {
-		return "", err
-	}
-	token := strings.TrimSpace(string(contents))
-	if !validToken.MatchString(token) {
-		return "", errors.New("invalid control token")
-	}
-	return token, nil
-}
-
-func ensureToken(path, requested string) error {
-	contents, err := os.ReadFile(path)
-	if err == nil {
-		existing := strings.TrimSpace(string(contents))
-		if !validToken.MatchString(existing) || (requested != "" && requested != existing) {
-			return errors.New("existing control token does not match")
-		}
-		return nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if requested == "" {
-		requested, err = randomHex(32)
-		if err != nil {
-			return err
-		}
-	}
-	return atomicfile.Write(path, []byte(requested+"\n"), 0o600)
+	return atomicfile.Write(path, append(contents, '\n'), 0o600)
 }
 
-func Initialize(root, tokenSource string) (InitResult, error) {
-	requestedToken, err := readRequestedToken(tokenSource)
-	if err != nil {
-		return InitResult{}, err
-	}
-	return initialize(root, requestedToken, "", nil)
-}
-
-func InitializeFromBootstrap(root, bootstrapRoot string) (InitResult, error) {
-	bundle, err := deploymentbootstrap.ReadNodeBundle(bootstrapRoot)
-	if err != nil {
-		return InitResult{}, err
-	}
-	return initialize(root, bundle.ControlToken, bundle.InstallationID, &bundle)
-}
-
-func initialize(root, requestedToken, requestedInstallationID string, bundle *deploymentbootstrap.NodeBundle) (InitResult, error) {
+// Initialize creates a new node with a random NodeID and allocated loopback
+// address. No bindings are created — use AddBinding for that.
+func Initialize(root string) (BindingResult, error) {
 	node, err := statePaths(root)
 	if err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 	if err := os.MkdirAll(node.enabledRoot, 0o700); err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 	if err := os.MkdirAll(node.logsRoot, 0o700); err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 
 	state, err := loadStateFile(node.stateFile)
 	if errors.Is(err, os.ErrNotExist) {
-		installationID := requestedInstallationID
-		if installationID == "" {
-			var randomErr error
-			installationID, randomErr = randomHex(32)
-			if randomErr != nil {
-				return InitResult{}, randomErr
-			}
+		nodeID, randomErr := randomHex(32)
+		if randomErr != nil {
+			return BindingResult{}, randomErr
 		}
 		listenAddress, allocateErr := allocateLoopback(58627)
 		if allocateErr != nil {
-			return InitResult{}, allocateErr
+			return BindingResult{}, allocateErr
 		}
-		state = State{Schema: stateSchema, InstallationID: installationID, ListenAddress: listenAddress}
+		state = State{NodeID: nodeID, ListenAddress: listenAddress, Bindings: []GatewayBinding{}}
+		if err := saveState(node.stateFile, state); err != nil {
+			return BindingResult{}, err
+		}
 	} else if err != nil {
-		return InitResult{}, fmt.Errorf("load node state: %w", err)
+		return BindingResult{}, fmt.Errorf("load node state: %w", err)
 	}
-	if requestedInstallationID != "" && state.InstallationID != requestedInstallationID {
-		return InitResult{}, errors.New("existing node installation does not match bootstrap")
-	}
-	if err := ensureToken(node.controlTokenFile, requestedToken); err != nil {
-		return InitResult{}, err
-	}
-	node.state = state
+
 	if _, err := os.Stat(node.appsFile); errors.Is(err, os.ErrNotExist) {
 		if err := node.saveRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{}}); err != nil {
-			return InitResult{}, err
+			return BindingResult{}, err
 		}
 	} else if err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	} else if _, err := node.loadRegistry(); err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
-	if _, err := os.Stat(node.stateFile); errors.Is(err, os.ErrNotExist) {
-		contents, marshalErr := json.Marshal(state)
-		if marshalErr != nil {
-			return InitResult{}, marshalErr
+
+	return BindingResult{
+		OK:            true,
+		State:         node.root,
+		NodeID:        state.NodeID,
+		ListenAddress: state.ListenAddress,
+	}, nil
+}
+
+// AddBinding reads a bootstrap bundle and registers a gateway binding.
+// Re-adding the same installation is idempotent: writeBootstrapFile rejects
+// existing materials that differ from the bundle, and identical materials
+// leave every file and the state entry unchanged.
+func AddBinding(root, bootstrapRoot string) (BindingResult, error) {
+	bundle, err := deploymentbootstrap.ReadNodeBundle(bootstrapRoot)
+	if err != nil {
+		return BindingResult{}, err
+	}
+	node, err := statePaths(root)
+	if err != nil {
+		return BindingResult{}, err
+	}
+	state, err := loadStateFile(node.stateFile)
+	if err != nil {
+		return BindingResult{}, err
+	}
+	bindingDir := filepath.Join(node.bindingsRoot, bundle.InstallationID)
+	if err := os.MkdirAll(bindingDir, 0o700); err != nil {
+		return BindingResult{}, err
+	}
+	fingerprint, err := deploymentbootstrap.Fingerprint(bundle.ClientCert)
+	if err != nil {
+		return BindingResult{}, err
+	}
+	binding := GatewayBinding{
+		InstallationID:   bundle.InstallationID,
+		ControlTokenFile: filepath.Join(bindingDir, "control-token"),
+		FRPSTokenFile:    filepath.Join(bindingDir, deploymentbootstrap.FRPSTokenName),
+		CACertFile:       filepath.Join(bindingDir, deploymentbootstrap.TunnelCACertName),
+		ClientCertFile:   filepath.Join(bindingDir, "tunnel-client-"+fingerprint+".crt.pem"),
+		ClientKeyFile:    filepath.Join(bindingDir, "tunnel-client-"+fingerprint+".key.pem"),
+	}
+	files := []struct {
+		path     string
+		contents []byte
+		mode     os.FileMode
+	}{
+		{binding.ControlTokenFile, []byte(bundle.ControlToken + "\n"), 0o600},
+		{binding.FRPSTokenFile, []byte(bundle.FRPSToken + "\n"), 0o600},
+		{binding.CACertFile, bundle.CACertificate, 0o644},
+		{binding.ClientCertFile, bundle.ClientCert, 0o644},
+		{binding.ClientKeyFile, bundle.ClientKey, 0o600},
+	}
+	for _, f := range files {
+		if err := writeBootstrapFile(f.path, f.contents, f.mode); err != nil {
+			return BindingResult{}, err
 		}
-		if err := atomicfile.Write(node.stateFile, append(contents, '\n'), 0o600); err != nil {
-			return InitResult{}, err
+	}
+	found := false
+	for i, b := range state.Bindings {
+		if b.InstallationID == bundle.InstallationID {
+			state.Bindings[i] = binding
+			found = true
+			break
 		}
-	} else if err != nil {
-		return InitResult{}, err
 	}
-	result := InitResult{
-		OK:               true,
-		State:            node.root,
-		InstallationID:   state.InstallationID,
-		ListenAddress:    state.ListenAddress,
-		ControlTokenFile: node.controlTokenFile,
+	if !found {
+		state.Bindings = append(state.Bindings, binding)
 	}
-	if bundle != nil {
-		installed, err := installNodeBundle(node.root, *bundle)
-		if err != nil {
-			return InitResult{}, err
+	if err := saveState(node.stateFile, state); err != nil {
+		return BindingResult{}, err
+	}
+	return BindingResult{
+		OK:             true,
+		State:          node.root,
+		NodeID:         state.NodeID,
+		ListenAddress:  state.ListenAddress,
+		InstallationID: bundle.InstallationID,
+	}, nil
+}
+
+// RemoveBinding removes a gateway binding and deletes its materials.
+// Idempotent — returns nil if the binding does not exist.
+func RemoveBinding(root, installationID string) error {
+	node, err := statePaths(root)
+	if err != nil {
+		return err
+	}
+	state, err := loadStateFile(node.stateFile)
+	if err != nil {
+		return err
+	}
+	filtered := state.Bindings[:0]
+	removed := false
+	for _, b := range state.Bindings {
+		if b.InstallationID == installationID {
+			removed = true
+			continue
 		}
-		result.FRPSTokenFile = installed.FRPSTokenFile
-		result.TunnelCACertFile = installed.TunnelCACertFile
-		result.TunnelClientCert = installed.TunnelClientCert
-		result.TunnelClientKey = installed.TunnelClientKey
+		filtered = append(filtered, b)
 	}
-	return result, nil
+	if !removed {
+		return nil
+	}
+	state.Bindings = filtered
+	if err := saveState(node.stateFile, state); err != nil {
+		return err
+	}
+	bindingDir := filepath.Join(node.bindingsRoot, installationID)
+	return os.RemoveAll(bindingDir)
 }
 
 func Open(root string, platform Platform) (*Node, error) {
@@ -327,11 +340,9 @@ func Open(root string, platform Platform) (*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	state, err := loadStateFile(node.stateFile)
-	if err != nil {
+	if _, err := node.currentState(); err != nil {
 		return nil, err
 	}
-	node.state = state
 	node.platform = platform
 	if _, err := node.loadRegistry(); err != nil {
 		return nil, err
@@ -339,19 +350,19 @@ func Open(root string, platform Platform) (*Node, error) {
 	return node, nil
 }
 
-func RepairPorts(root string) (InitResult, error) {
+func RepairPorts(root string) (BindingResult, error) {
 	node, err := statePaths(root)
 	if err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 	state, err := loadStateFile(node.stateFile)
 	if err != nil {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 	reserved := make(map[string]bool)
 	var registry Registry
 	if err := decodeSingleJSON(node.appsFile, &registry); err != nil && !os.IsNotExist(err) {
-		return InitResult{}, err
+		return BindingResult{}, err
 	}
 	for _, app := range registry.Apps {
 		if address, err := proxyAddress(app.ProxyURL); err == nil {
@@ -363,7 +374,7 @@ func RepairPorts(root string) (InitResult, error) {
 	for attempts := 0; attempts < 3 && chosen == ""; attempts++ {
 		candidate, err := allocateLoopback(preferred)
 		if err != nil {
-			return InitResult{}, err
+			return BindingResult{}, err
 		}
 		if !reserved[candidate] {
 			chosen = candidate
@@ -371,15 +382,11 @@ func RepairPorts(root string) (InitResult, error) {
 		preferred = 0
 	}
 	if chosen == "" {
-		return InitResult{}, errors.New("no loopback port available outside registered applications")
+		return BindingResult{}, errors.New("no loopback port available outside registered applications")
 	}
 	state.ListenAddress = chosen
-	contents, err := json.Marshal(state)
-	if err != nil {
-		return InitResult{}, err
+	if err := saveState(node.stateFile, state); err != nil {
+		return BindingResult{}, err
 	}
-	if err := atomicfile.Write(node.stateFile, append(contents, '\n'), 0o600); err != nil {
-		return InitResult{}, err
-	}
-	return InitResult{OK: true, State: node.root, InstallationID: state.InstallationID, ListenAddress: state.ListenAddress, ControlTokenFile: node.controlTokenFile}, nil
+	return BindingResult{OK: true, State: node.root, NodeID: state.NodeID, ListenAddress: state.ListenAddress}, nil
 }

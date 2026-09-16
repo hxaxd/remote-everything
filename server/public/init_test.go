@@ -27,23 +27,31 @@ func TestInitializePublicState(t *testing.T) {
 		t.Fatal(err)
 	}
 	nodeRoot := filepath.Join(t.TempDir(), "node")
-	node, err := nodecore.InitializeFromBootstrap(nodeRoot, bundleRoot)
+	if _, err := nodecore.Initialize(nodeRoot); err != nil {
+		t.Fatal(err)
+	}
+	bindResult, err := nodecore.AddBinding(nodeRoot, bundleRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.InstallationID != first.InstallationID || bundle.InstallationID != first.InstallationID {
-		t.Fatalf("bootstrap split installation identity: gateway=%s bundle=%s node=%s", first.InstallationID, bundle.InstallationID, node.InstallationID)
+	nodeState, err := nodecore.LoadState(nodeRoot)
+	if err != nil || len(nodeState.Bindings) != 1 {
+		t.Fatalf("node did not import the gateway binding: %+v %v", nodeState, err)
 	}
-	nodeToken, err := os.ReadFile(node.ControlTokenFile)
+	binding := nodeState.Bindings[0]
+	if bindResult.InstallationID != first.InstallationID || bundle.InstallationID != first.InstallationID {
+		t.Fatalf("bootstrap split installation identity: gateway=%s bundle=%s node=%s", first.InstallationID, bundle.InstallationID, bindResult.InstallationID)
+	}
+	nodeToken, err := os.ReadFile(binding.ControlTokenFile)
 	if err != nil || strings.TrimSpace(string(nodeToken)) != bundle.ControlToken {
 		t.Fatalf("node did not import gateway control token: %v", err)
 	}
-	for _, path := range []string{node.FRPSTokenFile, node.TunnelCACertFile, node.TunnelClientCert, node.TunnelClientKey} {
+	for _, path := range []string{binding.FRPSTokenFile, binding.CACertFile, binding.ClientCertFile, binding.ClientKeyFile} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("node did not import tunnel material %s: %v", path, err)
 		}
 	}
-	oldClientCertificate, err := os.ReadFile(node.TunnelClientCert)
+	oldClientCertificate, err := os.ReadFile(binding.ClientCertFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,15 +67,19 @@ func TestInitializePublicState(t *testing.T) {
 	if bytes.Equal(renewedBundle.ClientCert, bundle.ClientCert) || !bytes.Equal(renewedBundle.CACertificate, bundle.CACertificate) || renewedBundle.FRPSToken != bundle.FRPSToken {
 		t.Fatal("tunnel renewal did not rotate only the client identity")
 	}
-	renewedNode, err := nodecore.InitializeFromBootstrap(nodeRoot, renewedBundleRoot)
-	if err != nil {
+	if _, err := nodecore.AddBinding(nodeRoot, renewedBundleRoot); err != nil {
 		t.Fatal(err)
 	}
-	newClientCertificate, err := os.ReadFile(renewedNode.TunnelClientCert)
-	if err != nil || renewedNode.TunnelClientCert == node.TunnelClientCert || bytes.Equal(newClientCertificate, oldClientCertificate) || !bytes.Equal(newClientCertificate, renewedBundle.ClientCert) {
+	renewedState, err := nodecore.LoadState(nodeRoot)
+	if err != nil || len(renewedState.Bindings) != 1 {
+		t.Fatalf("renewal changed the binding count: %+v %v", renewedState, err)
+	}
+	renewedBinding := renewedState.Bindings[0]
+	newClientCertificate, err := os.ReadFile(renewedBinding.ClientCertFile)
+	if err != nil || renewedBinding.ClientCertFile == binding.ClientCertFile || bytes.Equal(newClientCertificate, oldClientCertificate) || !bytes.Equal(newClientCertificate, renewedBundle.ClientCert) {
 		t.Fatalf("node did not import renewed tunnel identity: %v", err)
 	}
-	unchangedOldCertificate, err := os.ReadFile(node.TunnelClientCert)
+	unchangedOldCertificate, err := os.ReadFile(binding.ClientCertFile)
 	if err != nil || !bytes.Equal(unchangedOldCertificate, oldClientCertificate) {
 		t.Fatalf("renewal damaged the still-referenced old tunnel identity: %v", err)
 	}
