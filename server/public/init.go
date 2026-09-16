@@ -6,22 +6,21 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"flag"
 	"io"
 	"math/big"
-	"net"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
 type publicInitResult struct {
@@ -51,33 +50,6 @@ type tunnelRenewResult struct {
 	TunnelClientKey         string `json:"tunnel_client_key_file"`
 	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
 	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
-}
-
-func randomHex(size int) (string, error) {
-	value := make([]byte, size)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(value), nil
-}
-
-func initializeControlToken(paths publicPaths) error {
-	existing, err := os.ReadFile(paths.controlTokenFile)
-	if err == nil {
-		token := strings.TrimSpace(string(existing))
-		if !validHex64.MatchString(token) {
-			return errors.New("invalid existing control token")
-		}
-		return nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	requested, err := randomHex(32)
-	if err != nil {
-		return err
-	}
-	return atomicfile.Write(paths.controlTokenFile, []byte(requested+"\n"), 0o600)
 }
 
 func initializeIssuer(paths publicPaths) error {
@@ -135,36 +107,30 @@ func initializeIssuer(paths publicPaths) error {
 	return err
 }
 
+// allocatePublicAddresses reserves the four distinct loopback addresses the
+// public gateway listens on, in the order status, pairing, frps, node tunnel.
 func allocatePublicAddresses() ([4]string, error) {
 	preferred := []int{58629, 58631, 58630, 58628}
-	var result [4]string
+	var addresses [4]string
 	seen := map[string]bool{}
 	for index, port := range preferred {
-		for attempt := 0; attempt < 16; attempt++ {
-			candidate := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-			if attempt > 0 {
-				candidate = "127.0.0.1:0"
-			}
-			listener, err := net.Listen("tcp4", candidate)
+		for attempt := 0; attempt < 16 && addresses[index] == ""; attempt++ {
+			candidate, err := netaddr.Reserve("127.0.0.1", port)
 			if err != nil {
+				return addresses, err
+			}
+			if !seen[candidate] {
+				addresses[index] = candidate
+				seen[candidate] = true
 				continue
 			}
-			address := listener.Addr().String()
-			closeErr := listener.Close()
-			if closeErr != nil {
-				return result, closeErr
-			}
-			if validPublicLoopback(address) && !seen[address] {
-				result[index] = address
-				seen[address] = true
-				break
-			}
+			port = 0
 		}
-		if result[index] == "" {
-			return result, errors.New("no public loopback port available")
+		if addresses[index] == "" {
+			return addresses, errors.New("no public loopback port available")
 		}
 	}
-	return result, nil
+	return addresses, nil
 }
 
 func initializePublicState(root, nodeBootstrap string) (publicInitResult, error) {
@@ -184,7 +150,7 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	state, err := paths.loadState()
 	newState := errors.Is(err, os.ErrNotExist)
 	if newState {
-		installationID, randomErr := randomHex(32)
+		installationID, randomErr := gatewaycore.NewSecret()
 		if randomErr != nil {
 			return publicInitResult{}, randomErr
 		}
@@ -199,7 +165,8 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	} else if err != nil {
 		return publicInitResult{}, err
 	}
-	if err := initializeControlToken(paths); err != nil {
+	controlToken, err := gatewaycore.EnsureControlToken(paths.root)
+	if err != nil {
 		return publicInitResult{}, err
 	}
 	if err := initializeIssuer(paths); err != nil {
@@ -210,19 +177,10 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 		return publicInitResult{}, err
 	}
 	if newState {
-		contents, marshalErr := json.Marshal(state)
-		if marshalErr != nil {
-			return publicInitResult{}, marshalErr
-		}
-		if err := atomicfile.Write(paths.stateFile, append(contents, '\n'), 0o600); err != nil {
+		if err := jsonfile.Write(paths.stateFile, state, 0o600); err != nil {
 			return publicInitResult{}, err
 		}
 	}
-	controlTokenContents, err := os.ReadFile(paths.controlTokenFile)
-	if err != nil {
-		return publicInitResult{}, err
-	}
-	controlToken := strings.TrimSpace(string(controlTokenContents))
 	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, controlToken)
 	if err != nil {
 		return publicInitResult{}, err
@@ -231,12 +189,13 @@ func initializePublicState(root, nodeBootstrap string) (publicInitResult, error)
 	if err != nil {
 		return publicInitResult{}, err
 	}
-	if err := deploymentbootstrap.WriteNodeBundle(nodeBootstrap, state.InstallationID, controlToken); err != nil {
+	identity := gatewaycore.Identity{InstallationID: state.InstallationID, ControlToken: controlToken}
+	if err := identity.WriteBundle(nodeBootstrap); err != nil {
 		return publicInitResult{}, err
 	}
 	return publicInitResult{
 		OK: true, State: paths.root, InstallationID: state.InstallationID,
-		ControlTokenFile: paths.controlTokenFile, DeviceCAFile: paths.issuerCertFile,
+		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: paths.issuerCertFile,
 		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
 		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
 		NodeBootstrap: filepath.Clean(nodeBootstrap), FRPSTokenFile: material.FRPSTokenFile, TunnelCAFile: material.CACertFile,
@@ -272,11 +231,11 @@ func renewTunnelIdentity(root string, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	controlToken, err := os.ReadFile(paths.controlTokenFile)
+	controlToken, err := gatewaycore.ReadControlToken(paths.root)
 	if err != nil {
 		return err
 	}
-	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, strings.TrimSpace(string(controlToken)))
+	material, err := deploymentbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID, controlToken)
 	if err != nil {
 		return err
 	}
@@ -318,7 +277,7 @@ func repairPublicPorts(root string, output io.Writer) error {
 	}
 	return json.NewEncoder(output).Encode(publicInitResult{
 		OK: true, State: paths.root, InstallationID: state.InstallationID,
-		ControlTokenFile: paths.controlTokenFile, DeviceCAFile: paths.issuerCertFile,
+		ControlTokenFile: gatewaycore.ControlTokenPath(paths.root), DeviceCAFile: paths.issuerCertFile,
 		StatusListen: state.StatusListen, PairingListen: state.PairingListen,
 		FRPSListen: state.FRPSListen, NodeTunnelListen: state.NodeTunnelListen,
 	})

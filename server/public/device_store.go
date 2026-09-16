@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/hxaxd/remote-everything/internal/jsonfile"
 	"io"
 	"os"
 	"path/filepath"
@@ -103,7 +104,7 @@ func (service *publicService) loadDeviceRecord(fingerprint string) (deviceRecord
 		return deviceRecord{}, errors.New("invalid device fingerprint")
 	}
 	var record deviceRecord
-	if err := decodePublicJSON(service.deviceRecordPath(fingerprint), &record); err != nil {
+	if err := jsonfile.Read(service.deviceRecordPath(fingerprint), &record); err != nil {
 		return deviceRecord{}, err
 	}
 	if err := validateDeviceRecord(record); err != nil || record.CertificateFingerprint != fingerprint {
