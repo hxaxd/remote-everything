@@ -8,7 +8,7 @@ import (
 	"io"
 )
 
-const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH | binding add --state ABSOLUTE_PATH --bootstrap ABSOLUTE_PATH | binding remove --state ABSOLUTE_PATH INSTALLATION_ID | binding list --state ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
+const Usage = "usage: remote-everything-control init --state ABSOLUTE_PATH | binding add --state ABSOLUTE_PATH --bootstrap ABSOLUTE_PATH | binding remove --state ABSOLUTE_PATH INSTALLATION_ID | binding list --state ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | app list --state ABSOLUTE_PATH | app adapter --state ABSOLUTE_PATH ID | app set --state ABSOLUTE_PATH --file FILE | app remove --state ABSOLUTE_PATH ID"
 
 func runInit(parts []string, output io.Writer) error {
 	flags := flag.NewFlagSet("init", flag.ContinueOnError)
@@ -93,6 +93,11 @@ func runApp(parts []string, platform Platform, output io.Writer) error {
 			return errors.New("invalid app list arguments")
 		}
 		return node.listRegistry(output)
+	case "adapter":
+		if flags.NArg() != 1 || *definition != "" {
+			return errors.New("invalid app adapter arguments")
+		}
+		return node.showAdapter(flags.Arg(0), output)
 	case "set":
 		if flags.NArg() != 0 || *definition == "" {
 			return errors.New("invalid app set arguments")

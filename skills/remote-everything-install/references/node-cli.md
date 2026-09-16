@@ -10,6 +10,7 @@ remote-everything-control binding list --state PATH
 remote-everything-control ports repair --state PATH
 remote-everything-control serve --state PATH
 remote-everything-control app list --state PATH
+remote-everything-control app adapter --state PATH ID
 remote-everything-control app set --state PATH --file DEFINITION.json
 remote-everything-control app remove --state PATH ID
 ```
@@ -28,6 +29,8 @@ remote-everything-control app remove --state PATH ID
 ```
 
 `id` 以字母或数字开头、最长 64，仅小写字母、数字、点、下划线和连字符。`proxy_url` 必须是不含路径与查询的 `127.0.0.1` HTTP 地址，且不能指向节点自身；探活从该地址派生。命令、非空停止命令和非空工作目录必须为绝对路径，非空工作目录必须已存在；定义文件不超过 64KB。
+
+适配器源码常规放在定义同目录的 `adapter.js`，`app set` 注册时自动读取并随定义登记（上限 64KB）；也可直接写在定义的 `adapter` 字段里。`app list` 输出不包含适配器源码，需要时用 `app adapter --state PATH ID` 单独打印，没有适配器的应用报错退出。
 
 `launch_fragment` 为空或以 `#` 开头，用于应用首次打开时向自身前端传递片段参数。公网形态它只出现在经 mTLS 鉴权设备的应用目录中；局域网形态入口不鉴权客户端，目录对能到达入口端口的所有人可见，敏感片段依赖网段防火墙收敛。
 

@@ -13,6 +13,15 @@
 
 DSH 和 SillyTavern 属于这一类。
 
+### 适配器（adapter.js）
+
+原生 Web 服务若在启动时把动态凭据打印到 stdout（如 DSH 的随机 token），在 `definition.json` 旁放一个 `adapter.js`：节点注册时自动发现并连同定义一起登记，运行时按 onStart / onRequest / onResponse / onStop 四个钩子执行（goja，纯 Go）。钩子能读启动 stdout 与跨钩子的 key-value 状态，能改请求的 query/header 与响应的 header/状态码。约束：
+
+- `app list` 与控制接口不输出 adapter 源码；源码存于 `apps.json` 与 `adapter.js`，用 `app adapter ID` 单独查看。
+- 适配器失败（语法错误、钩子异常）不阻断应用，只写日志。
+- `app set` 重登记后 adapter 源码变化会触发应用重启以加载新适配器。
+- 钩子提取凭据依赖「凭据在端口打开前打印」的时序，接入前先从日志确认这一点。
+
 ## CLI Agent Web 包装器
 
 Web UI 需要启动 CLI Agent 子进程时，额外验证：

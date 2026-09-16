@@ -390,6 +390,58 @@ func TestStopCommandFailureIsObservableWithoutLosingState(t *testing.T) {
 	}
 }
 
+func TestAppListHidesAdapterSourceAndAdapterCommandShowsIt(t *testing.T) {
+	node, _ := initializeTestNode(t)
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := func(id, name string) AppDefinition {
+		return AppDefinition{
+			ID: id, Name: name, Icon: "F", Accent: "#2563eb", ProxyURL: "http://127.0.0.1:60000", Command: executable,
+			Arguments: []string{}, StopArgs: []string{},
+		}
+	}
+	adapted := base("dsh", "DSH")
+	adapted.Adapter = "function onStart() {}\n"
+	plain := base("plain", "Plain")
+	if err := node.saveRegistry(Registry{Schema: registrySchema, Apps: []AppDefinition{adapted, plain}}); err != nil {
+		t.Fatal(err)
+	}
+	var listed bytes.Buffer
+	if err := node.listRegistry(&listed); err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Schema int              `json:"schema"`
+		Apps   []map[string]any `json:"apps"`
+	}
+	if err := json.Unmarshal(listed.Bytes(), &decoded); err != nil {
+		t.Fatalf("app list output is not decodable: %v", err)
+	}
+	if len(decoded.Apps) != 2 || decoded.Apps[0]["name"] != "DSH" || decoded.Apps[1]["name"] != "Plain" {
+		t.Fatalf("app list lost application metadata: %s", listed.String())
+	}
+	for _, app := range decoded.Apps {
+		if _, present := app["adapter"]; present {
+			t.Fatalf("app list exposed an adapter field: %s", listed.String())
+		}
+	}
+	var source bytes.Buffer
+	if err := node.showAdapter("dsh", &source); err != nil {
+		t.Fatal(err)
+	}
+	if source.String() != adapted.Adapter {
+		t.Fatalf("adapter source = %q, want %q", source.String(), adapted.Adapter)
+	}
+	if err := node.showAdapter("plain", &source); err == nil {
+		t.Fatal("adapter command should fail for an application without an adapter")
+	}
+	if err := node.showAdapter("missing", &source); err == nil {
+		t.Fatal("adapter command should fail for an unknown application")
+	}
+}
+
 func TestAddBindingCreatesMaterialsInSubdirectory(t *testing.T) {
 	root := t.TempDir()
 	if _, err := Initialize(root); err != nil {
