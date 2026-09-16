@@ -6,11 +6,28 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime"
 
 	"github.com/hxaxd/remote-everything/internal/entrance"
 )
 
+// requireLinux refuses to run this shape anywhere else. It is not only what is
+// released for it that is Linux: the account a systemd unit runs it as owns its
+// state, a systemd timer keeps its tunnel alive, and the 443 entrance in front
+// of it is claimed and inspected through Linux. Elsewhere it would start and
+// never be deployable, which is worse than not starting.
+func requireLinux(goos string) error {
+	if goos != "linux" {
+		return fmt.Errorf("a public gateway runs on Linux, not on %s", goos)
+	}
+	return nil
+}
+
 func main() {
+	if err := requireLinux(runtime.GOOS); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "init" {
 		if err := runPublicInit(args[1:], os.Stdout); err != nil {

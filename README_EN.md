@@ -40,7 +40,8 @@ Remote Everything runs a lightweight node on the computer and delivers explicitl
 |---|---|
 | Mobile clients | Android · iOS · HarmonyOS |
 | Computer nodes | Windows · Linux · macOS |
-| Access modes | LAN / overlay network · Linux public gateway |
+| LAN entrance (same network / overlay) | Windows · Linux · macOS |
+| Public gateway | Linux only |
 | Adapted apps | DSH (DeepSeek Harness) · SillyTavern |
 | Multiple computers | Independent instance per computer; multi-Profile switching on the client |
 
