@@ -4,10 +4,11 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
-	"net/http"
+	"net"
 	"path/filepath"
 
 	"github.com/hxaxd/remote-everything/internal/devicecore"
+	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
 )
@@ -62,14 +63,13 @@ func (service *lanService) Trust() *devicecore.Trust {
 	return service.trust
 }
 
-// Servers is what this entrance answers on: one address that terminates TLS with
-// the certificate its clients pinned, and the device trust behind it. Everything
-// a client sends arrives there — the request that redeems an invitation, which is
+// Surfaces is what this entrance answers on: one address that terminates TLS with
+// the certificate its clients pinned, and the device trust behind it — this
+// entrance is what its clients reach, so it is the one that terminates. Everything
+// a client sends arrives there: the request that redeems an invitation, which is
 // the one no credential can precede, and every other request, which the node
-// answers only for a device that was admitted. An entrance that stands behind
-// another one serving its clients differs in who terminates TLS, not in what is
-// answered: the surface receives the same requests and admits the same devices.
-func (service *lanService) Servers() ([]*http.Server, error) {
+// answers only for a device that was admitted.
+func (service *lanService) Surfaces() ([]entrance.Surface, error) {
 	listenAddress, err := service.state.listener()
 	if err != nil {
 		return nil, errors.New("LAN state is missing its listener")
@@ -90,5 +90,8 @@ func (service *lanService) Servers() ([]*http.Server, error) {
 		ClientAuth:   tls.VerifyClientCertIfGiven,
 		ClientCAs:    deviceIssuers,
 	}
-	return []*http.Server{server}, nil
+	return []entrance.Surface{{
+		Address: listenAddress,
+		Bind:    func(listener net.Listener) error { return server.ServeTLS(listener, "", "") },
+	}}, nil
 }

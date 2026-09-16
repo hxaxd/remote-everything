@@ -1,9 +1,11 @@
 package main
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/hxaxd/remote-everything/internal/devicecore"
+	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
 )
@@ -26,13 +28,26 @@ func (service *publicService) Trust() *devicecore.Trust {
 	return service.trust
 }
 
-// Servers is what this gateway answers on. It terminates nothing itself: the 443
-// entrance authenticates its clients and forwards to these two addresses, which
-// is why the set of surfaces it serves is what a client can observe about it.
-func (service *publicService) Servers() ([]*http.Server, error) {
-	status := gatewaycore.NewServer(service.listen("status"), service.trust.StatusHandler())
-	pairing := gatewaycore.NewServer(service.listen("pairing"), service.trust.PairHandler())
-	return []*http.Server{status, pairing}, nil
+// Surfaces is what this gateway answers on, over the plain addresses the 443
+// entrance in front of it forwards to: the surface whose clients the entrance has
+// authenticated, and the one an invitation is redeemed at, which is the only
+// request that can arrive without a credential. This gateway terminates nothing
+// itself, which is the whole of how the two shapes differ.
+func (service *publicService) Surfaces() ([]entrance.Surface, error) {
+	return []entrance.Surface{
+		plainSurface(service.listen("status"), service.trust.StatusHandler()),
+		plainSurface(service.listen("pairing"), service.trust.PairHandler()),
+	}, nil
+}
+
+// plainSurface is one address this gateway answers on, serving what the entrance
+// in front of it forwards there.
+func plainSurface(address string, handler http.Handler) entrance.Surface {
+	server := gatewaycore.NewServer(address, handler)
+	return entrance.Surface{
+		Address: address,
+		Bind:    func(listener net.Listener) error { return server.Serve(listener) },
+	}
 }
 
 // listen returns the address of a named listener. The state is validated when
