@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
@@ -655,5 +656,26 @@ func TestControlAuthFollowsBoundTokens(t *testing.T) {
 	}
 	if code := status(controlToken2); code != http.StatusOK {
 		t.Fatalf("status for the remaining binding = %d", code)
+	}
+}
+
+// An application that exits early is started again, but not in a loop that
+// hammers it: the wait doubles from a couple of seconds up to a ceiling, which
+// bounds how many times an hour a broken application can be launched.
+func TestAnEarlyExitWaitsLongerEveryTimeItHappens(t *testing.T) {
+	for _, test := range []struct {
+		earlyExits int
+		wait       time.Duration
+	}{
+		{1, 2 * time.Second},
+		{2, 4 * time.Second},
+		{3, 8 * time.Second},
+		{8, 256 * time.Second},
+		{9, 5 * time.Minute},
+		{20, 5 * time.Minute},
+	} {
+		if wait := backoff(test.earlyExits); wait != test.wait {
+			t.Fatalf("after %d early exits the next launch waits %s, not %s", test.earlyExits, wait, test.wait)
+		}
 	}
 }
