@@ -17,12 +17,13 @@
 ## 架构
 
 ```
-一个 Node（一台机器一个 node_id，可绑定多个 Gateway：LAN 入口 / 公网网关）
-每个 Gateway 绑定 = 一个 installationId = 手机一个 Profile（多 Profile 手动切换）
-多台电脑 = 多个 node_id / Profile
+一个 Node = 一台机器 = 一个全局唯一的 node_id（换地址、修端口都不变）
+一个 Gateway 服务它旗下的一台或多台 Node（每台：node_id + 操作者给的名字 + 网关拨它的地址）
+每个 Gateway 绑定 = 一个 installationId = 手机一条路（一个 Profile，手动切换）
+设备 = 每个 Gateway 一张证书 + 它能进的节点名单（设备 × 网关 × 节点）
 ```
 
-Gateway 与 Node 同局域网（LAN 入口）或经隧道（公网网关），两者可以不在同一台机器上。两种 Gateway 都自行产出身份 bundle，由 Agent 送到节点执行 `binding add` 注册——节点只认身份，不碰 Gateway 的证书与隧道材料。公网多机可共用 Caddy，各 gateway 分路由。没有「一个安装下选多节点」。
+Gateway 与 Node 同局域网（LAN 入口）或经隧道（公网网关），两者可以不在同一台机器上。两种 Gateway 都自行产出身份 bundle（每台节点一份），由 Agent 送到那台节点执行 `binding add` 注册——节点只认身份，不碰 Gateway 的证书与隧道材料。**信任只在 Gateway 判定**：真正看到客户端证书的是入口那一跳。手机先选节点再选路，请求用 `X-Remote-Everything-Node` 说明去哪台（例外是 `/__remote_everything/nodes`：它问"我手里有哪几台"，所以不带节点头）。节点是加进来也是能撤出去的：`node add` / `node remove` / `node token renew`（令牌泄漏时换一条），一台机器的来去只发生在 gateway 这一侧。一个网关加节点不动 Caddyfile 一个字；一台 Caddy 承载多个网关要各自一个域名、各一份 site block，模板一次只渲染一个，共用需要手工合并（README/SKILL 里 1:1 的部署是默认形态）。
 
 ## Skill
 

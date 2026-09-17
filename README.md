@@ -30,7 +30,7 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 - 🖥️ **三平台电脑节点**：Windows、Linux、macOS 均在用户登录会话中运行，并在退出时回收受管应用进程树。
 - 🔐 **设备级信任**：公网设备必须经过单次邀请、证书申请、完整指纹人工确认和 mTLS 激活。
 - 🌐 **同网与异地**：LAN 或已有组网直接访问；公网模式复用服务器 443，由 Caddy 与 FRP 提供受控入口。
-- 🧭 **多电脑切换**：每台电脑是独立 ID，客户端用多个 Profile 管理和切换，互不影响。
+- 🧭 **多电脑任选**：每台电脑一个全局唯一 ID，一个网关能同时服务多台；手机先选节点再选路，设备按节点逐个授权。
 - 🧩 **应用即接即用**：已适配 DSH（DeepSeek Harness）与 SillyTavern（酒馆），其他本地 Web 应用也可按统一定义接入。
 - 🤖 **Agent 驱动运维**：安装、接入应用、配对设备、巡检、升级和卸载都有可执行 Skill，不依赖手写部署笔记。
 
@@ -43,7 +43,7 @@ Remote Everything 在电脑上运行一个轻量节点，把明确登记的本�
 | LAN 入口（同网 / 已有组网） | Windows · Linux · macOS |
 | 公网网关 | 仅 Linux |
 | 已适配应用 | DSH（DeepSeek Harness）· SillyTavern（酒馆） |
-| 多电脑 | 每台电脑独立实例，客户端多 Profile 切换 |
+| 多电脑 | 每台电脑一个节点；一个网关可服务多台，客户端多 Profile 切换 |
 
 ## 工作原理
 
@@ -52,11 +52,11 @@ Android / iOS / HarmonyOS
           │
           │ HTTPS（LAN 证书固定 / public mTLS）
           ▼
-   LAN 入口或公网 Gateway
+      LAN 入口 / 公网 Gateway
           │
-          │ 内部控制令牌 + 受限反向代理
+          │ 按 X-Remote-Everything-Node 选路 + 每节点控制令牌 + 受限反向代理
           ▼
- Windows / Linux / macOS Node
+ Windows / Linux / macOS Node（一台或多台）
           │
           ├── DSH（DeepSeek Harness）
           ├── SillyTavern（酒馆）
@@ -98,7 +98,7 @@ Android 可安装当前 [Release](https://github.com/hxaxd/remote-everything/rel
 
 - **LAN**：客户端在打开远程应用前使用二维码中的服务端证书 SHA-256 指纹确认网关身份，并同时检查证书有效期与目标主机；入口仅允许指定局域网或组网接口访问。
 - **公网**：配对邀请单次使用且限时有效。设备证书先处于 pending，用户核对完整指纹并批准后才会激活；后续请求使用 mTLS 和设备记录双重鉴权。
-- **服务端**：控制令牌只存在于 Gateway 与 Node 链路；公网只复用 443。
+- **服务端**：控制令牌只存在于 Gateway 与 Node 链路；公网只复用 443。LAN 形态里 Gateway 与 Node 之间的这段链路按**可信网络**对待：地址由操作者自己指定，不额外加密，控制令牌与应用流量都在这张网上——要跨不可信网络就用公网形态，那条路上离开机器的每一跳都是 TLS（节点到 443 入口是 WSS 加客户端证书，其余都在同一台机器的 loopback 上）。
 - **客户端**：设备凭据存入系统安全存储；Web 数据在各平台 WebView 中隔离，外部链接交给系统浏览器。
 - **供应链**：发布资产提供 SHA-256；正式客户端使用固定签名或平台官方分发签名。
 

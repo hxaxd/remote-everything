@@ -30,7 +30,7 @@ Remote Everything runs a lightweight node on the computer and delivers explicitl
 - 🖥️ **Three desktop nodes**: Windows, Linux, and macOS run in the user's login session and reap managed app process trees on logout.
 - 🔐 **Device-level trust**: public devices require a single-use invitation, certificate request, full-fingerprint human confirmation, and mTLS activation.
 - 🌐 **LAN and remote**: access over LAN or an existing overlay; public mode reuses server port 443, with Caddy and FRP as the controlled entry.
-- 🧭 **Switch among computers**: each computer has an independent ID; the client manages and switches Profiles without coupling them.
+- 🧭 **Pick any computer**: each computer is one globally unique ID and a single gateway can serve several; the phone picks the node first, then the route, and grants the device one node at a time.
 - 🧩 **Apps ready to plug in**: DSH (DeepSeek Harness) and SillyTavern are adapted; other local Web apps can use the same definition.
 - 🤖 **Agent-driven operations**: installation, app onboarding, device pairing, inspection, upgrades, and removal all have executable Skills—no handwritten deploy notes required.
 
@@ -43,7 +43,7 @@ Remote Everything runs a lightweight node on the computer and delivers explicitl
 | LAN entrance (same network / overlay) | Windows · Linux · macOS |
 | Public gateway | Linux only |
 | Adapted apps | DSH (DeepSeek Harness) · SillyTavern |
-| Multiple computers | Independent instance per computer; multi-Profile switching on the client |
+| Multiple computers | One node per computer; one gateway can serve several, multi-Profile switching on the client |
 
 ## How it works
 
@@ -52,11 +52,11 @@ Android / iOS / HarmonyOS
           │
           │ HTTPS (LAN certificate pinning / public mTLS)
           ▼
-     LAN entry or public Gateway
+      LAN entry / public Gateway
           │
-          │ internal control token + constrained reverse proxy
+          │ routed by X-Remote-Everything-Node + per-node control token + constrained reverse proxy
           ▼
- Windows / Linux / macOS Node
+ Windows / Linux / macOS Node (one or many)
           │
           ├── DSH (DeepSeek Harness)
           ├── SillyTavern
@@ -98,7 +98,7 @@ Everyday operations use natural language as well:
 
 - **LAN**: before opening a remote app, the client confirms the gateway with the server-certificate SHA-256 fingerprint from the QR code, and also checks certificate validity and the target host; the entry only allows the selected LAN or overlay interfaces.
 - **Public**: pairing invitations are single-use and time-limited. Device certificates stay pending until the user verifies the full fingerprint and approves them; later requests use both mTLS and the device record.
-- **Server side**: the control token exists only on the Gateway–Node path; public mode only reuses port 443.
+- **Server side**: the control token exists only on the Gateway–Node path; public mode only reuses port 443. In LAN mode the Gateway–Node path is treated as a **trusted network**: the operator chooses where it is, and it is not encrypted further — the control token and application traffic both travel on it. To cross an untrusted network, use public mode, where every hop that leaves a machine is TLS (the node reaches the 443 entrance over WSS with a client certificate, and the rest stay on loopback within one machine).
 - **Client side**: device credentials go into system secure storage; Web data is isolated in each platform's WebView; external links open in the system browser.
 - **Supply chain**: release assets include SHA-256 digests; stable clients use a fixed signature or the platform's official distribution signing.
 
