@@ -194,6 +194,10 @@ func (node *Node) supervise() {
 			}
 			for id, entry := range processes {
 				if !known[id] {
+					// Nothing asked for this: the application stopped being listed, so
+					// the process answering for it is taken down. Whoever edited the
+					// registry may not be the operator who is watching the node.
+					node.log("app %s is no longer registered; stopping pid=%d", id, entry.proc.PID())
 					node.adaptersMu.RLock()
 					adapter := node.adapters[id]
 					node.adaptersMu.RUnlock()
