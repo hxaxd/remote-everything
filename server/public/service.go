@@ -11,16 +11,15 @@ import (
 )
 
 // publicService is the public entrance: its state, the device trust that guards
-// what it serves, and the gateway that reaches the node through the tunnel.
+// what it serves, and the gateway the trust reaches every node it serves through.
 type publicService struct {
-	paths  publicPaths
-	config gatewaycore.State
-	trust  *devicecore.Trust
+	state gatewaycore.State
+	trust *devicecore.Trust
 }
 
 // State is what this gateway recorded about itself.
 func (service *publicService) State() gatewaycore.State {
-	return service.config
+	return service.state
 }
 
 // Trust is how this gateway admits devices.
@@ -54,21 +53,11 @@ func plainSurface(address string, handler http.Handler) entrance.Surface {
 // it is loaded, so a missing listener can only mean the code asks for a name
 // that is not part of this gateway.
 func (service *publicService) listen(name string) string {
-	address, err := service.config.Address(name)
+	address, err := service.state.Address(name)
 	if err != nil {
 		panic(err)
 	}
 	return address
-}
-
-// newNodeGateway returns the gateway that reaches the node over the tunnel the
-// gateway's own frps listener terminates.
-func (service *publicService) newNodeGateway() (*gatewaycore.Gateway, error) {
-	token, err := gatewaycore.ReadControlToken(service.paths.root)
-	if err != nil {
-		return nil, err
-	}
-	return gatewaycore.New("http://"+service.listen("node_tunnel"), token)
 }
 
 func openPublicService(root string) (*publicService, error) {
@@ -80,7 +69,7 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
-	gateway, err := (&publicService{paths: paths, config: state}).newNodeGateway()
+	gateway, err := gatewaycore.New(state, paths.root)
 	if err != nil {
 		return nil, err
 	}
@@ -94,5 +83,5 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &publicService{paths: paths, config: state, trust: trust}, nil
+	return &publicService{state: state, trust: trust}, nil
 }

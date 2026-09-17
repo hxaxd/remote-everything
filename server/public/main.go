@@ -23,6 +23,8 @@ func requireLinux(goos string) error {
 	return nil
 }
 
+const publicUsage = "usage: remote-everything-gateway init --state ABSOLUTE_PATH --origin HTTPS_ORIGIN | node add --state ABSOLUTE_PATH --name NAME --node-id NODE_ID --node-bootstrap ABSOLUTE_PATH | node list --state ABSOLUTE_PATH | node remove --state ABSOLUTE_PATH --node NODE | node token renew --state ABSOLUTE_PATH --node NODE --node-bootstrap ABSOLUTE_PATH | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | grant --node NODE FINGERPRINT | revoke [--node NODE] FINGERPRINT | invite --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
+
 func main() {
 	if err := requireLinux(runtime.GOOS); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -31,6 +33,13 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "init" {
 		if err := runPublicInit(args[1:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(args) > 0 && args[0] == "node" {
+		if err := runPublicNode(args[1:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -71,6 +80,6 @@ func main() {
 			}
 		}
 	}
-	fmt.Fprintln(os.Stderr, "usage: remote-everything-gateway init --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH --origin HTTPS_ORIGIN | ports repair --state ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | invite --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH | revoke FINGERPRINT)")
+	fmt.Fprintln(os.Stderr, publicUsage)
 	os.Exit(64)
 }
