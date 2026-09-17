@@ -132,7 +132,7 @@ class RenderTests(unittest.TestCase):
             "public_host": "remote.example.com",
             "tunnel_client_cert": "/state/client.pem", "tunnel_client_key": "/state/client-key.pem",
             "frps_token_file": "/state/frps-token", "frpc_log": "/state/frpc.log",
-            "installation_id": INSTALLATION_ID, "node_host": "192.168.1.10", "node_port": 58627, "node_tunnel_port": 58628,
+            "node_id": INSTALLATION_ID, "node_host": "192.168.1.10", "node_port": 58627, "node_tunnel_port": 58628,
         }
         result, _, _ = self.render("frpc", frpc)
         self.assertEqual(result.returncode, 0, result.stderr)

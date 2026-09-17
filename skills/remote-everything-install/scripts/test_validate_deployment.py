@@ -29,6 +29,8 @@ class DeploymentContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client, server.replace("transport.maxPoolCount = 32", "transport.maxPoolCount = 15"))
         with self.assertRaises(ValueError):
+            validator.validate_frp_contract(client, server.replace('proxyBindAddr = "127.0.0.1"', 'proxyBindAddr = "0.0.0.0"'))
+        with self.assertRaises(ValueError):
             validator.validate_frp_contract(client, server + "\ntransport.tls.force = true\n")
         with self.assertRaises(ValueError):
             validator.validate_frp_contract(client.replace("[[proxies]]", 'transport.tls.trustedCaFile = "/ca.pem"\n\n[[proxies]]'), server)
@@ -39,9 +41,8 @@ class DeploymentContractTests(unittest.TestCase):
         validator.validate_caddy_contract(caddy)
         pair = caddy.index("@pair path")
         tunnel = caddy.index("@tunnel expression")
-        device_control = caddy.index("\t@device_control {")
         device = caddy.index("\t@device expression")
-        broken = caddy[:pair] + caddy[tunnel:device_control] + caddy[pair:tunnel] + caddy[device_control:]
+        broken = caddy[:pair] + caddy[tunnel:device] + caddy[pair:tunnel] + caddy[device:]
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(broken)
         with self.assertRaises(ValueError):

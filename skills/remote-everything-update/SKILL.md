@@ -10,7 +10,7 @@ description: 升级已部署的 Remote Everything。用于从当前 runtime 识�
 3. 把同一 Release 的目标平台二进制下载到运行目录外的临时缓存；Android 更新时同时取得正式 APK。核验摘要与目标平台可执行格式，并执行独立的 FRP/Caddy/服务模板验证；失败则不停止当前服务。iOS 与 HarmonyOS 按 `mobile-clients.md` 核对项目标签；没有官方渠道时要求用户用 Xcode 或 DevEco Studio 本地签名构建，不下载来源不明的客户端包，也不代签。
 4. LAN 按 `入口 → node` 停止并按反序启动；public 节点按 `frpc → node` 停止、服务器按 `gateway → frps` 停止，再按依赖反序启动。每个二进制用同目录临时文件原子替换，保留旧文件只到该组件验证完成，失败立即恢复。Windows 节点侧组件经 wscript 隐藏启动后脱离计划任务实例，`schtasks /End` 不能结束其进程；替换 node/frpc 二进制前先 `taskkill /T /F` 结束进程树。
 5. 不重新生成 installation ID、控制令牌、CA、设备证书、指纹或端口。只有运行证书剩余不超过 30 天时才调用 device Skill 的移动设备证书续期，或按 server CLI 执行同 CA 下的隧道客户端证书续期。
-6. 逐层验证状态、目录、启停、应用代理；public 另验证 WSS、未认证拒绝和 approved 可用，仅在已有对应测试凭据时复验 revoked 拒绝，不为验收吊销真实设备。public 目标版本若包含 `scripts/cloud/frps-healthcheck/` 变更，用相同 `--installation-id` 与 `--node-tunnel-listen` 在云端重跑其 `install.sh`（幂等，会重新渲染并 daemon-reload），再手动触发一次 service 验证。全部通过后更新 runtime 的 release、摘要、观测和验证字段并删除临时旧文件。
+6. 逐层验证状态、目录、启停、应用代理；public 另验证 WSS、未认证拒绝和 approved 可用，仅在已有对应测试凭据时复验 revoked 拒绝，不为验收吊销真实设备。public 目标版本若包含 `scripts/cloud/frps-healthcheck/` 变更，用相同 `--installation-id`、`--frps-listen` 与同一份 `--tunnel-listen` 列表（每台节点在 `gateway node list` 里的 `node_address`，一台一次）在云端重跑其 `install.sh`（幂等，会重新渲染并 daemon-reload），再手动触发一次 service 验证；隧道端口被 `ports repair` 搬过时，这次重跑就是必须的那一步。多台节点时每台各有自己的交付目录与 frpc 配置，逐台更新。全部通过后更新 runtime 的 release、摘要、观测和验证字段并删除临时旧文件。
 7. Android 在 `versionCode` 更高且签名指纹一致时交付正式 APK 或发布链接；iOS、HarmonyOS 有官方分发渠道时引导到对应渠道，否则引导用户从目标标签源码重新签名构建并覆盖安装。客户端更新后不得要求重新填写连接，并验证原 Profile、LAN 指纹或公网设备凭据仍可用。
 
 返回旧/新版本、替换组件、保持不变的身份与端口、验证结果，以及对应移动平台需要用户执行的更新动作。

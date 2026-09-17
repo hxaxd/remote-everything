@@ -7,11 +7,12 @@ description: 管理 Remote Everything 移动客户端信任。用于在两种形
 
 两种形态的准入是同一件事：设备兑换一条邀请、拿到只属于自己的证书，之后由这张证书被准入。公网入口在它前面由 443 终止 mTLS，LAN 入口自己终止；除此之外只差谁批准设备。
 
-- 发邀请：用户可操作时执行 `device invite --name <显示名> --ttl 10m [--qr <本次邀请唯一的绝对路径>]`，交付二维码或 setup URI 并说明失效时间。不覆盖旧二维码路径，不保存或复用邀请明文。入口的 origin 在 `init` 时就写进状态了，发邀请不需要再给地址；状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
+- 发邀请：用户可操作时执行 `device invite --name <设备显示名> --node <节点的 id 或名字> --ttl 10m [--qr <本次邀请唯一的绝对路径>]`，交付二维码或 setup URI 并说明失效时间。一条邀请开的是**一台节点**的门，`--node` 就是那一台（`node list` 看当前有哪些）；入口的 origin 在 `init` 时就写进状态了，发邀请不需要再给地址。不覆盖旧二维码路径，不保存或复用邀请明文；状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
+- 追加授权：同一台设备还要进这个网关下的另一台节点时执行 `device grant --node <那台> <指纹>`，立即生效，不需要重新发码；收回其中一台用 `device revoke --node <那台> <指纹>`。
 - 批准：公网邀请跨网旅行，必须由人确认——客户端申请后从 `device list` 取设备名与完整指纹，用户确认后 `device approve <指纹>`。LAN 邀请是操作者当面交出去的，兑换即批准，不需要这一步。
 - 邀请：`device invitation list`；取消用 `invitation cancel`（按 hash）。
-- 查看：`device list`（设备名、完整指纹、状态、时间）。
-- 公网续期：`device renew ... <旧指纹>`，同安装 ID 新指纹 approved、旧指纹 revoked 后删临时码。
+- 查看：`device list`（设备名、完整指纹、状态、时间，以及它持有的 `nodes`）。
+- 公网续期：`device renew --node <它已有的一台> ... <旧指纹>`，同安装 ID 新指纹 approved、旧指纹 revoked 后删临时码。续期只换证书、不改它能进哪些节点，所以 `--node` 只能是它已经持有的那一台。
 - LAN 续期：停入口 → `certificate renew` → 重启验证，然后重新 `device invite`。客户端钉的是入口证书，证书换了就得重新发一次邀请让它重扫；同安装 ID 原地替换该 Profile，不新建实例。
 - 吊销：`device revoke <指纹>`，再 list，确认该证访问为 401/403。
 
