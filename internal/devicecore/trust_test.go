@@ -35,7 +35,7 @@ func TestLoadIssuerRejectsTamperedSelfSignature(t *testing.T) {
 
 func TestOpenCreatesTheTrustAndRefusesHalfAnIdentity(t *testing.T) {
 	root := t.TempDir()
-	node := newNodeStub(t)
+	node := stubGateway(t)
 	trust, err := Open(Config{Root: root, InstallationID: strings.Repeat("a", 64), Origin: "https://remote.example.com", Node: node})
 	if err != nil {
 		t.Fatal(err)

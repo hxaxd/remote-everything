@@ -20,6 +20,10 @@ const (
 	testOrigin         = "https://remote.example.com"
 )
 
+// stubNodes is the one machine the stub gateway serves: a request names it by its
+// id, and an invitation says which one it opens.
+var stubNodes = []gatewaycore.Node{{ID: strings.Repeat("11", 32), Name: "Desk", Address: "127.0.0.1:58628"}}
+
 // stubGateway is a gateway shape the driver can be handed in place of either
 // real one: the state it recorded, the trust it admits devices with, and the
 // surfaces it says it serves are all the driver asks a shape for.
@@ -36,14 +40,24 @@ func (gateway stubGateway) Surfaces() ([]Surface, error) {
 	return gateway.surfaces, gateway.surfacesErr
 }
 
-// stubNode is the surface device trust protects. Nothing here asks it anything;
-// opening a trust needs it to exist, which is all it does.
+// stubNode is the surface device trust protects. Nothing here asks it much;
+// opening a trust needs it to exist and to say what it serves, which is all it
+// does.
 type stubNode struct{}
 
-func (stubNode) ServeHTTP(http.ResponseWriter, *http.Request) {}
+func (stubNode) ServeNode(string, http.ResponseWriter, *http.Request) {}
 
-func (stubNode) ConnectedList() (json.RawMessage, bool) {
+func (stubNode) ConnectedList(nodeID string) (json.RawMessage, bool) {
+	if _, ok := stubNodeFor(nodeID); !ok {
+		return nil, false
+	}
 	return json.RawMessage(`{"ok":true,"computer_connected":true,"code":"ready","apps":[]}`), true
+}
+
+func (stubNode) Nodes() []gatewaycore.Node { return stubNodes }
+
+func stubNodeFor(nodeID string) (gatewaycore.Node, bool) {
+	return gatewaycore.FindNode(stubNodes, nodeID)
 }
 
 func openStubGateway(t *testing.T, root, address string) stubGateway {
@@ -55,6 +69,11 @@ func openStubGateway(t *testing.T, root, address string) stubGateway {
 	state, err := gatewaycore.NewState(testInstallationID, testOrigin, []gatewaycore.Listener{{Name: "status", Address: address}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, node := range stubNodes {
+		if state, err = state.AddNode(node); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return stubGateway{state: state, trust: trust}
 }
@@ -240,7 +259,7 @@ func TestRunRunsTheDeviceCLIOfTheGatewayItOpened(t *testing.T) {
 	open := func(string) (Gateway, error) { return openStubGateway(t, root, freeAddress(t)), nil }
 
 	var stdout, stderr bytes.Buffer
-	handled, code := Run([]string{"device", "--state", root, "invite", "--name", "Test Phone", "--ttl", "10m"}, open, &stdout, &stderr)
+	handled, code := Run([]string{"device", "--state", root, "invite", "--name", "Test Phone", "--node", "Desk", "--ttl", "10m"}, open, &stdout, &stderr)
 	if !handled || code != 0 {
 		t.Fatalf("an invitation was not issued: %v code %d %s", handled, code, stderr.String())
 	}
@@ -255,8 +274,9 @@ func TestRunRunsTheDeviceCLIOfTheGatewayItOpened(t *testing.T) {
 		t.Fatalf("setup URI %q: %v", issued.SetupURI, err)
 	}
 	carried := uri.Query()
-	if uri.Scheme != "remote-everything" || uri.Host != "setup" || carried.Get("id") != testInstallationID || carried.Get("origin") != testOrigin {
-		t.Fatalf("the invitation does not describe the gateway it was issued for: %s", issued.SetupURI)
+	if uri.Scheme != "remote-everything" || uri.Host != "setup" ||
+		carried.Get("node") != stubNodes[0].ID || carried.Get("node_name") != stubNodes[0].Name || carried.Get("origin") != testOrigin {
+		t.Fatalf("the invitation does not describe the node it was issued for: %s", issued.SetupURI)
 	}
 
 	stdout.Reset()

@@ -4,23 +4,51 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
 
 func requestFingerprint(request *http.Request) string {
 	return strings.ToLower(strings.TrimSpace(request.Header.Get(clientFingerprintHeader)))
 }
 
-func (service *Trust) statusAuthorized(request *http.Request) bool {
+// authorizedDevice is the device a request speaks for: the one whose certificate
+// the entrance verified and whose record this gateway holds as admitted. Anything
+// else is a request this gateway cannot act for.
+func (service *Trust) authorizedDevice(request *http.Request) (deviceRecord, bool) {
 	fingerprint := requestFingerprint(request)
 	if !validHex64.MatchString(fingerprint) {
-		return false
+		return deviceRecord{}, false
 	}
 	record, err := service.loadDeviceRecord(fingerprint)
-	return err == nil && record.Status == "approved"
+	return record, err == nil && record.Status == "approved"
+}
+
+// nodeByID returns a node this gateway serves. It is what a request names a node
+// by, and it is exact: a request carries an id, never a name.
+func (service *Trust) nodeByID(nodeID string) (gatewaycore.Node, bool) {
+	return gatewaycore.FindNode(service.node.Nodes(), nodeID)
+}
+
+// nodeForRequest returns the node a request is for, when this gateway serves it
+// and the device behind the request may reach it. It answers with the code a
+// refusal is written as, because a request that names no node and one that names
+// a node this device cannot reach have no answer here: which nodes exist is not
+// something a device that cannot reach one learns from asking for it.
+func (service *Trust) nodeForRequest(request *http.Request, record deviceRecord) (gatewaycore.Node, string, error) {
+	nodeID := strings.TrimSpace(request.Header.Get(proxysecurity.NodeHeader))
+	if !validHex64.MatchString(nodeID) {
+		return gatewaycore.Node{}, "node_required", errors.New("request names no node")
+	}
+	node, ok := service.nodeByID(nodeID)
+	if !ok || !slices.Contains(record.Nodes, node.ID) {
+		return gatewaycore.Node{}, "unauthorized", errors.New("node not granted")
+	}
+	return node, "", nil
 }
 
 func (service *Trust) activateDevice(request *http.Request) (any, string, error) {
@@ -31,6 +59,12 @@ func (service *Trust) activateDevice(request *http.Request) (any, string, error)
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || record.Status == "revoked" {
 		return nil, "unauthorized", errors.New("device unavailable")
+	}
+	// The node is resolved before anything is written about the device, so a device
+	// that asks about a node it cannot reach leaves no trace of having asked.
+	node, code, err := service.nodeForRequest(request, record)
+	if err != nil {
+		return nil, code, err
 	}
 	if record.Status == "pending" {
 		expires, parseErr := parseTimestamp(record.PendingExpiresAt)
@@ -63,7 +97,7 @@ func (service *Trust) activateDevice(request *http.Request) (any, string, error)
 			}
 		}
 	}
-	apps, connected := service.node.ConnectedList()
+	apps, connected := service.node.ConnectedList(node.ID)
 	if !connected {
 		return nil, "computer_offline", errors.New("node validation failed")
 	}
@@ -108,14 +142,35 @@ func rawRequestPath(request *http.Request) string {
 	return path
 }
 
+// nodeEntry is one node of the answer to "which nodes may I reach", as a client
+// reads it: what to ask for, and what to show.
+type nodeEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type nodeListResponse struct {
+	OK    bool        `json:"ok"`
+	Nodes []nodeEntry `json:"nodes"`
+}
+
+// nodeList is the answer to "which nodes may this device reach": the nodes this
+// gateway serves that the device was granted, which is how a device that was
+// granted one more node finds out about it without pairing again.
+func (service *Trust) nodeList(record deviceRecord) nodeListResponse {
+	nodes := []nodeEntry{}
+	for _, node := range service.node.Nodes() {
+		if slices.Contains(record.Nodes, node.ID) {
+			nodes = append(nodes, nodeEntry{ID: node.ID, Name: node.Name})
+		}
+	}
+	return nodeListResponse{OK: true, Nodes: nodes}
+}
+
 func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *http.Request) {
 	path := rawRequestPath(request)
 	if path == "/healthz" && request.Method == http.MethodGet {
 		gatewaycore.WriteJSON(writer, http.StatusOK, map[string]bool{"ok": true})
-		return
-	}
-	if path == "/__local_remote_control" {
-		gatewaycore.WriteJSON(writer, http.StatusForbidden, gatewaycore.Error("forbidden"))
 		return
 	}
 	if path == "/__remote_everything_activate" && request.Method == http.MethodPost {
@@ -138,9 +193,25 @@ func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *htt
 		gatewaycore.WriteJSON(writer, http.StatusOK, apps)
 		return
 	}
-	if !service.statusAuthorized(request) {
+	record, ok := service.authorizedDevice(request)
+	if !ok {
 		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, gatewaycore.Error("unauthorized"))
 		return
 	}
-	service.node.ServeHTTP(writer, request)
+	// Which nodes there are is the gateway's answer; which of them this device may
+	// reach is this trust's, and this is the only place the two are put together.
+	// It is asked without naming a node, because it is how a device finds out which
+	// ones it has: naming one is what needing the answer would be.
+	if path == "/__remote_everything/nodes" && request.Method == http.MethodGet {
+		gatewaycore.WriteJSON(writer, http.StatusOK, service.nodeList(record))
+		return
+	}
+	node, code, err := service.nodeForRequest(request, record)
+	if err != nil {
+		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, gatewaycore.Error(code))
+		return
+	}
+	// What a request names has been read and permitted; the gateway is handed the
+	// node that was decided on, and everything from here is that node answering.
+	service.node.ServeNode(node.ID, writer, request)
 }

@@ -14,12 +14,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 )
 
 const (
-	pairRequestPath         = "/__remote_everything_pair"
-	pairMaxBody             = 8 * 1024
-	clientFingerprintHeader = "X-Remote-Everything-Client-Fingerprint"
+	pairRequestPath = "/__remote_everything_pair"
+	pairMaxBody     = 8 * 1024
 )
 
 var (
@@ -84,6 +85,21 @@ func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairRe
 	if err != nil {
 		return pairResponse{}, validationError("invitation_denied")
 	}
+	// Which node the device is being admitted to is what the invitation says, and
+	// it is not something the device asks for: redeeming an invitation is what
+	// puts that node on it. A renewal keeps the nodes the device already holds,
+	// because renewing a credential is not a change of what it may reach.
+	nodes := []string{invite.NodeID}
+	if _, ok := service.nodeByID(invite.NodeID); !ok {
+		return pairResponse{}, validationError("invitation_denied")
+	}
+	if invite.ReplacesFingerprint != "" {
+		replaced, replacedErr := service.loadDeviceRecord(invite.ReplacesFingerprint)
+		if replacedErr != nil || replaced.Status != "approved" {
+			return pairResponse{}, validationError("invitation_denied")
+		}
+		nodes = replaced.Nodes
+	}
 	passwordDigest := sha256.Sum256([]byte(payload.CredentialPassword))
 	passwordHash := hex.EncodeToString(passwordDigest[:])
 	if invite.UsedAt != "" {
@@ -113,7 +129,7 @@ func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairRe
 		return pairResponse{}, err
 	}
 	record := deviceRecord{
-		Schema: recordSchema, DeviceName: payload.DeviceName, CertificateFingerprint: fingerprint,
+		Schema: recordSchema, DeviceName: payload.DeviceName, CertificateFingerprint: fingerprint, Nodes: nodes,
 		Status: "pending", CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(certificate.NotAfter), PendingExpiresAt: invite.ExpiresAt,
 	}
 	if _, err := os.Stat(service.deviceRecordPath(fingerprint)); err == nil || !errors.Is(err, os.ErrNotExist) {
@@ -138,49 +154,35 @@ func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairRe
 	}, nil
 }
 
-func writePairJSON(writer http.ResponseWriter, status int, value any) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		status = http.StatusInternalServerError
-		body = []byte(`{"ok":false,"code":"internal_error"}`)
-	}
-	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	writer.Header().Set("Cache-Control", "no-store, max-age=0")
-	writer.Header().Set("Pragma", "no-cache")
-	writer.Header().Set("X-Content-Type-Options", "nosniff")
-	writer.WriteHeader(status)
-	_, _ = writer.Write(body)
-}
-
 func (service *Trust) pairHTTPHandler(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost || request.RequestURI != pairRequestPath {
-		writePairJSON(writer, http.StatusNotFound, errorBody("not_found"))
+		gatewaycore.WriteJSON(writer, http.StatusNotFound, errorBody("not_found"))
 		return
 	}
 	if !service.pairLimiter.allow(clientIP(request)) {
-		writePairJSON(writer, http.StatusTooManyRequests, errorBody("rate_limited"))
+		gatewaycore.WriteJSON(writer, http.StatusTooManyRequests, errorBody("rate_limited"))
 		return
 	}
 	if !service.pairLimiter.acquire() {
-		writePairJSON(writer, http.StatusServiceUnavailable, errorBody("server_busy"))
+		gatewaycore.WriteJSON(writer, http.StatusServiceUnavailable, errorBody("server_busy"))
 		return
 	}
 	defer service.pairLimiter.release()
 	invitation := invitationFromRequest(request)
 	if invitation == "" {
 		time.Sleep(service.pairFailureDelay)
-		writePairJSON(writer, http.StatusUnauthorized, errorBody("invitation_denied"))
+		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, errorBody("invitation_denied"))
 		return
 	}
 	if request.ContentLength <= 0 || request.ContentLength > pairMaxBody {
-		writePairJSON(writer, http.StatusBadRequest, errorBody("invalid_body"))
+		gatewaycore.WriteJSON(writer, http.StatusBadRequest, errorBody("invalid_body"))
 		return
 	}
 	decoder := json.NewDecoder(io.LimitReader(request.Body, pairMaxBody))
 	decoder.DisallowUnknownFields()
 	var payload pairPayload
 	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF {
-		writePairJSON(writer, http.StatusBadRequest, errorBody("invalid_json"))
+		gatewaycore.WriteJSON(writer, http.StatusBadRequest, errorBody("invalid_json"))
 		return
 	}
 	result, err := service.pairDevice(invitation, payload)
@@ -191,12 +193,12 @@ func (service *Trust) pairHTTPHandler(writer http.ResponseWriter, request *http.
 				status = http.StatusUnauthorized
 				time.Sleep(service.pairFailureDelay)
 			}
-			writePairJSON(writer, status, errorBody(string(validation)))
+			gatewaycore.WriteJSON(writer, status, errorBody(string(validation)))
 			return
 		}
 		service.log("pairing-server", "error", "pairing failed", "code", err.Error())
-		writePairJSON(writer, http.StatusInternalServerError, errorBody("pairing_failed"))
+		gatewaycore.WriteJSON(writer, http.StatusInternalServerError, errorBody("pairing_failed"))
 		return
 	}
-	writePairJSON(writer, http.StatusOK, result)
+	gatewaycore.WriteJSON(writer, http.StatusOK, result)
 }
