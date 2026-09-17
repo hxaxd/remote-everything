@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://remote-everything.com/schemas/catalog.schema.json",
   "title": "Catalog Response",
-  "description": "Schema for GET /__remote_everything/apps response. Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
+  "description": "Response of GET /__remote_everything/apps for the node named in the X-Remote-Everything-Node header: what that node runs. A node that cannot be reached is answered as computer_offline here rather than as an error, so a client learns a node's state from one request.",
   "type": "object",
   "properties": {
     "ok": {
@@ -12,7 +12,7 @@
     },
     "computer_connected": {
       "type": "boolean",
-      "description": "Whether the gateway can reach the node."
+      "description": "Whether the gateway can reach the node. The gateway asks the node before answering, so this is what that node said about itself a moment ago."
     },
     "code": {
       "type": "string",

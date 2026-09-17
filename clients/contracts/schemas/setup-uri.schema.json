@@ -2,72 +2,51 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://remote-everything.com/schemas/setup-uri.schema.json",
   "title": "Setup URI",
-  "description": "Schema for remote-everything://setup URI query parameters. Shared by Go, Kotlin, Swift, and ArkTS strict parsers.",
+  "description": "Query parameters of the remote-everything://setup URI a gateway delivers an invitation in. An invitation describes one gateway and one node, and a client reads that description: there is no version, no installation id and no mode on the wire.",
   "type": "object",
   "properties": {
-    "v": {
-      "type": "string",
-      "const": "2",
-      "description": "Protocol version. Only version 2 is supported."
-    },
-    "id": {
+    "node": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$",
-      "description": "Installation ID: 64 lowercase hex characters."
+      "description": "The node this invitation opens a door to: its globally unique node id, which every request for that node must name in the X-Remote-Everything-Node header."
     },
-    "name": {
+    "node_name": {
       "type": "string",
       "minLength": 1,
-      "description": "Human-readable computer name. 1–80 Unicode code points, no C0 or DEL control characters."
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["lan", "public"],
-      "description": "Connection mode: lan (LAN with certificate pinning) or public (internet with mTLS)."
+      "description": "What that node's operator calls it: 1–80 Unicode code points, no C0 or DEL control characters, not padded with whitespace. It is the node's label, not the device's — the name an invitation is issued under is the device name and travels nowhere."
     },
     "origin": {
       "type": "string",
       "format": "uri",
       "pattern": "^https://[^/?#]+$",
-      "description": "Gateway HTTPS origin: scheme, host, optional port only; no path, query, or fragment."
-    },
-    "fingerprint": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$",
-      "description": "SHA-256 fingerprint of the gateway TLS certificate. Required for LAN mode, absent for public mode."
-    },
-    "public_key_pin": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9+/]{43}=$",
-      "description": "Base64-encoded SHA-256 digest of the gateway certificate SubjectPublicKeyInfo. Required for LAN mode, absent for public mode."
+      "description": "The gateway's HTTPS origin: scheme, host, optional port only; no path, query or fragment. Every request from the client goes here, and the endpoint paths below are relative to it."
     },
     "invitation": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{43}$",
-      "description": "Base64url invitation token, 43 characters. Required in both modes: it is the secret a device redeems for a credential of its own."
+      "description": "Base64url invitation token, 43 characters. It is the secret a device redeems for a credential of its own, and the only thing that admits one: it is single-use, it is for the node above, and it expires."
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 fingerprint of the certificate the gateway serves its clients with. Present exactly when the gateway signs its own certificate (a LAN entrance): nothing else signs that gateway, so its clients have nowhere else to learn which certificate to expect."
+    },
+    "public_key_pin": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$",
+      "description": "Base64 SHA-256 digest of that certificate's SubjectPublicKeyInfo, which survives a renewal that keeps the key. Present with fingerprint and never without it."
     }
   },
-  "required": ["v", "id", "name", "mode", "origin", "invitation"],
+  "required": ["node", "node_name", "origin", "invitation"],
   "additionalProperties": false,
   "allOf": [
     {
-      "if": {
-        "properties": { "mode": { "const": "lan" } }
-      },
-      "then": {
-        "required": ["fingerprint", "public_key_pin"]
-      }
+      "if": { "required": ["fingerprint"] },
+      "then": { "required": ["public_key_pin"] }
     },
     {
-      "if": {
-        "properties": { "mode": { "const": "public" } }
-      },
-      "then": {
-        "properties": {
-          "fingerprint": { "not": {} },
-          "public_key_pin": { "not": {} }
-        }
-      }
+      "if": { "required": ["public_key_pin"] },
+      "then": { "required": ["fingerprint"] }
     }
   ]
 }
