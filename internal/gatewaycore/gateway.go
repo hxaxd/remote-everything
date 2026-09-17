@@ -10,10 +10,12 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/hxaxd/remote-everything/internal/logline"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
@@ -26,9 +28,23 @@ var (
 	openRoute   = regexp.MustCompile(`^/__remote_everything/open/([a-z0-9][a-z0-9._-]{0,63})$`)
 )
 
+// Gateway is the control plane of every node one gateway serves: each node is
+// reached at the address this gateway recorded for it and authenticates it with
+// that node's own token. It is asked for one of them at a time — which node a
+// request is for is decided where the permission for it is, and a gateway routes
+// what it was asked to route rather than reading that off the request again.
 type Gateway struct {
-	token       string
+	nodes []Node
+	links map[string]*nodeLink
+}
+
+// nodeLink is one node as the gateway reaches it: where that node's control plane
+// answers, the token this gateway authenticates itself with there, and the proxy
+// that serves the node's own traffic.
+type nodeLink struct {
+	nodeID      string
 	controlURL  string
+	token       string
 	client      *http.Client
 	application *httputil.ReverseProxy
 }
@@ -94,14 +110,34 @@ func stripRoutingSetCookie(header http.Header) {
 	}
 }
 
-// New returns the gateway that reaches the node at nodeURL. The node is
-// wherever it is: a gateway on another machine in the same network dials that
-// machine's address, and the tunnel form dials the local port the tunnel
-// forwards from, so any concrete address is accepted.
-func New(nodeURL, controlToken string) (*Gateway, error) {
-	target, err := url.Parse(nodeURL)
-	if err != nil || target.Scheme != "http" || target.User != nil || !netaddr.ValidUnicast(target.Host) {
-		return nil, errors.New("invalid node URL")
+// New returns the gateway that serves the nodes a state records. Each node is
+// reached at the address that state holds for it, wherever that is — a node on
+// another machine in the same network, or the local port a tunnel forwards from
+// — and authenticates this gateway with the token held for it. A gateway that
+// serves no node is refused: it has nothing to route a request to.
+func New(state State, gatewayRoot string) (*Gateway, error) {
+	if len(state.Nodes) == 0 {
+		return nil, errors.New("a gateway serves no nodes")
+	}
+	gateway := &Gateway{nodes: slices.Clone(state.Nodes), links: map[string]*nodeLink{}}
+	for _, node := range gateway.nodes {
+		token, err := ReadNodeToken(gatewayRoot, node.ID)
+		if err != nil {
+			return nil, err
+		}
+		link, err := newNodeLink(node, token)
+		if err != nil {
+			return nil, err
+		}
+		gateway.links[node.ID] = link
+	}
+	return gateway, nil
+}
+
+func newNodeLink(node Node, controlToken string) (*nodeLink, error) {
+	target, err := url.Parse("http://" + node.Address)
+	if err != nil || target.User != nil || !netaddr.ValidUnicast(target.Host) {
+		return nil, errors.New("invalid node address")
 	}
 	token := strings.TrimSpace(controlToken)
 	if !validToken.MatchString(token) {
@@ -128,12 +164,17 @@ func New(nodeURL, controlToken string) (*Gateway, error) {
 	proxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
 		WriteJSON(writer, http.StatusBadGateway, Error("computer_offline"))
 	}
-	return &Gateway{
-		token: token, controlURL: control.String(), client: &http.Client{}, application: proxy,
+	return &nodeLink{
+		nodeID: node.ID, controlURL: control.String(), token: token, client: &http.Client{}, application: proxy,
 	}, nil
 }
 
-func (gateway *Gateway) invoke(action, id string) json.RawMessage {
+// Nodes is every node this gateway serves, in the order they were added.
+func (gateway *Gateway) Nodes() []Node {
+	return slices.Clone(gateway.nodes)
+}
+
+func (link *nodeLink) invoke(action, id string) json.RawMessage {
 	payload, err := json.Marshal(map[string]string{"action": action, "id": id})
 	if err != nil {
 		return nil
@@ -144,14 +185,14 @@ func (gateway *Gateway) invoke(action, id string) json.RawMessage {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, gateway.controlURL, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, link.controlURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil
 	}
-	request.Header.Set("Authorization", "Bearer "+gateway.token)
+	request.Header.Set("Authorization", "Bearer "+link.token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/json")
-	response, err := gateway.client.Do(request)
+	response, err := link.client.Do(request)
 	if err != nil {
 		return nil
 	}
@@ -166,15 +207,14 @@ func (gateway *Gateway) invoke(action, id string) json.RawMessage {
 	return body
 }
 
-func (gateway *Gateway) ConnectedList() (json.RawMessage, bool) {
-	result := gateway.invoke("list", "")
-	var shape ControlResponse
-	decoder := json.NewDecoder(bytes.NewReader(result))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&shape) == nil && decoder.Decode(&struct{}{}) == io.EOF && validCatalog(shape) {
-		return result, true
+// ConnectedList is what one node behind this gateway runs, as that node said it.
+// A node this gateway does not serve has no answer to give.
+func (gateway *Gateway) ConnectedList(nodeID string) (json.RawMessage, bool) {
+	link, ok := gateway.links[nodeID]
+	if !ok {
+		return nil, false
 	}
-	return result, false
+	return link.connectedList()
 }
 
 func validCatalog(value ControlResponse) bool {
@@ -211,12 +251,37 @@ func validCatalogMetadata(value string, maximum int, allowEmpty bool) bool {
 	return true
 }
 
-func (gateway *Gateway) list() json.RawMessage {
-	if result, ok := gateway.ConnectedList(); ok {
+// list is a node's catalog, or the same offline answer every other endpoint of
+// that node gives when it cannot be reached.
+func (link *nodeLink) list() json.RawMessage {
+	if result, ok := link.connectedList(); ok {
 		return result
 	}
 	encoded, _ := json.Marshal(ControlResponse{OK: true, ComputerConnected: false, Code: "computer_offline", Apps: []ApplicationState{}})
 	return encoded
+}
+
+// connectedList is what the node answered for its catalog, when this gateway
+// understands the answer — every request a client makes about a node goes through
+// it, because a catalog this gateway cannot read is a catalog it cannot route.
+//
+// A node that answered something unreadable is reported here rather than only being
+// answered as offline: a client is told the same thing whether that node is off or
+// is talking past this gateway, and without this the reason would be visible
+// nowhere.
+func (link *nodeLink) connectedList() (json.RawMessage, bool) {
+	result := link.invoke("list", "")
+	if result == nil {
+		return nil, false
+	}
+	var shape ControlResponse
+	decoder := json.NewDecoder(bytes.NewReader(result))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&shape) == nil && decoder.Decode(&struct{}{}) == io.EOF && validCatalog(shape) {
+		return result, true
+	}
+	logline.Log("gateway", "warn", "a node answered a catalog this gateway does not understand", "node_id", link.nodeID)
+	return result, false
 }
 
 func requestPath(request *http.Request) string {
@@ -237,18 +302,28 @@ func writeRaw(writer http.ResponseWriter, body json.RawMessage) {
 	_, _ = writer.Write(body)
 }
 
-func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	path := requestPath(request)
-	if path == "/healthz" && request.Method == http.MethodGet {
-		WriteJSON(writer, http.StatusOK, map[string]bool{"ok": true})
+// ServeNode answers one request for one node this gateway serves. Which node a
+// request is for is decided where the permission for it is — the trust reads the
+// node header, resolves it, and refuses the request otherwise — and what is decided
+// there is what arrives here, so this is asked for a node rather than told one by
+// the request. A node it does not serve has no route here, and no other node is
+// asked instead.
+func (gateway *Gateway) ServeNode(nodeID string, writer http.ResponseWriter, request *http.Request) {
+	link, ok := gateway.links[nodeID]
+	if !ok {
+		WriteJSON(writer, http.StatusNotFound, Error("node_not_found"))
 		return
 	}
-	if path == "/__local_remote_control" {
+	path := requestPath(request)
+	// This gateway reaches a node's control plane itself, with the token it holds
+	// for that node. An application's traffic leaves through the proxy below and the
+	// control plane never travels in it, whichever node it is addressed to.
+	if path == proxysecurity.ControlPath {
 		WriteJSON(writer, http.StatusForbidden, Error("forbidden"))
 		return
 	}
 	if path == "/__remote_everything/apps" && request.Method == http.MethodGet {
-		writeRaw(writer, gateway.list())
+		writeRaw(writer, link.list())
 		return
 	}
 	if match := appRoute.FindStringSubmatch(path); match != nil {
@@ -258,7 +333,7 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			WriteJSON(writer, http.StatusNotFound, Error("not_found"))
 			return
 		}
-		result := gateway.invoke(action, match[1])
+		result := link.invoke(action, match[1])
 		if result == nil {
 			WriteJSON(writer, http.StatusOK, actionResponse{OK: false, Action: action, ComputerConnected: false, Code: "computer_offline"})
 			return
@@ -266,9 +341,12 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		writeRaw(writer, result)
 		return
 	}
+	// Opening an application is what says which one this browser session is looking
+	// at, not what a device may reach: a device reaches every application of a node
+	// it holds, and this is the cookie that picks between them.
 	if match := openRoute.FindStringSubmatch(path); match != nil && request.Method == http.MethodGet && validID.MatchString(match[1]) {
 		var shape ControlResponse
-		_ = json.Unmarshal(gateway.list(), &shape)
+		_ = json.Unmarshal(link.list(), &shape)
 		for _, app := range shape.Apps {
 			if app.ID == match[1] {
 				http.SetCookie(writer, &http.Cookie{Name: proxysecurity.RoutingCookieName, Value: match[1], Path: "/", MaxAge: 86400, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
@@ -285,5 +363,5 @@ func (gateway *Gateway) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		WriteJSON(writer, http.StatusNotFound, Error("not_found"))
 		return
 	}
-	gateway.application.ServeHTTP(writer, request)
+	link.application.ServeHTTP(writer, request)
 }
