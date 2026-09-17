@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/hxaxd/remote-everything/internal/devicecore"
@@ -37,48 +41,36 @@ func TestPublicEntranceAnswersPairingOnItsOwnSurface(t *testing.T) {
 }
 
 // publicHarness is the public entrance as the shared suite sees it: its two
-// loopback surfaces, and the fingerprint the entrance in front of it injects.
+// loopback surfaces, the fingerprint the entrance in front of it injects, and the
+// two machines behind it.
 type publicHarness struct {
 	service      *publicService
+	root         string
 	status       string
 	pairing      string
-	nodeRequests []string
+	mutex        sync.Mutex
+	nodeRequests map[string][]string
 }
 
 func startPublicEntrance(t *testing.T) *publicHarness {
 	t.Helper()
-	harness := &publicHarness{}
+	harness := &publicHarness{nodeRequests: map[string][]string{}}
 	root := t.TempDir()
-	if _, err := initializePublicState(root, t.TempDir(), "https://remote.example.com"); err != nil {
+	harness.root = root
+	if _, err := initializePublicState(root, "https://remote.example.com"); err != nil {
 		t.Fatal(err)
 	}
-	paths, err := newPublicPaths(root)
-	if err != nil {
-		t.Fatal(err)
+	// Each node is behind the tunnel this gateway owns: what its state recorded is
+	// the loopback port its own tunnel server forwards from, and that is where a
+	// request for that node arrives. A test answers on that same address, so the
+	// entrance is opened and reached exactly as the deployment opens and reaches it.
+	for index, id := range entrancetest.NodeIDs {
+		added, err := addPublicNode(root, entrancetest.NodeNames[index], id, filepath.Join(t.TempDir(), "bootstrap"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		harness.serveNode(t, id, added.NodeAddress)
 	}
-	state, err := paths.loadState()
-	if err != nil {
-		t.Fatal(err)
-	}
-	// A deployment finds its node at the tunnel listener the tunnel brings its
-	// control channel in on; a test answers on that same address, so the entrance
-	// is opened and reached exactly as the deployment opens and reaches it.
-	nodeAddress, err := state.Address("node_tunnel")
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener, err := net.Listen("tcp", nodeAddress)
-	if err != nil {
-		t.Fatal(err)
-	}
-	node := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		harness.nodeRequests = append(harness.nodeRequests, request.URL.Path)
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}]}`)
-	})}
-	go func() { _ = node.Serve(listener) }()
-	t.Cleanup(func() { _ = node.Close() })
-
 	service, err := openPublicService(root)
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +94,25 @@ func startPublicEntrance(t *testing.T) *publicHarness {
 		}
 	}
 	return harness
+}
+
+// serveNode answers for one machine behind the tunnel, on the address this
+// gateway recorded for it, and records everything it was asked for.
+func (harness *publicHarness) serveNode(t *testing.T, id, address string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	node := &http.Server{Handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		harness.mutex.Lock()
+		harness.nodeRequests[id] = append(harness.nodeRequests[id], request.URL.Path)
+		harness.mutex.Unlock()
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}]}`)
+	})}
+	go func() { _ = node.Serve(listener) }()
+	t.Cleanup(func() { _ = node.Close() })
 }
 
 func (harness *publicHarness) Gateway() entrance.Gateway { return harness.service }
@@ -148,4 +159,51 @@ func (harness *publicHarness) Approve(fingerprint string) error {
 	return harness.service.trust.RunCLI([]string{"approve", fingerprint}, &buffer)
 }
 
-func (harness *publicHarness) NodeSaw() []string { return harness.nodeRequests }
+func (harness *publicHarness) NodeSaw(nodeID string) []string {
+	harness.mutex.Lock()
+	defer harness.mutex.Unlock()
+	return append([]string{}, harness.nodeRequests[nodeID]...)
+}
+
+// Every node a public gateway serves is behind its own tunnel: its address is a
+// loopback port this gateway's tunnel server forwards from, and the port in it is
+// what that machine's tunnel agent has to publish.
+func TestPublicNodesAreBehindTheirOwnTunnelPorts(t *testing.T) {
+	harness := startPublicEntrance(t)
+	nodes := harness.service.State().Nodes
+	if len(nodes) != 2 {
+		t.Fatalf("the gateway serves %d nodes", len(nodes))
+	}
+	seen := map[string]bool{}
+	for index, node := range nodes {
+		if node.ID != entrancetest.NodeIDs[index] || node.Name != entrancetest.NodeNames[index] {
+			t.Fatalf("node %d is %+v", index, node)
+		}
+		if !strings.HasPrefix(node.Address, "127.0.0.1:") || seen[node.Address] {
+			t.Fatalf("node %d is at %q", index, node.Address)
+		}
+		seen[node.Address] = true
+	}
+	// Adding a node this gateway already serves keeps the port its tunnel agent
+	// publishes: moving it would take that machine out of reach.
+	again, err := addPublicNode(harness.root, entrancetest.NodeNames[0], entrancetest.NodeIDs[0], filepath.Join(t.TempDir(), "bootstrap"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.NodeAddress != nodes[0].Address || !again.RestartRequired {
+		t.Fatalf("re-adding a node moved it: %+v", again)
+	}
+	// And a node is added to a gateway that serves nothing yet, which is where one
+	// is added in the first place.
+	if _, err := addPublicNode(harness.root, entrancetest.NodeNames[1], entrancetest.NodeIDs[1], filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+		t.Fatal(err)
+	}
+	var listed bytes.Buffer
+	if err := runPublicNode([]string{"list", "--state", harness.root}, &listed); err != nil {
+		t.Fatal(err)
+	}
+	var reported []map[string]string
+	if err := json.Unmarshal(listed.Bytes(), &reported); err != nil || len(reported) != 2 {
+		t.Fatalf("node list is %s (%v)", listed.String(), err)
+	}
+}

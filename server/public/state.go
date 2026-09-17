@@ -16,11 +16,6 @@ type publicPaths struct {
 	stateFile string
 }
 
-// listenerNames are the listeners a public gateway serves. The state file is
-// the shared gateway state; these are the names it must carry, and the CLI and
-// the deployment templates address them by name.
-var listenerNames = []string{"status", "pairing", "frps", "node_tunnel"}
-
 func newPublicPaths(root string) (publicPaths, error) {
 	if !filepath.IsAbs(root) {
 		return publicPaths{}, errors.New("state path must be absolute")
@@ -34,9 +29,17 @@ func (paths publicPaths) loadState() (gatewaycore.State, error) {
 	if err != nil {
 		return gatewaycore.State{}, err
 	}
-	for _, name := range listenerNames {
+	// This gateway terminates nothing: what it serves is reached through the
+	// entrance in front of it, so every one of its listeners — and every node,
+	// which it reaches over its own tunnel — is on loopback.
+	for _, name := range listenerNames() {
 		address, err := state.Address(name)
 		if err != nil || !netaddr.ValidLoopback(address) {
+			return gatewaycore.State{}, errors.New("invalid public server state")
+		}
+	}
+	for _, node := range state.Nodes {
+		if !netaddr.ValidLoopback(node.Address) {
 			return gatewaycore.State{}, errors.New("invalid public server state")
 		}
 	}
