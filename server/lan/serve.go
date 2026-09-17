@@ -14,13 +14,12 @@ import (
 )
 
 // lanService is the LAN entrance: the state that describes where it is and whom
-// it serves, the device trust that decides which devices may reach the node, and
-// the gateway that reaches it.
+// it serves, the device trust that decides which devices may reach the nodes, and
+// the gateway the trust reaches them through.
 type lanService struct {
-	root    string
-	state   lanState
-	trust   *devicecore.Trust
-	gateway *gatewaycore.Gateway
+	root  string
+	state lanState
+	trust *devicecore.Trust
 }
 
 func openLANService(root string) (*lanService, error) {
@@ -32,11 +31,7 @@ func openLANService(root string) (*lanService, error) {
 	if err != nil {
 		return nil, err
 	}
-	controlToken, err := gatewaycore.ReadControlToken(root)
-	if err != nil {
-		return nil, err
-	}
-	gateway, err := gatewaycore.New("http://"+state.LAN.NodeAddress, controlToken)
+	gateway, err := gatewaycore.New(state.State, root)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +45,7 @@ func openLANService(root string) (*lanService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &lanService{root: root, state: state, trust: trust, gateway: gateway}, nil
+	return &lanService{root: root, state: state, trust: trust}, nil
 }
 
 // State is what this entrance recorded about itself.
