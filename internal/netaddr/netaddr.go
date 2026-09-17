@@ -32,6 +32,14 @@ func ValidLoopback(address string) bool {
 	return Valid(address, "127.0.0.1")
 }
 
+// ValidLoopbackHost reports whether host is a loopback address: the machine the
+// request came from is this one, which is what an entrance standing in front of a
+// gateway looks like from behind it.
+func ValidLoopbackHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // ValidUnicastHost reports whether host is an IPv4 address a peer can dial.
 func ValidUnicastHost(host string) bool {
 	ip := net.ParseIP(host)
