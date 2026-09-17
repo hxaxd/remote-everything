@@ -12,125 +12,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"software.sslmate.com/src/go-pkcs12"
 )
 
-// newNodeStub is a gateway surface whose node answers the control endpoint with
-// one app, which is what activation requires before it approves a device.
-func newNodeStub(t *testing.T) *gatewaycore.Gateway {
-	t.Helper()
-	node := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/__local_remote_control" {
-			_, _ = io.WriteString(writer, "proxied")
-			return
-		}
-		var input map[string]string
-		_ = json.NewDecoder(request.Body).Decode(&input)
-		if input["action"] == "list" {
-			_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"fixture","name":"Fixture","description":"","icon":"F","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}]}`)
-			return
-		}
-		_, _ = io.WriteString(writer, `{"ok":true,"action":"`+input["action"]+`","computer_connected":true,"enabled":true,"running":true,"code":"ready"}`)
-	}))
-	t.Cleanup(node.Close)
-	gateway, err := gatewaycore.New(node.URL, strings.Repeat("01", 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return gateway
-}
-
-func setupPublicTest(t *testing.T) *Trust {
-	t.Helper()
-	trust, err := Open(Config{
-		Root: t.TempDir(), InstallationID: strings.Repeat("a", 64), Origin: "https://remote.example.com", Node: newNodeStub(t),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	trust.pairFailureDelay = 0
-	return trust
-}
-
-func createInvitation(t *testing.T, service *Trust) string {
-	t.Helper()
-	var output bytes.Buffer
-	if err := service.issueInvitation(10*time.Minute, "Test PC", "", &output); err != nil {
-		t.Fatal(err)
-	}
-	var result invitationResult
-	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	return result.Invitation
-}
-
-func pairRequest(t *testing.T, service *Trust, invitation, body string) *httptest.ResponseRecorder {
-	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(body))
-	request.Header.Set("Authorization", "Invitation "+invitation)
-	recorder := httptest.NewRecorder()
-	service.pairHTTPHandler(recorder, request)
-	return recorder
-}
-
-func pairFixture(t *testing.T, service *Trust) pairResponse {
-	t.Helper()
-	invitation := createInvitation(t, service)
-	recorder := pairRequest(t, service, invitation, `{"device_name":"Test Phone","credential_password":"credential-password-123"}`)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("pairing failed: %d %s", recorder.Code, recorder.Body.String())
-	}
-	var paired pairResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &paired); err != nil {
-		t.Fatal(err)
-	}
-	return paired
-}
-
-func approvePending(t *testing.T, service *Trust, fingerprint string) {
-	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	request.Header.Set(clientFingerprintHeader, fingerprint)
-	if _, code, err := service.activateDevice(request); err == nil || code != "approval_pending" {
-		t.Fatalf("approval request failed: %s %v", code, err)
-	}
-	if err := service.deviceApprove(fingerprint, io.Discard); err != nil {
-		t.Fatalf("approval failed: %v", err)
-	}
-}
-
-func activateApproved(t *testing.T, service *Trust, fingerprint string) {
-	t.Helper()
-	approvePending(t, service, fingerprint)
-	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	request.Header.Set(clientFingerprintHeader, fingerprint)
-	if _, code, err := service.activateDevice(request); err != nil || code != "" {
-		t.Fatalf("activation failed: %s %v", code, err)
-	}
-	var repeated bytes.Buffer
-	if err := service.deviceApprove(fingerprint, &repeated); err != nil || !strings.Contains(repeated.String(), `"changed":false`) {
-		t.Fatalf("repeat approval is not idempotent: %s %v", repeated.String(), err)
-	}
-}
-
 func TestInvitationPairingIsSingleUseAndPending(t *testing.T) {
-	service := setupPublicTest(t)
-	if recorder := pairRequest(t, service, "bad", `{}`); recorder.Code != http.StatusUnauthorized {
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
+	if recorder := pairInvitation(t, service, "bad", `{}`); recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("invalid invitation status = %d", recorder.Code)
 	}
-	invitation := createInvitation(t, service)
+	invitation := fixture.invite(t, 0)
 	body := `{"device_name":"Test Phone","credential_password":"credential-password-123"}`
-	first := pairRequest(t, service, invitation, body)
+	first := pairInvitation(t, service, invitation, body)
 	if first.Code != http.StatusOK {
 		t.Fatalf("pairing failed: %d %s", first.Code, first.Body.String())
 	}
-	second := pairRequest(t, service, invitation, body)
+	second := pairInvitation(t, service, invitation, body)
 	if second.Code != http.StatusOK || second.Body.String() != first.Body.String() {
 		t.Fatalf("idempotent pairing replay changed response: %d %s", second.Code, second.Body.String())
 	}
-	if changed := pairRequest(t, service, invitation, `{"device_name":"Other Phone","credential_password":"credential-password-456"}`); changed.Code != http.StatusUnauthorized {
+	if changed := pairInvitation(t, service, invitation, `{"device_name":"Other Phone","credential_password":"credential-password-456"}`); changed.Code != http.StatusUnauthorized {
 		t.Fatalf("invitation enrolled a second transaction: %d", changed.Code)
 	}
 	var paired pairResponse
@@ -140,6 +41,11 @@ func TestInvitationPairingIsSingleUseAndPending(t *testing.T) {
 	record, err := service.loadDeviceRecord(paired.CertificateFingerprint)
 	if err != nil || record.Status != "pending" || record.PendingExpiresAt == "" {
 		t.Fatalf("unexpected pending record: %+v %v", record, err)
+	}
+	// Redeeming an invitation is what puts the node it was issued for on the
+	// device: the client never asks for one.
+	if len(record.Nodes) != 1 || record.Nodes[0] != testNodeIDs[0] {
+		t.Fatalf("the invitation did not decide what the device holds: %+v", record.Nodes)
 	}
 	credential, err := base64.StdEncoding.DecodeString(paired.CredentialPKCS12)
 	if err != nil {
@@ -152,51 +58,36 @@ func TestInvitationPairingIsSingleUseAndPending(t *testing.T) {
 }
 
 func TestActivationCommitsOnlyAfterNodeValidationAndIsIdempotent(t *testing.T) {
-	service := setupPublicTest(t)
-	paired := pairFixture(t, service)
-	token := strings.Repeat("01", 32)
-	nodeAvailable := false
-	node := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !nodeAvailable {
-			writer.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		if request.Header.Get("Authorization") != "Bearer "+token {
-			writer.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[]}`)
-	}))
-	defer node.Close()
-	service.node, _ = gatewaycore.New(node.URL, token)
-	request := httptest.NewRequest(http.MethodPost, "/__remote_everything_activate", nil)
-	request.Header.Set(clientFingerprintHeader, paired.CertificateFingerprint)
-	if _, code, err := service.activateDevice(request); err == nil || code != "approval_pending" {
+	fixture := newGatewayFixture(t, false)
+	paired := fixture.pair(t, 0)
+	fingerprint := paired.CertificateFingerprint
+	if code, err := fixture.activate(fingerprint, 0); err == nil || code != "approval_pending" {
 		t.Fatalf("unapproved activation unexpectedly succeeded: %s %v", code, err)
 	}
-	if err := service.deviceApprove(paired.CertificateFingerprint, io.Discard); err != nil {
+	if err := fixture.trust.deviceApprove(fingerprint, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if _, code, err := service.activateDevice(request); err == nil || code != "computer_offline" {
+	fixture.nodes[0].setDown(true)
+	if code, err := fixture.activate(fingerprint, 0); err == nil || code != "computer_offline" {
 		t.Fatalf("offline activation unexpectedly succeeded: %s %v", code, err)
 	}
-	record, _ := service.loadDeviceRecord(paired.CertificateFingerprint)
+	record, _ := fixture.trust.loadDeviceRecord(fingerprint)
 	if record.Status != "pending" {
 		t.Fatalf("offline activation changed status: %s", record.Status)
 	}
-	nodeAvailable = true
-	if _, code, err := service.activateDevice(request); err != nil || code != "" {
+	fixture.nodes[0].setDown(false)
+	if code, err := fixture.activate(fingerprint, 0); err != nil || code != "" {
 		t.Fatalf("activation failed: %s %v", code, err)
 	}
-	invites, _ := os.ReadDir(service.invitesDir)
+	invites, _ := os.ReadDir(fixture.trust.invitesDir)
 	if len(invites) != 0 {
 		t.Fatal("completed invitation transaction was not removed")
 	}
-	record, _ = service.loadDeviceRecord(paired.CertificateFingerprint)
+	record, _ = fixture.trust.loadDeviceRecord(fingerprint)
 	if record.Status != "approved" || record.ActivatedAt == "" || record.PendingExpiresAt != "" {
 		t.Fatalf("activation was not committed: %+v", record)
 	}
-	if _, code, err := service.activateDevice(request); err != nil || code != "" {
+	if code, err := fixture.activate(fingerprint, 0); err != nil || code != "" {
 		t.Fatalf("repeat activation is not idempotent: %s %v", code, err)
 	}
 }
@@ -204,7 +95,8 @@ func TestActivationCommitsOnlyAfterNodeValidationAndIsIdempotent(t *testing.T) {
 func TestDeviceRecordStateCombinationsAreStrict(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	base := deviceRecord{
-		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: strings.Repeat("cd", 32), CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(now.Add(825 * 24 * time.Hour)),
+		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: strings.Repeat("cd", 32), Nodes: []string{testNodeIDs[0]},
+		CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(now.Add(825 * 24 * time.Hour)),
 	}
 	valid := []deviceRecord{
 		func() deviceRecord {
@@ -269,20 +161,45 @@ func TestDeviceRecordStateCombinationsAreStrict(t *testing.T) {
 	if err := validateDeviceRecord(replacementRevocation); err == nil {
 		t.Fatal("device accepted itself as replacement")
 	}
+	// A device says which nodes it holds even when that is none: a record that
+	// does not is one whose permissions were not written down.
+	unnamed := valid[1]
+	unnamed.Nodes = nil
+	if err := validateDeviceRecord(unnamed); err == nil {
+		t.Fatal("device without a node list was accepted")
+	}
+	repeated := valid[1]
+	repeated.Nodes = []string{testNodeIDs[0], testNodeIDs[0]}
+	if err := validateDeviceRecord(repeated); err == nil {
+		t.Fatal("device holding one node twice was accepted")
+	}
+	malformed := valid[1]
+	malformed.Nodes = []string{"Desk"}
+	if err := validateDeviceRecord(malformed); err == nil {
+		t.Fatal("device holding a node that is not an id was accepted")
+	}
+	// And a device that holds no node at all is coherent: an operator can take
+	// every node away from it without revoking the credential it keeps.
+	none := valid[1]
+	none.Nodes = []string{}
+	if err := validateDeviceRecord(none); err != nil {
+		t.Fatalf("a device holding no node was rejected: %v", err)
+	}
 }
 
 func TestInvitationListCancelAndOrphanRecovery(t *testing.T) {
-	service := setupPublicTest(t)
-	invitation := createInvitation(t, service)
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
+	invitation := fixture.invite(t, 0)
 	hash := invitationHash(invitation)
 	var listed bytes.Buffer
 	if err := service.invitationList(&listed); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(listed.String(), hash) || strings.Contains(listed.String(), "credential_pkcs12") {
-		t.Fatalf("invitation list leaked secrets or omitted hash: %s", listed.String())
+	if !strings.Contains(listed.String(), hash) || !strings.Contains(listed.String(), testNodeIDs[0]) || strings.Contains(listed.String(), "credential_pkcs12") {
+		t.Fatalf("invitation list leaked secrets, omitted its hash, or hid the node it is for: %s", listed.String())
 	}
-	paired := pairRequest(t, service, invitation, `{"device_name":"Cancel Phone","credential_password":"credential-password-123"}`)
+	paired := pairInvitation(t, service, invitation, `{"device_name":"Cancel Phone","credential_password":"credential-password-123"}`)
 	if paired.Code != http.StatusOK {
 		t.Fatalf("pair before cancel failed: %d %s", paired.Code, paired.Body.String())
 	}
@@ -298,8 +215,8 @@ func TestInvitationListCancelAndOrphanRecovery(t *testing.T) {
 		t.Fatal("cancelling a paired-pending invitation left its authorization record")
 	}
 	orphan := deviceRecord{
-		Schema: recordSchema, DeviceName: "Orphan", CertificateFingerprint: strings.Repeat("ef", 32), Status: "pending",
-		CreatedAt: isoUTC(time.Now()), CertificateExpiresAt: isoUTC(time.Now().Add(825 * 24 * time.Hour)), PendingExpiresAt: isoUTC(time.Now().Add(time.Hour)),
+		Schema: recordSchema, DeviceName: "Orphan", CertificateFingerprint: strings.Repeat("ef", 32), Nodes: []string{testNodeIDs[0]},
+		Status: "pending", CreatedAt: isoUTC(time.Now()), CertificateExpiresAt: isoUTC(time.Now().Add(825 * 24 * time.Hour)), PendingExpiresAt: isoUTC(time.Now().Add(time.Hour)),
 	}
 	if err := service.writeDeviceRecord(orphan); err != nil {
 		t.Fatal(err)
@@ -315,11 +232,22 @@ func TestInvitationListCancelAndOrphanRecovery(t *testing.T) {
 func TestInvitationTimestampOrderIsStrict(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	record := invitationRecord{
-		Schema: recordSchema, TokenHash: strings.Repeat("ab", 32),
+		Schema: recordSchema, TokenHash: strings.Repeat("ab", 32), NodeID: testNodeIDs[0],
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(time.Minute)),
 	}
 	if err := validateInvitation(record); err != nil {
 		t.Fatalf("valid invitation rejected: %v", err)
+	}
+	// An invitation is for one node, and that node is named by its id: one that
+	// names none, or names something that is not an id, opens nothing.
+	for name, broken := range map[string]invitationRecord{
+		"no node":      func() invitationRecord { value := record; value.NodeID = ""; return value }(),
+		"short node":   func() invitationRecord { value := record; value.NodeID = "Desk"; return value }(),
+		"invalid node": func() invitationRecord { value := record; value.NodeID = strings.Repeat("z", 64); return value }(),
+	} {
+		if err := validateInvitation(broken); err == nil {
+			t.Fatalf("an invitation with %s was accepted", name)
+		}
 	}
 	invalidExpiration := record
 	invalidExpiration.ExpiresAt = isoUTC(now.Add(-time.Second))
@@ -338,29 +266,24 @@ func TestInvitationTimestampOrderIsStrict(t *testing.T) {
 }
 
 func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
-	service := setupPublicTest(t)
-	token := strings.Repeat("01", 32)
-	node := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer "+token {
-			writer.WriteHeader(http.StatusUnauthorized)
-			return
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
+	renew := func(t *testing.T, fingerprint string) string {
+		t.Helper()
+		var renewal bytes.Buffer
+		if err := service.issueRenewalInvitation(10*time.Minute, fixture.nodeAt(0), "Test PC", "", fingerprint, &renewal); err != nil {
+			t.Fatal(err)
 		}
-		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[]}`)
-	}))
-	defer node.Close()
-	service.node, _ = gatewaycore.New(node.URL, token)
+		var invitation invitationResult
+		if err := json.Unmarshal(renewal.Bytes(), &invitation); err != nil {
+			t.Fatal(err)
+		}
+		return invitation.Invitation
+	}
 
-	oldCredential := pairFixture(t, service)
-	activateApproved(t, service, oldCredential.CertificateFingerprint)
-	var renewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", oldCredential.CertificateFingerprint, &renewal); err != nil {
-		t.Fatal(err)
-	}
-	var invitation invitationResult
-	if err := json.Unmarshal(renewal.Bytes(), &invitation); err != nil {
-		t.Fatal(err)
-	}
-	paired := pairRequest(t, service, invitation.Invitation, `{"device_name":"Replacement Phone","credential_password":"credential-password-456"}`)
+	oldCredential := fixture.pair(t, 0)
+	fixture.admit(t, oldCredential.CertificateFingerprint, 0)
+	paired := pairInvitation(t, service, renew(t, oldCredential.CertificateFingerprint), `{"device_name":"Replacement Phone","credential_password":"credential-password-456"}`)
 	if paired.Code != http.StatusOK {
 		t.Fatalf("renewal pairing failed: %d %s", paired.Code, paired.Body.String())
 	}
@@ -368,7 +291,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if err := json.Unmarshal(paired.Body.Bytes(), &replacement); err != nil {
 		t.Fatal(err)
 	}
-	activateApproved(t, service, replacement.CertificateFingerprint)
+	fixture.admit(t, replacement.CertificateFingerprint, 0)
 	oldRecord, oldErr := service.loadDeviceRecord(oldCredential.CertificateFingerprint)
 	newRecord, newErr := service.loadDeviceRecord(replacement.CertificateFingerprint)
 	if oldErr != nil || newErr != nil || oldRecord.Status != "revoked" || newRecord.Status != "approved" {
@@ -377,15 +300,13 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if oldRecord.ReplacedByFingerprint != replacement.CertificateFingerprint {
 		t.Fatal("renewal revocation is not tied to the replacement fingerprint")
 	}
+	// The replacement holds what the credential it replaced held: renewing is not
+	// a change of what the device may reach.
+	if strings.Join(newRecord.Nodes, ",") != strings.Join(oldRecord.Nodes, ",") {
+		t.Fatalf("renewal changed what the device holds: %v -> %v", oldRecord.Nodes, newRecord.Nodes)
+	}
 
-	var retryRenewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", replacement.CertificateFingerprint, &retryRenewal); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(retryRenewal.Bytes(), &invitation); err != nil {
-		t.Fatal(err)
-	}
-	retryPaired := pairRequest(t, service, invitation.Invitation, `{"device_name":"Crash Recovery Phone","credential_password":"credential-password-789"}`)
+	retryPaired := pairInvitation(t, service, renew(t, replacement.CertificateFingerprint), `{"device_name":"Crash Recovery Phone","credential_password":"credential-password-789"}`)
 	var recovered pairResponse
 	if retryPaired.Code != http.StatusOK || json.Unmarshal(retryPaired.Body.Bytes(), &recovered) != nil {
 		t.Fatalf("recovery renewal pairing failed: %d %s", retryPaired.Code, retryPaired.Body.String())
@@ -396,20 +317,14 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if err := service.writeDeviceRecord(newRecord); err != nil {
 		t.Fatal(err)
 	}
-	activateApproved(t, service, recovered.CertificateFingerprint)
+	fixture.admit(t, recovered.CertificateFingerprint, 0)
 	recoveredRecord, err := service.loadDeviceRecord(recovered.CertificateFingerprint)
 	if err != nil || recoveredRecord.Status != "approved" {
 		t.Fatalf("recovered replacement was not approved: %+v %v", recoveredRecord, err)
 	}
 
-	var cancelledRenewal bytes.Buffer
-	if err := service.issueRenewalInvitation(10*time.Minute, "Test PC", "", recovered.CertificateFingerprint, &cancelledRenewal); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(cancelledRenewal.Bytes(), &invitation); err != nil {
-		t.Fatal(err)
-	}
-	cancelledPair := pairRequest(t, service, invitation.Invitation, `{"device_name":"Cancelled Recovery Phone","credential_password":"credential-password-abc"}`)
+	cancelledInvitation := renew(t, recovered.CertificateFingerprint)
+	cancelledPair := pairInvitation(t, service, cancelledInvitation, `{"device_name":"Cancelled Recovery Phone","credential_password":"credential-password-abc"}`)
 	var cancelledReplacement pairResponse
 	if cancelledPair.Code != http.StatusOK || json.Unmarshal(cancelledPair.Body.Bytes(), &cancelledReplacement) != nil {
 		t.Fatalf("cancel recovery pairing failed: %d %s", cancelledPair.Code, cancelledPair.Body.String())
@@ -420,7 +335,7 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	if err := service.writeDeviceRecord(recoveredRecord); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.invitationCancel(invitationHash(invitation.Invitation), io.Discard); err != nil {
+	if err := service.invitationCancel(invitationHash(cancelledInvitation), io.Discard); err != nil {
 		t.Fatalf("cancel did not roll back a partial renewal: %v", err)
 	}
 	restored, restoredErr := service.loadDeviceRecord(recovered.CertificateFingerprint)
@@ -430,41 +345,56 @@ func TestDeviceRenewalApprovesReplacementAndRevokesOldCredential(t *testing.T) {
 	}
 }
 
+// A renewal replaces a credential and nothing else, so the node it names is one
+// the device already holds.
+func TestRenewalIsRefusedForANodeTheDeviceDoesNotHold(t *testing.T) {
+	fixture := newGatewayFixture(t, false)
+	paired := fixture.pair(t, 0)
+	fixture.admit(t, paired.CertificateFingerprint, 0)
+	if err := fixture.trust.issueRenewalInvitation(10*time.Minute, fixture.nodeAt(1), "Test PC", "", paired.CertificateFingerprint, io.Discard); err == nil {
+		t.Fatal("a renewal was issued for a node the device does not hold")
+	}
+	if err := fixture.trust.issueRenewalInvitation(10*time.Minute, fixture.nodeAt(0), "Test PC", "", strings.Repeat("ef", 32), io.Discard); err == nil {
+		t.Fatal("a renewal was issued for a device that is not approved")
+	}
+}
+
 func TestExpiredPendingDeviceIsCleaned(t *testing.T) {
-	service := setupPublicTest(t)
+	fixture := newGatewayFixture(t, false)
 	record := deviceRecord{
-		Schema: recordSchema, DeviceName: "Expired", CertificateFingerprint: strings.Repeat("ab", 32),
+		Schema: recordSchema, DeviceName: "Expired", CertificateFingerprint: strings.Repeat("ab", 32), Nodes: []string{testNodeIDs[0]},
 		Status: "pending", CreatedAt: isoUTC(time.Now().Add(-time.Hour)), CertificateExpiresAt: isoUTC(time.Now().Add(824 * 24 * time.Hour)), PendingExpiresAt: isoUTC(time.Now().Add(-time.Minute)),
 	}
-	if err := service.writeDeviceRecord(record); err != nil {
+	if err := fixture.trust.writeDeviceRecord(record); err != nil {
 		t.Fatal(err)
 	}
 	// Reading the store is not what cleans it: a device that never finished
 	// pairing is removed by the sweep, which is what a gateway runs when it opens.
-	if records, err := service.loadDeviceRecords(); err != nil || len(records) != 1 {
+	if records, err := fixture.trust.loadDeviceRecords(); err != nil || len(records) != 1 {
 		t.Fatalf("reading the store changed it: %+v %v", records, err)
 	}
-	if err := service.cleanupExpiredState(); err != nil {
+	if err := fixture.trust.cleanupExpiredState(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(service.deviceRecordPath(record.CertificateFingerprint)); !os.IsNotExist(err) {
+	if _, err := os.Stat(fixture.trust.deviceRecordPath(record.CertificateFingerprint)); !os.IsNotExist(err) {
 		t.Fatal("expired pending device was not removed")
 	}
 }
 
 func TestExpiredPartialRenewalRestoresOldCredential(t *testing.T) {
-	service := setupPublicTest(t)
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
 	now := time.Now().UTC().Truncate(time.Second)
 	oldFingerprint := strings.Repeat("12", 32)
 	newFingerprint := strings.Repeat("34", 32)
 	old := deviceRecord{
-		Schema: recordSchema, DeviceName: "Old Phone", CertificateFingerprint: oldFingerprint,
+		Schema: recordSchema, DeviceName: "Old Phone", CertificateFingerprint: oldFingerprint, Nodes: []string{testNodeIDs[0]},
 		Status: "revoked", CreatedAt: isoUTC(now.Add(-2 * time.Hour)), CertificateExpiresAt: isoUTC(now.Add(824 * 24 * time.Hour)), ActivatedAt: isoUTC(now.Add(-time.Hour)),
 		ApprovalRequestedAt: isoUTC(now.Add(-time.Hour)), ApprovedAt: isoUTC(now.Add(-time.Hour)),
 		RevokedAt: isoUTC(now.Add(-90 * time.Second)), ReplacedByFingerprint: newFingerprint,
 	}
 	pending := deviceRecord{
-		Schema: recordSchema, DeviceName: "New Phone", CertificateFingerprint: newFingerprint,
+		Schema: recordSchema, DeviceName: "New Phone", CertificateFingerprint: newFingerprint, Nodes: []string{testNodeIDs[0]},
 		Status: "pending", CreatedAt: isoUTC(now.Add(-2 * time.Minute)), CertificateExpiresAt: isoUTC(now.Add(825 * 24 * time.Hour)), PendingExpiresAt: isoUTC(now.Add(-time.Minute)),
 	}
 	if err := service.writeDeviceRecord(old); err != nil {
@@ -475,7 +405,8 @@ func TestExpiredPartialRenewalRestoresOldCredential(t *testing.T) {
 	}
 	token := strings.Repeat("A", 43)
 	invitation := invitationRecord{
-		Schema: recordSchema, TokenHash: invitationHash(token), CreatedAt: isoUTC(now.Add(-3 * time.Minute)), ExpiresAt: isoUTC(now.Add(-time.Minute)),
+		Schema: recordSchema, TokenHash: invitationHash(token), NodeID: testNodeIDs[0],
+		CreatedAt: isoUTC(now.Add(-3 * time.Minute)), ExpiresAt: isoUTC(now.Add(-time.Minute)),
 		UsedAt: isoUTC(now.Add(-2 * time.Minute)), DeviceName: pending.DeviceName, CredentialPasswordHash: strings.Repeat("56", 32),
 		CertificateFingerprint: newFingerprint, CredentialPKCS12: "encrypted", ReplacesFingerprint: oldFingerprint,
 	}
@@ -498,11 +429,12 @@ func TestExpiredPartialRenewalRestoresOldCredential(t *testing.T) {
 }
 
 func TestExplicitRevokeOverridesPartialRenewalRollback(t *testing.T) {
-	service := setupPublicTest(t)
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
 	now := time.Now().UTC().Truncate(time.Second)
 	fingerprint := strings.Repeat("78", 32)
 	record := deviceRecord{
-		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: fingerprint,
+		Schema: recordSchema, DeviceName: "Phone", CertificateFingerprint: fingerprint, Nodes: []string{testNodeIDs[0]},
 		Status: "revoked", CreatedAt: isoUTC(now.Add(-2 * time.Hour)), CertificateExpiresAt: isoUTC(now.Add(824 * 24 * time.Hour)), ActivatedAt: isoUTC(now.Add(-time.Hour)),
 		ApprovalRequestedAt: isoUTC(now.Add(-time.Hour)), ApprovedAt: isoUTC(now.Add(-time.Hour)),
 		RevokedAt: isoUTC(now), ReplacedByFingerprint: strings.Repeat("9a", 32),
@@ -511,7 +443,7 @@ func TestExplicitRevokeOverridesPartialRenewalRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if err := service.deviceRevoke(fingerprint, &output); err != nil {
+	if err := service.deviceRevoke(fingerprint, "", &output); err != nil {
 		t.Fatal(err)
 	}
 	current, err := service.loadDeviceRecord(fingerprint)
@@ -521,21 +453,21 @@ func TestExplicitRevokeOverridesPartialRenewalRollback(t *testing.T) {
 }
 
 func TestPairRateLimitBlocksExcessRequests(t *testing.T) {
-	service := setupPublicTest(t)
-	for i := 0; i < pairRateMaxPerIP; i++ {
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
+	excess := func() int {
 		request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(`{}`))
 		request.Header.Set("Authorization", "Invitation "+strings.Repeat("z", 43))
 		recorder := httptest.NewRecorder()
 		service.pairHTTPHandler(recorder, request)
-		if recorder.Code == http.StatusTooManyRequests {
+		return recorder.Code
+	}
+	for i := 0; i < pairRateMaxPerIP; i++ {
+		if code := excess(); code == http.StatusTooManyRequests {
 			t.Fatalf("rate limiter engaged too early at request %d", i+1)
 		}
 	}
-	request := httptest.NewRequest(http.MethodPost, pairRequestPath, strings.NewReader(`{}`))
-	request.Header.Set("Authorization", "Invitation "+strings.Repeat("z", 43))
-	recorder := httptest.NewRecorder()
-	service.pairHTTPHandler(recorder, request)
-	if recorder.Code != http.StatusTooManyRequests {
-		t.Fatalf("rate limiter failed to block excess request: %d", recorder.Code)
+	if code := excess(); code != http.StatusTooManyRequests {
+		t.Fatalf("rate limiter failed to block excess request: %d", code)
 	}
 }

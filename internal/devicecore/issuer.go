@@ -8,12 +8,13 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
-	"math/big"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"software.sslmate.com/src/go-pkcs12"
+
+	"github.com/hxaxd/remote-everything/internal/secret"
 )
 
 func runePrefix(text string, limit int) string {
@@ -41,12 +42,10 @@ func PublicKeyPin(certificate *x509.Certificate) string {
 }
 
 func issueDeviceCertificate(issuerKey *ecdsa.PrivateKey, issuer *x509.Certificate, publicKey *ecdsa.PublicKey, deviceName string, now time.Time) (*x509.Certificate, string, error) {
-	serialBytes := make([]byte, 20)
-	if _, err := rand.Read(serialBytes); err != nil {
+	serial, err := secret.Serial()
+	if err != nil {
 		return nil, "", err
 	}
-	serial := new(big.Int).SetBytes(serialBytes)
-	serial.Rsh(serial, 1)
 	template := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: runePrefix(strings.TrimSpace(deviceName), 64)},
