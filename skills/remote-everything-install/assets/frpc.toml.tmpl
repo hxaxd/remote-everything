@@ -15,7 +15,7 @@ log.to = "{{FRPC_LOG}}"
 log.level = "info"
 
 [[proxies]]
-name = "node-{{INSTALLATION_ID}}"
+name = "node-{{NODE_ID}}"
 type = "tcp"
 localIP = "{{NODE_HOST}}"
 localPort = {{NODE_PORT}}

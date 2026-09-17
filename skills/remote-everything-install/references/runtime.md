@@ -6,14 +6,16 @@
 .runtime/
 ├── bin/
 ├── config/
-├── state/node/、state/lan/、state/server/ 或 state/frpc/<installation_id>/
+├── state/node/、state/lan/、state/server/ 或 state/frpc/<node_id>/
 ├── logs/
 └── runtime.json
 ```
 
 每个服务使用自己的状态目录，目录路径记在 `runtime.json` 里该组件的 `arguments` 与配置位置，没有任何服务读写另一个服务的状态目录。节点与入口可以在同一台机器上，也可以在同一局域网内的不同机器上；不在同一台机器时两台机器各有自己的 `.runtime/`。
 
-隧道代理（`frpc`）也按安装分开：一条隧道一个进程、一份配置、一个 `state/frpc/<installation_id>/` 材料目录，因此一个节点绑定多个网关时，`frpc` 在运行记录里是多条组件。它读的 token 与客户端身份由网关交付，见 [server-cli.md](server-cli.md)。
+隧道代理（`frpc`）按隧道分开：**一台节点、一个网关一条隧道**，一条隧道一个进程、一份配置、一个 `state/frpc/<node_id>/` 材料目录。多台节点挂在同一个网关下时，服务器上就有多个 `frpc` 进程，运行记录里也各是一条组件；反过来，一台节点挂在两个网关下时，那台机器上也是两个 `frpc`。它读的 token 与客户端身份由网关交付，见 [server-cli.md](server-cli.md)。
+
+网关那一侧另有一份**每台节点**的材料：控制令牌写在网关状态目录的 `nodes/<node_id>`，一拍一份，不与别的节点共用。
 
 `runtime.json` 使用严格 schema 1。用 `python skills/remote-everything-install/scripts/runtime.py init ...` 创建；用 `put` 更新组件、依赖或集成；用 `verify` 写入验收结果；用 `validate` 检查。工具拒绝旧/未知字段并原子替换文件。
 
@@ -27,7 +29,7 @@
 |---|---|
 | `node` | 节点核心 |
 | `lan` | 局域网入口 |
-| `frpc` | 节点公网隧道 |
+| `frpc` | 节点公网隧道（每台节点一条） |
 | `gateway` | Linux 公网网关 |
 | `frps` | 服务器隧道端 |
 | `reverse-proxy` | 443 入口，仅无现有入口时作为项目组件 |

@@ -1,5 +1,9 @@
 bindAddr = "127.0.0.1"
 bindPort = {{FRPS_PORT}}
+# 每台节点的隧道端口只发布在 loopback 上：那是网关本机拨这台节点控制面的地址，不该出现在
+# 任何能从外面连到的接口上。写死，不靠 frp 的版本默认值——默认值变一次，就等于把每台节点的
+# 控制面摆到公网上。
+proxyBindAddr = "127.0.0.1"
 transport.maxPoolCount = 32
 auth.method = "token"
 auth.tokenSource.type = "file"

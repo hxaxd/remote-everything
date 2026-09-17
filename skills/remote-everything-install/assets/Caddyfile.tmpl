@@ -30,16 +30,11 @@
 		reverse_proxy "{{FRPS_UPSTREAM}}"
 	}
 
-	@device_control {
-		path /__remote_everything*
-		expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
-	}
-	handle @device_control {
-		reverse_proxy "{{STATUS_UPSTREAM}}" {
-			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
-		}
-	}
-
+	# Everything a device this entrance issued a credential to sends is the
+	# gateway's, whether it is the control surface it asks for or the application
+	# traffic it carries: both leave here for the same upstream, and the fingerprint
+	# of the certificate this entrance verified travels with it. The one request
+	# that can arrive without one is the pairing endpoint above.
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
