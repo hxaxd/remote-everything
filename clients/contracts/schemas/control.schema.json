@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://remote-everything.com/schemas/control.schema.json",
   "title": "Control Action Response",
-  "description": "Schema for POST /__remote_everything/apps/:id/:action response. Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
+  "description": "Response of the control endpoints for one application of the node named in the X-Remote-Everything-Node header: GET /__remote_everything/apps/:id/status, POST /__remote_everything/apps/:id/start and POST /__remote_everything/apps/:id/stop. A node that cannot be reached is answered with ok=false, code=computer_offline and HTTP 200, not as an HTTP error: the two are different things and a client shows them differently.",
   "type": "object",
   "properties": {
     "ok": {
@@ -11,8 +11,8 @@
     },
     "action": {
       "type": "string",
-      "enum": ["start", "stop"],
-      "description": "The action that was requested."
+      "enum": ["status", "start", "stop"],
+      "description": "The action that was requested, which is the endpoint that was called."
     },
     "computer_connected": {
       "type": "boolean",

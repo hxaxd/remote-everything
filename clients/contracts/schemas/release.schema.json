@@ -22,8 +22,8 @@
     },
     "protocolVersion": {
       "type": "integer",
-      "const": 2,
-      "description": "Wire protocol version. Bumped only when backward-incompatible changes require re-pairing."
+      "const": 1,
+      "description": "Wire protocol version. It is 1 because nothing precedes this protocol: there is no earlier version to stay compatible with. It is not negotiated — a client either speaks this protocol or it is paired again with a fresh invitation."
     },
     "minimumPlatforms": {
       "type": "object",
