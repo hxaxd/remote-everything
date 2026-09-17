@@ -68,6 +68,10 @@ def validate_frp_contract(client_text, server_text):
         raise ValueError("frpc node proxy must point at an address the tunnel can reach")
     if server.get("bindAddr") != "127.0.0.1" or not isinstance(server.get("bindPort"), int):
         raise ValueError("frps must bind a dynamic loopback port")
+    # A node's tunnel port carries that node's control plane, so it is published on
+    # loopback and nowhere else: the gateway is the only thing that dials it.
+    if server.get("proxyBindAddr") != "127.0.0.1":
+        raise ValueError("frps must publish node tunnel ports on loopback only")
     if nested(server, "transport", "maxPoolCount") != FRP_POOL_COUNT:
         raise ValueError(f"frps maximum connection pool must be {FRP_POOL_COUNT}")
     if "tls" in server.get("transport", {}):
@@ -78,11 +82,11 @@ def validate_frp_contract(client_text, server_text):
 
 def validate_caddy_contract(text):
     active = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
-    markers = ["@pair path /__remote_everything_pair", "@tunnel expression", "@device_control {", "@device expression"]
+    markers = ["@pair path /__remote_everything_pair", "@tunnel expression", "@device expression"]
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
-        raise ValueError("Caddy routes must be ordered pairing, tunnel, device control, device data")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "path /__remote_everything*", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
+        raise ValueError("Caddy routes must be ordered pairing, tunnel, device")
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:

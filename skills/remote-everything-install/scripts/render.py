@@ -244,17 +244,17 @@ def render_frp(kind, input_path, output):
             "FRPS_LOG": toml_string(portable_absolute(value["frps_log"], "frps_log"), "frps_log"),
         }
     else:
-        keys = {"public_host", "tunnel_client_cert", "tunnel_client_key", "frps_token_file", "frpc_log", "installation_id", "node_host", "node_port", "node_tunnel_port"}
+        keys = {"public_host", "tunnel_client_cert", "tunnel_client_key", "frps_token_file", "frpc_log", "node_id", "node_host", "node_port", "node_tunnel_port"}
         value = load_values(input_path, keys)
-        if not HEX64.fullmatch(value["installation_id"]):
-            fail("invalid installation_id")
+        if not HEX64.fullmatch(value["node_id"]):
+            fail("invalid node_id")
         fields = {
             "PUBLIC_HOST": toml_string(hostname(value["public_host"], "public_host"), "public_host"),
             "TUNNEL_CLIENT_CERT": toml_string(portable_absolute(value["tunnel_client_cert"], "tunnel_client_cert"), "tunnel_client_cert"),
             "TUNNEL_CLIENT_KEY": toml_string(portable_absolute(value["tunnel_client_key"], "tunnel_client_key"), "tunnel_client_key"),
             "FRPS_TOKEN_FILE": toml_string(portable_absolute(value["frps_token_file"], "frps_token_file"), "frps_token_file"),
             "FRPC_LOG": toml_string(portable_absolute(value["frpc_log"], "frpc_log"), "frpc_log"),
-            "INSTALLATION_ID": value["installation_id"], "NODE_HOST": node_host(value["node_host"], "node_host"),
+            "NODE_ID": value["node_id"], "NODE_HOST": node_host(value["node_host"], "node_host"),
             "NODE_PORT": port(value["node_port"], "node_port"), "NODE_TUNNEL_PORT": port(value["node_tunnel_port"], "node_tunnel_port"),
         }
     atomic_write(output, replace(read_template(kind + ".toml.tmpl"), fields))
