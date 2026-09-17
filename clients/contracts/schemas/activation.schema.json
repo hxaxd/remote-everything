@@ -2,44 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://remote-everything.com/schemas/activation.schema.json",
   "title": "Activation Response",
-  "description": "Schema for POST /__remote_everything_activate response. Shared by Go, Kotlin, Swift, and ArkTS strict decoders.",
-  "type": "object",
-  "properties": {
-    "ok": {
-      "type": "boolean",
-      "description": "Whether activation succeeded and the node is reachable."
+  "description": "Response of POST /__remote_everything_activate: the request a paired device makes, for one node, to be admitted and told what that node runs. It is answered with the catalog of that node — the same body GET /__remote_everything/apps answers with — or with a refusal. HTTP 202 with code approval_pending is not a failure: the device paired and its operator has not confirmed it yet, and the client asks again.",
+  "oneOf": [
+    {
+      "allOf": [
+        { "$ref": "catalog.schema.json" },
+        {
+          "description": "Activation is answered with a catalog only after the node answered, so this is always the connected variant: a device is never activated against a node that is not there.",
+          "properties": {
+            "computer_connected": { "const": true },
+            "code": { "const": "ready" }
+          }
+        }
+      ]
     },
-    "computer_connected": {
-      "type": "boolean",
-      "description": "Whether the gateway can reach the node."
-    },
-    "code": {
-      "type": "string",
-      "enum": ["ready", "approval_pending", "computer_offline"],
-      "description": "Status code. 'ready' means activated and node reachable. 'approval_pending' means waiting for manual approval. 'computer_offline' means node unreachable."
-    },
-    "apps": {
-      "type": "array",
-      "description": "App list returned only on successful activation (code=ready).",
-      "items": { "type": "object" }
-    }
-  },
-  "required": ["ok", "computer_connected", "code"],
-  "additionalProperties": false,
-  "if": {
-    "properties": { "code": { "const": "ready" } }
-  },
-  "then": {
-    "required": ["apps"],
-    "properties": {
-      "ok": { "const": true },
-      "computer_connected": { "const": true }
-    }
-  },
-  "else": {
-    "properties": {
-      "ok": { "const": false },
-      "apps": { "not": {} }
-    }
-  }
+    { "$ref": "errors.schema.json" }
+  ]
 }

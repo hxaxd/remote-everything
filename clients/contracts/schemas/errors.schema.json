@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://remote-everything.com/schemas/errors.schema.json",
+  "title": "Error Response",
+  "description": "Body of every refusal: the pairing endpoint, activation, the node list, the catalog, an action and application traffic alike. A client decides what to do from the code, never from the prose, and the HTTP status is the same decision written twice.",
+  "type": "object",
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": false,
+      "description": "Always false."
+    },
+    "code": {
+      "type": "string",
+      "enum": [
+        "node_required",
+        "unauthorized",
+        "invitation_denied",
+        "invitation_expired",
+        "approval_pending",
+        "node_not_found",
+        "app_not_found",
+        "not_found",
+        "forbidden",
+        "computer_offline",
+        "activation_failed",
+        "invalid_device_name",
+        "invalid_credential_password",
+        "invalid_body",
+        "invalid_json",
+        "rate_limited",
+        "server_busy",
+        "pairing_failed",
+        "internal_error"
+      ],
+      "description": "What was refused. What each one means for a client:\n  node_required — the request named no node; every request for a node carries X-Remote-Everything-Node.\n  unauthorized — this device is not admitted, or not admitted to that node. A request that names no node of this gateway and one that names a node this device does not hold are answered the same way, so a device cannot learn which nodes exist by asking.\n  invitation_denied — the invitation is unknown, spent, expired, or not the one this device is redeeming under.\n  invitation_expired — the pending authorization this device is activating ran out; a new invitation is needed.\n  approval_pending (HTTP 202) — the device paired and is waiting for its operator; ask again after it was approved.\n  node_not_found — the gateway does not serve that node.\n  app_not_found — that node runs no application with that id.\n  not_found — the path does not exist.\n  forbidden — a path this deployment keeps to itself.\n  computer_offline — the node did not answer; it is off, asleep, or its tunnel is down.\n  activation_failed — the device could not be activated; the operator has to look at the gateway.\n  invalid_device_name / invalid_credential_password / invalid_body / invalid_json — the pairing request itself was malformed.\n  rate_limited — too many requests from this client or overall; retry later.\n  server_busy — the gateway is at its concurrent-pairing limit; retry later.\n  pairing_failed — pairing failed on the gateway; the operator has to look at it.\n  internal_error — the gateway failed to write its answer."
+    }
+  },
+  "required": ["ok", "code"],
+  "additionalProperties": false
+}
