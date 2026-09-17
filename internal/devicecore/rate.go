@@ -3,8 +3,11 @@ package devicecore
 import (
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
 const (
@@ -122,9 +125,29 @@ func (limiter *rateLimiter) release() {
 	limiter.mu.Unlock()
 }
 
+// clientIP is the address a request is counted against, which is the client rather
+// than whichever machine relayed it.
+//
+// A request that arrives over loopback came from the entrance in front of this
+// gateway — that entrance is the only thing that reaches a gateway listening on
+// loopback, and it is what terminates TLS there — so the client is the one it
+// names. The entrance overwrites what the client claimed for itself, which is what
+// makes that name worth reading: counting every device as 127.0.0.1 would turn the
+// per-client limits into one shared bucket for the whole deployment. A request from
+// anywhere else is its own peer, and what it says about itself is not believed.
 func clientIP(request *http.Request) string {
-	if host, _, err := net.SplitHostPort(request.RemoteAddr); err == nil {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		return request.RemoteAddr
+	}
+	if !netaddr.ValidLoopbackHost(host) {
 		return host
 	}
-	return request.RemoteAddr
+	// The address the entrance added last is the one it saw the request come from;
+	// anything before it in the list is what the client sent, or an earlier hop.
+	forwarded := strings.Split(request.Header.Get("X-Forwarded-For"), ",")
+	if last := strings.TrimSpace(forwarded[len(forwarded)-1]); last != "" {
+		return last
+	}
+	return host
 }
