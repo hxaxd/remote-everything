@@ -18,6 +18,7 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
 
 type testPlatform struct{ commandErr error }
@@ -335,14 +336,14 @@ func TestProxyStripsEveryInternalHeader(t *testing.T) {
 	request.Host = "gateway.example"
 	request.Header.Set("Cookie", "RemoteEverythingApp=fixture")
 	request.Header.Set("Authorization", "secret")
-	request.Header.Set("X-Remote-Everything-Client-Fingerprint", strings.Repeat("ab", 32))
-	request.Header.Set("X-Remote-Everything-Control-Token", "secret")
+	request.Header.Set(proxysecurity.ClientFingerprintHeader, strings.Repeat("ab", 32))
+	request.Header.Set(proxysecurity.NodeHeader, strings.Repeat("cd", 32))
 	recorder := httptest.NewRecorder()
 	node.gatewayHandler(recorder, request)
 	if recorder.Code != http.StatusOK || recorder.Body.String() != "ok" {
 		t.Fatalf("proxy response = %d %q", recorder.Code, recorder.Body.String())
 	}
-	for _, name := range []string{"X-Remote-Everything-Client-Fingerprint", "X-Remote-Everything-Control-Token"} {
+	for _, name := range []string{proxysecurity.ClientFingerprintHeader, proxysecurity.NodeHeader} {
 		if received.Get(name) != "" {
 			t.Fatalf("internal header leaked: %s", name)
 		}

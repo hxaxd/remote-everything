@@ -1,8 +1,6 @@
 package nodecore
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -16,6 +14,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/jsonfile"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/nodeadapter"
+	"github.com/hxaxd/remote-everything/internal/secret"
 )
 
 var validToken = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -86,14 +85,6 @@ func statePaths(root string) (*Node, error) {
 	}, nil
 }
 
-func randomHex(size int) (string, error) {
-	value := make([]byte, size)
-	if _, err := rand.Read(value); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(value), nil
-}
-
 func loadStateFile(path string) (State, error) {
 	var state State
 	if err := jsonfile.Read(path, &state); err != nil {
@@ -152,7 +143,7 @@ func Initialize(root, listenHost string) (BindingResult, error) {
 
 	state, err := loadStateFile(node.stateFile)
 	if errors.Is(err, os.ErrNotExist) {
-		nodeID, randomErr := randomHex(32)
+		nodeID, randomErr := secret.Hex(32)
 		if randomErr != nil {
 			return BindingResult{}, randomErr
 		}
