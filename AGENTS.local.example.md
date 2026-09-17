@@ -9,6 +9,7 @@
 
 - 形态：
 - installationId：
+- nodeId（每台节点一个）：
 - 节点 runtime：
 - 网关 runtime：
 - 入口：
