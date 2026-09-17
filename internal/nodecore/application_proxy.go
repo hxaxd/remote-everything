@@ -50,7 +50,7 @@ func gatewayMessage(writer http.ResponseWriter, status int, title, detail string
 }
 
 func (node *Node) gatewayHandler(writer http.ResponseWriter, request *http.Request) {
-	if request.URL.Path == "/__local_remote_control" {
+	if request.URL.Path == proxysecurity.ControlPath {
 		node.localControlHandler(writer, request)
 		return
 	}
