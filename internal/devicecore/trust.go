@@ -18,7 +18,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
-	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,11 +26,20 @@ import (
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/secret"
 )
 
-// validHex64 is the shape of every 64-hex value on the wire: an installation
-// id, a certificate fingerprint, a token hash or a secret.
+// validHex64 is the shape of every 64-hex value on the wire: a node id, an
+// installation id, a certificate fingerprint, a token hash or a secret.
 var validHex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
+
+// clientFingerprintHeader is this package's name for the header an entrance
+// stamps a verified certificate's fingerprint into. The header's name itself is
+// kept with the other internal header names, where the list of what an
+// application never sees is.
+const clientFingerprintHeader = proxysecurity.ClientFingerprintHeader
 
 // errorResponse is the body both device endpoints answer a refusal with.
 type errorResponse struct {
@@ -50,11 +58,19 @@ const (
 	invitesDirName = "invites"
 )
 
-// Node is the surface device trust protects: activation waits until the node
-// behind it answers, and every admitted request is served by it.
+// Node is what device trust protects: the nodes a gateway serves, which are what
+// its devices are granted access to. Activation waits until the node it is for
+// answers, every admitted request is served by the node that request names, and
+// which node that is is decided here: a gateway is asked for one of them rather
+// than told one, so what a request names is read once and refused once.
 type Node interface {
-	http.Handler
-	ConnectedList() (json.RawMessage, bool)
+	// ServeNode answers one request for one node this gateway serves.
+	ServeNode(nodeID string, writer http.ResponseWriter, request *http.Request)
+	// ConnectedList is what the node with this id runs, as that node said it. A
+	// gateway serves several, and each of them answers for itself.
+	ConnectedList(nodeID string) (json.RawMessage, bool)
+	// Nodes is every node this gateway serves.
+	Nodes() []gatewaycore.Node
 }
 
 // Config is what a gateway tells its device trust about itself.
@@ -78,7 +94,8 @@ type Config struct {
 	// whose invitations travel over a network nobody watches waits instead for its
 	// operator to confirm the device that redeemed one.
 	ApproveOnRedemption bool
-	// Node is what the admitted requests reach.
+	// Node is the gateway, seen as the nodes it serves: which of them a device may
+	// reach is what this trust decides, and an invitation is for one of them.
 	Node Node
 	// Log writes one operational line; Audit writes the device audit trail.
 	// Callers must never pass tokens, passwords, private keys or PKCS#12
@@ -240,12 +257,10 @@ func EnsureIssuer(root string) (*x509.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	serialBytes := make([]byte, 20)
-	if _, err := rand.Read(serialBytes); err != nil {
+	serial, err := secret.Serial()
+	if err != nil {
 		return nil, err
 	}
-	serial := new(big.Int).SetBytes(serialBytes)
-	serial.Rsh(serial, 1)
 	now := time.Now()
 	template := &x509.Certificate{
 		SerialNumber: serial, Subject: pkix.Name{CommonName: "Remote Everything Device Issuer"},

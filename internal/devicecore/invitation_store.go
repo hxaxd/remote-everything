@@ -11,17 +11,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	setupcodec "github.com/hxaxd/remote-everything/internal/setup"
 )
 
+// invitationRecord is one invitation an operator handed out. It is for one node:
+// an invitation opens a door to one machine, and redeeming it is what puts that
+// node on the device it was issued for.
 type invitationRecord struct {
 	Schema                 int    `json:"schema"`
 	TokenHash              string `json:"token_hash"`
+	NodeID                 string `json:"node_id"`
 	CreatedAt              string `json:"created_at"`
 	ExpiresAt              string `json:"expires_at"`
 	UsedAt                 string `json:"used_at,omitempty"`
@@ -35,6 +41,8 @@ type invitationRecord struct {
 type invitationResult struct {
 	OK             bool   `json:"ok"`
 	InstallationID string `json:"installation_id"`
+	NodeID         string `json:"node_id"`
+	NodeName       string `json:"node_name"`
 	Invitation     string `json:"invitation"`
 	ExpiresAt      string `json:"expires_at"`
 	SetupURI       string `json:"setup_uri"`
@@ -43,6 +51,7 @@ type invitationResult struct {
 
 type invitationListRecord struct {
 	TokenHash              string `json:"token_hash"`
+	NodeID                 string `json:"node_id"`
 	CreatedAt              string `json:"created_at"`
 	ExpiresAt              string `json:"expires_at"`
 	Status                 string `json:"status"`
@@ -60,7 +69,7 @@ func invitationHash(token string) string {
 }
 
 func validateInvitation(record invitationRecord) error {
-	if record.Schema != recordSchema || !validHex64.MatchString(record.TokenHash) {
+	if record.Schema != recordSchema || !validHex64.MatchString(record.TokenHash) || !validHex64.MatchString(record.NodeID) {
 		return errors.New("invalid invitation record")
 	}
 	created, err := parseTimestamp(record.CreatedAt)
@@ -119,24 +128,25 @@ func (service *Trust) writeInvitation(record invitationRecord) error {
 	return atomicfile.MatchDirectoryOwner(path)
 }
 
-func (service *Trust) issueInvitation(ttl time.Duration, name, qrFile string, output io.Writer) error {
-	return service.issueInvitationReplacing(ttl, name, qrFile, "", output)
+func (service *Trust) issueInvitation(ttl time.Duration, node gatewaycore.Node, name, qrFile string, output io.Writer) error {
+	return service.issueInvitationReplacing(ttl, node, name, qrFile, "", output)
 }
 
-// setupURI renders the URI an invitation is delivered in. The gateway renders
-// it because it describes the gateway: where its clients dial it is what it
-// recorded for itself, and which certificate they must expect is a property of
-// the entrance, not of the invitation.
-func (service *Trust) setupURI(name, invitation string) (string, error) {
+// setupURI renders the URI an invitation is delivered in. The gateway renders it
+// because it describes the gateway: where its clients dial it is what it recorded
+// for itself, which machine the invitation opens is the node it was issued for,
+// and which certificate they must expect is a property of the entrance, not of the
+// invitation.
+func (service *Trust) setupURI(node gatewaycore.Node, invitation string) (string, error) {
 	fingerprint, keyPin := "", ""
 	if service.certificate != nil {
 		fingerprint = CertificateFingerprint(service.certificate)
 		keyPin = PublicKeyPin(service.certificate)
 	}
-	return setupcodec.Build(service.installationID, name, service.origin, invitation, fingerprint, keyPin)
+	return setupcodec.Build(node.ID, node.Name, service.origin, invitation, fingerprint, keyPin)
 }
 
-func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, replaces string, output io.Writer) error {
+func (service *Trust) issueInvitationReplacing(ttl time.Duration, node gatewaycore.Node, name, qrFile, replaces string, output io.Writer) error {
 	if ttl < time.Minute || ttl > 24*time.Hour {
 		return errors.New("invite ttl must be between 1m and 24h")
 	}
@@ -147,10 +157,10 @@ func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, 
 	token := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	now := time.Now().UTC()
 	record := invitationRecord{
-		Schema: recordSchema, TokenHash: invitationHash(token),
+		Schema: recordSchema, TokenHash: invitationHash(token), NodeID: node.ID,
 		CreatedAt: isoUTC(now), ExpiresAt: isoUTC(now.Add(ttl)), ReplacesFingerprint: replaces,
 	}
-	setupURI, err := service.setupURI(name, token)
+	setupURI, err := service.setupURI(node, token)
 	if err != nil {
 		return err
 	}
@@ -161,19 +171,25 @@ func (service *Trust) issueInvitationReplacing(ttl time.Duration, name, qrFile, 
 		_ = os.Remove(service.invitationPath(record.TokenHash))
 		return err
 	}
-	service.audit("device invitation issued", "expires_at", record.ExpiresAt)
+	service.audit("device invitation issued", "node_id", node.ID, "expires_at", record.ExpiresAt)
 	return json.NewEncoder(output).Encode(invitationResult{
-		OK: true, InstallationID: service.installationID, Invitation: token, ExpiresAt: record.ExpiresAt, SetupURI: setupURI, QRFile: qrFile,
+		OK: true, InstallationID: service.installationID, NodeID: node.ID, NodeName: node.Name,
+		Invitation: token, ExpiresAt: record.ExpiresAt, SetupURI: setupURI, QRFile: qrFile,
 	})
 }
 
-func (service *Trust) issueRenewalInvitation(ttl time.Duration, name, qrFile, fingerprint string, output io.Writer) error {
+func (service *Trust) issueRenewalInvitation(ttl time.Duration, node gatewaycore.Node, name, qrFile, fingerprint string, output io.Writer) error {
 	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
 	record, err := service.loadDeviceRecord(fingerprint)
 	if err != nil || record.Status != "approved" {
 		return errors.New("approved device not found")
 	}
-	return service.issueInvitationReplacing(ttl, name, qrFile, fingerprint, output)
+	// A renewal replaces the credential and nothing else: the device keeps the
+	// nodes it holds, so this invitation opens one it already has.
+	if !slices.Contains(record.Nodes, node.ID) {
+		return errors.New("the device does not hold that node")
+	}
+	return service.issueInvitationReplacing(ttl, node, name, qrFile, fingerprint, output)
 }
 
 func (service *Trust) restoreReplacedDevice(record invitationRecord) error {
@@ -268,7 +284,7 @@ func (service *Trust) invitationList(output io.Writer) error {
 			status = "paired_pending"
 		}
 		result = append(result, invitationListRecord{
-			TokenHash: record.TokenHash, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt, Status: status,
+			TokenHash: record.TokenHash, NodeID: record.NodeID, CreatedAt: record.CreatedAt, ExpiresAt: record.ExpiresAt, Status: status,
 			DeviceName: record.DeviceName, CertificateFingerprint: record.CertificateFingerprint,
 		})
 	}
