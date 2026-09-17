@@ -5,12 +5,15 @@ import (
 	"testing"
 )
 
+// Every name this package reserves is one an application never sees, and the list
+// is the only place that says which those are: a name that is set somewhere but
+// missing here would leak through the proxy.
 func TestStripInternalHeaders(t *testing.T) {
 	header := http.Header{
-		"Authorization":                          []string{"secret"},
-		"X-Remote-Everything-Client-Fingerprint": []string{"fingerprint"},
-		"X-Remote-Everything-Control-Token":      []string{"token"},
-		"X-Application-Header":                   []string{"preserved"},
+		"Authorization":         []string{"secret"},
+		ClientFingerprintHeader: []string{"fingerprint"},
+		NodeHeader:              []string{"node"},
+		"X-Application-Header":  []string{"preserved"},
 	}
 	StripInternalHeaders(header)
 	for _, name := range internalHeaderNames {
