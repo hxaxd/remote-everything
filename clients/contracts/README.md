@@ -33,13 +33,14 @@ Every path below is relative to the `origin` an invitation carries, over HTTPS, 
 | 5 | `GET /__remote_everything/apps/:id/status` | device certificate | yes | `control.schema.json` |
 | 6 | `POST /__remote_everything/apps/:id/start` | device certificate | yes | `control.schema.json` |
 | 7 | `POST /__remote_everything/apps/:id/stop` | device certificate | yes | `control.schema.json` |
-| 8 | `GET /__remote_everything/open/:id` | device certificate | yes | `302` and the routing cookie |
-| 9 | everything else | device certificate | yes | the node's own application |
+| 8 | `GET /__remote_everything/open/:id` | device certificate | yes | `302` to the application's own origin |
+| 9 | everything else, **on the application's own origin** | device certificate | no — the origin says which application | the node's own application |
 
 Two things about that table are the protocol:
 
 - **A gateway serves several nodes, so a request says which one it is for**, in the `X-Remote-Everything-Node` header, carrying the node id from the invitation or from step 3. A request that names no node, a node this gateway does not serve, and a node this device was not granted are all answered `401` — the same answer for the last two, so a device cannot learn which nodes exist by asking about them.
 - **Step 3 is the one request that names no node.** It is how a device asks what it has, so requiring it to know a node id first would be requiring the answer to ask the question. It is also how a device learns about a node granted to it after it paired, which is why granting one is not a re-pairing.
+- **Step 8 answers with the application's own origin, and step 9 happens there.** Every application of every node is served on an origin of its own — on a gateway with a domain, `<appid>.<node-prefix>.<gateway-domain>`; on a LAN gateway, a port of its own on the gateway's address — and that origin is what makes one application's browser storage invisible to every other. The `Location` is absolute; a client resolves it against the gateway origin and loads it. It carries no cookie: which application the WebView is looking at is said by the origin, and the gateway tells the node so on the way through. The redirect to an origin is stable for the life of the application: coming back to the same application comes back to the same origin, and its storage is still there.
 
 A refusal is always the body in `errors.schema.json`, with the code naming what was refused; the HTTP status says the same thing again for proxies and logs. A node that is off is an *answer* (`computer_offline`), not a refusal — except where a refusal carries information the client needs, as `approval_pending` does at HTTP 202.
 

@@ -99,7 +99,7 @@ Everyday operations use natural language as well:
 - **LAN**: before opening a remote app, the client confirms the gateway with the server-certificate SHA-256 fingerprint from the QR code, and also checks certificate validity and the target host; the entry only allows the selected LAN or overlay interfaces.
 - **Public**: pairing invitations are single-use and time-limited. Device certificates stay pending until the user verifies the full fingerprint and approves them; later requests use both mTLS and the device record.
 - **Server side**: the control token exists only on the Gateway–Node path; public mode only reuses port 443. In LAN mode the Gateway–Node path is treated as a **trusted network**: the operator chooses where it is, and it is not encrypted further — the control token and application traffic both travel on it. To cross an untrusted network, use public mode, where every hop that leaves a machine is TLS (the node reaches the 443 entrance over WSS with a client certificate, and the rest stay on loopback within one machine).
-- **Client side**: device credentials go into system secure storage; Web data is isolated in each platform's WebView; external links open in the system browser.
+- **Client side**: device credentials go into system secure storage; every application is served at an origin of its own, so Web data is separated by origin (the browser's same-origin policy); external links open in the system browser.
 - **Supply chain**: release assets include SHA-256 digests; stable clients use a fixed signature or the platform's official distribution signing.
 
 Do not open a public Issue for a security vulnerability; report privately via the [Security Policy](SECURITY.md).
