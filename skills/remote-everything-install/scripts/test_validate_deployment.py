@@ -69,6 +69,10 @@ class DeploymentContractTests(unittest.TestCase):
             validator.validate_caddy_contract(caddy.replace("\t\ton_demand\n", ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\task http://127.0.0.1:5003/__remote_everything_tls_ask\n", ""))
+        # The ask path is one name: the template has to ask where the gateway
+        # answers, and the validator reads that name from the gateway itself.
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("/__remote_everything_tls_ask", "/__remote_everything_ask"))
         # The permission is asked on loopback: the entrance stands on the gateway's
         # own machine, and an ask endpoint anywhere else is one a stranger can answer.
         with self.assertRaises(ValueError):

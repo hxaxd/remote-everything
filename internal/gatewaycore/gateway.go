@@ -132,15 +132,22 @@ func stripRoutingSetCookie(header http.Header) {
 
 // setRoutingCookie tells the node which application a request on an application's
 // origin is for, and it does so on a request that no longer says anything else:
-// whatever the client sent under the same name is dropped first, because which
+// a cookie of that name the client sent is dropped first, because which
 // application a browser session is looking at is decided by the origin it is
-// talking to and never by the client.
+// talking to and never by the client. Everything else the client carries is handed
+// on exactly as it arrived — those cookies belong to the application, and this is
+// not the place that gets to rewrite them.
 func setRoutingCookie(request *http.Request, appID string) {
-	kept := make([]string, 0, len(request.Cookies())+1)
-	for _, cookie := range request.Cookies() {
-		if cookie.Name != proxysecurity.RoutingCookieName {
-			kept = append(kept, cookie.Name+"="+cookie.Value)
+	kept := make([]string, 0, 4)
+	for _, field := range strings.Split(request.Header.Get("Cookie"), ";") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
 		}
+		if name, _, found := strings.Cut(field, "="); found && strings.TrimSpace(name) == proxysecurity.RoutingCookieName {
+			continue
+		}
+		kept = append(kept, field)
 	}
 	kept = append(kept, proxysecurity.RoutingCookieName+"="+appID)
 	request.Header.Set("Cookie", strings.Join(kept, "; "))

@@ -37,7 +37,7 @@
 ## 移动客户端
 
 - 一个 Profile = 一条路：一个 origin、要不要钉证书、自己的设备身份。
-- 每个 Profile 下能看到这条路能到哪些节点（`/__remote_everything/nodes`），请求带上目标节点的 `X-Remote-Everything-Node`。
+- 每个 Profile 下能看到这条路能到哪些节点（`/__remote_everything/nodes`），控制面的请求带上目标节点的 `X-Remote-Everything-Node`；应用流量不在这里，它去的是那个应用自己的 origin。
 - 同一时间只有一个活跃 Profile（在目录页顶部显示当前连接名）。
 - 切换 Profile：设置 → 管理连接 → 点击目标连接。
 - 一条路对应的电脑离线，不影响其他路与其他节点。

@@ -608,3 +608,29 @@ func recordNodeToken(t *testing.T, root, nodeID, token string) error {
 	}
 	return atomicfile.Write(path, []byte(token+"\n"), 0o600)
 }
+
+// What an application's request carries is the application's: the router's own
+// cookie is set, and every other cookie is handed on exactly as it arrived —
+// including one that was quoted, which parsing and re-writing it would change.
+func TestAnApplicationRequestKeepsTheCookiesItCarried(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Cookie", `session=abc123; token="quoted value"; flag`)
+	setRoutingCookie(request, "editor")
+	carried := request.Header.Get("Cookie")
+	for _, wanted := range []string{`session=abc123`, `token="quoted value"`, `flag`, proxysecurity.RoutingCookieName + "=editor"} {
+		if !strings.Contains(carried, wanted) {
+			t.Fatalf("the request carries %q, which does not hold %q", carried, wanted)
+		}
+	}
+}
+
+// A client cannot choose the application it is served: a cookie of the routing
+// name it sent is dropped, and the one the gateway set is what arrives.
+func TestAClientCannotChooseAnApplicationItIsServed(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Cookie", proxysecurity.RoutingCookieName+"=something-else")
+	setRoutingCookie(request, "editor")
+	if carried := request.Header.Get("Cookie"); strings.Contains(carried, "something-else") {
+		t.Fatalf("the request carries %q", carried)
+	}
+}
