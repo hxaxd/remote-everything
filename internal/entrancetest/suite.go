@@ -43,8 +43,13 @@ import (
 // a secret.
 const credentialPassword = "credential-password-123"
 
-// pagePath is the node's own traffic rather than its control surface: what an
-// application serves once it was opened.
+// AppID is the application both machines behind a shape run: what opening one of
+// them is about, and what an application's own origin serves.
+const AppID = "editor"
+
+// pagePath is one path of that application. It is the application's own traffic
+// rather than its control surface, and it belongs to the application's own origin:
+// what a client is redirected to when it opens the application.
 const pagePath = "/editor/"
 
 // NodeIDs and NodeNames are the two machines a shape's harness stands up behind
@@ -64,6 +69,16 @@ type Harness interface {
 	// this entrance terminates itself, or through the entrance that authenticates
 	// them for it. A nil credential is a client that has no credential yet.
 	Dial(credential *tls.Certificate, method, path string, header map[string]string, body []byte) (int, string, error)
+	// Open asks the gateway to open one application of one node, the way a client
+	// does, and answers with what it was told — the status, and the location of the
+	// redirect: an origin of that application's own, which is what the client loads
+	// next and where the application's storage is.
+	Open(credential *tls.Certificate, node gatewaycore.Node, appID string) (int, string, error)
+	// DialApplication sends one request the way this shape's clients reach an
+	// application at its own origin, as Open named it: an address that is not the
+	// one the protocol's other requests are asked on, whether that is because it is
+	// another host or another port.
+	DialApplication(credential *tls.Certificate, node gatewaycore.Node, appID, method, path string, header map[string]string, body []byte) (int, string, error)
 	// ApprovesInline reports whether redeeming an invitation is the whole
 	// admission, because the operator who handed it over already approved the
 	// device — a LAN entrance — rather than the operator confirming the device
@@ -106,25 +121,83 @@ func Run(t *testing.T, harness Harness) {
 		}
 		admit(t, harness, fingerprint, credential, first)
 
-		// The node is reached through the admitted device, by the surface that
-		// lists what it runs and by the path that serves it: what an entrance
-		// answers is the node's, and all of it is behind the same admission.
+		// The node is reached through the admitted device, and everything that
+		// reaches it is behind the same admission: what an entrance answers is the
+		// node's, and the tenant of that answer is this device.
 		if status, body, err := harness.Dial(credential, http.MethodGet, "/__remote_everything/apps", forNode(first), nil); err != nil || status != http.StatusOK || !connected(t, body) {
 			t.Fatalf("the admitted device did not reach the node: %d %s %v", status, body, err)
 		}
-		if status, _, err := harness.Dial(credential, http.MethodGet, pagePath, forNode(first), nil); err != nil || status != http.StatusOK {
-			t.Fatalf("the admitted device did not reach the page it opened: %d %v", status, err)
+	})
+
+	t.Run("an application is served at an origin of its own", func(t *testing.T) {
+		fingerprint, credential := pair(t, harness, issueInvitation(t, harness, first))
+		admit(t, harness, fingerprint, credential, first)
+
+		// Opening an application answers with an address of that application's own —
+		// absolute, so a client resolves nothing — and the same one every time:
+		// coming back to an application comes back to where it kept its storage.
+		status, location, err := harness.Open(credential, first, AppID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if status != http.StatusFound || !isOrigin(location) {
+			t.Fatalf("opening %s answered %d %q", AppID, status, location)
+		}
+		if _, again, err := harness.Open(credential, first, AppID); err != nil || again != location {
+			t.Fatalf("opening %s twice moved it: %q then %q (%v)", AppID, location, again, err)
+		}
+		// The application answers there, to the device that holds the node it
+		// belongs to.
+		if status, body, err := harness.DialApplication(credential, first, AppID, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusOK {
+			t.Fatalf("the application did not answer at its own origin: %d %s %v", status, body, err)
+		}
+		// A client with no credential reaches nothing there, and neither does a
+		// device that does not hold this node — without the node hearing about
+		// either: what is refused before it is routed never reaches it.
+		seen := len(harness.NodeSaw(first.ID))
+		if status, body, err := harness.DialApplication(nil, first, AppID, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusUnauthorized {
+			t.Fatalf("a client with no credential reached an application: %d %s %v", status, body, err)
+		}
+		if status, body, err := harness.DialApplication(credential, second, AppID, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusUnauthorized {
+			t.Fatalf("a device reached an application of a node it does not hold: %d %s %v", status, body, err)
+		}
+		if len(harness.NodeSaw(first.ID)) != seen {
+			t.Fatal("an application request that was refused was forwarded to the node")
+		}
+		// The protocol's paths and the control plane are not part of an
+		// application: an origin that serves one serves it and nothing else.
+		for _, refused := range []struct {
+			path string
+			code int
+		}{
+			{"/__remote_everything/nodes", http.StatusNotFound},
+			{"/__remote_everything/apps", http.StatusNotFound},
+			{"/__remote_everything/open/" + AppID, http.StatusNotFound},
+			{proxysecurity.ControlPath, http.StatusForbidden},
+		} {
+			if status, body, err := harness.DialApplication(credential, first, AppID, http.MethodGet, refused.path, nil, nil); err != nil || status != refused.code {
+				t.Fatalf("%s on an application origin answered %d %s %v", refused.path, status, body, err)
+			}
+		}
+		// And the control origin is not where an application is served: it carries
+		// the protocol, and a client loads the application from the origin it was
+		// redirected to.
+		if status, body, err := harness.Dial(credential, http.MethodGet, pagePath, forNode(first), nil); err != nil || status != http.StatusNotFound || !strings.Contains(body, `"not_found"`) {
+			t.Fatalf("the control origin answered an application path with %d %s %v", status, body, err)
 		}
 	})
 
 	t.Run("a request the entrance refuses never reaches the node", func(t *testing.T) {
 		seen := len(harness.NodeSaw(first.ID))
-		// Neither the control surface nor a page: an entrance that let anything
-		// reach a node before admitting a device would be answering for it.
+		// Neither the control surface nor an application: an entrance that let
+		// anything reach a node before admitting a device would be answering for it.
 		for _, path := range []string{"/__remote_everything/apps", pagePath} {
 			if status, _, err := harness.Dial(nil, http.MethodGet, path, forNode(first), nil); err != nil || status != http.StatusUnauthorized {
 				t.Fatalf("an unpaired client reached %s with %d, %v", path, status, err)
 			}
+		}
+		if status, _, err := harness.DialApplication(nil, first, AppID, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusUnauthorized {
+			t.Fatalf("an unpaired client reached an application with %d, %v", status, err)
 		}
 		if len(harness.NodeSaw(first.ID)) != seen {
 			t.Fatal("a refused request was forwarded to the node")
@@ -168,8 +241,8 @@ func Run(t *testing.T, harness Harness) {
 		if status, _, err := harness.Dial(credential, http.MethodGet, "/__remote_everything/apps", forNode(first), nil); err != nil || status != http.StatusUnauthorized {
 			t.Fatalf("a device reached a node its invitation did not open: %d %v", status, err)
 		}
-		if status, _, err := harness.Dial(credential, http.MethodGet, pagePath, forNode(first), nil); err != nil || status != http.StatusUnauthorized {
-			t.Fatalf("a page of a node the device does not hold was served: %d %v", status, err)
+		if status, _, err := harness.DialApplication(credential, first, AppID, http.MethodGet, pagePath, nil, nil); err != nil || status != http.StatusUnauthorized {
+			t.Fatalf("an application of a node the device does not hold was served: %d %v", status, err)
 		}
 		if len(harness.NodeSaw(first.ID)) != seen {
 			t.Fatal("a refused request was forwarded to the node it was refused for")
@@ -252,6 +325,16 @@ func Run(t *testing.T, harness Harness) {
 			}
 		}
 	})
+}
+
+// isOrigin reports whether a location an application was opened at is an origin
+// of its own: absolute, over HTTPS, and at the root of that origin, which is what
+// a client loads — it resolves the location against nothing, and the path it
+// appends to it is the application's.
+func isOrigin(location string) bool {
+	parsed, err := url.Parse(location)
+	return err == nil && parsed.Scheme == "https" && parsed.Host != "" &&
+		(parsed.Path == "" || parsed.Path == "/") && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.User == nil
 }
 
 // nodeList asks the gateway which nodes this device may reach, which is how a

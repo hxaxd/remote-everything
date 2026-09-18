@@ -16,6 +16,13 @@
 #                                ├─ /~!frp ──────────────────▶ frps ◀── frpc ──▶ node
 #                                └─ everything else ─────────▶ gateway status
 #
+# The applications themselves are not served on the gateway's own host: each one is
+# served on a host of its own under it — `<application>.<node prefix>.<domain>` —
+# so that a browser keeps one application's storage apart from another's. The
+# entrance issues one certificate per application host, on demand, and asks the
+# gateway before it issues one; the tests below load an application from that host
+# and from nowhere else.
+#
 # Usage, with the release binaries of this repository plus FRP v0.70.0 and Caddy
 # v2.11.4 — the versions a deployment pins — in one directory:
 #
@@ -54,6 +61,10 @@ node_ids=()
 node_listens=()
 tunnel_ports=()
 node_pids=()
+# The applications each machine runs. The first machine runs two, which is the pair
+# the origins are told apart by; the same application runs on both, so that two
+# nodes running one application are two origins as well.
+node_apps=("editor gallery" "editor")
 
 [[ $(id -u) == 0 ]] || { echo "the entrance answers on 443, so this must run as root" >&2; exit 1; }
 
@@ -100,14 +111,46 @@ tunnel_answers() { # tunnel_answers BUNDLE_DIRECTORY TUNNEL_PORT
 }
 code_with() { # code_with METHOD CERT KEY URL [HEADER]
   local method=$1 certificate=$2 key=$3 url=$4 header=${5:-}
-  local -a args=(--silent --show-error --max-time 10 -X "$method" -o "$work/body" -w '%{http_code}')
+  local -a args=(--silent --show-error --max-time 10 -X "$method" -o "$work/body" -D "$work/headers" -w '%{http_code}')
   [[ -n "$certificate" ]] && args+=(--cert "$certificate" --key "$key")
   [[ -n "$header" ]] && args+=(-H "$header")
   curl "${args[@]}" "$url" 2>/dev/null || true
 }
+# header_of is one header of the answer the last code_with read, lowercased and
+# stripped of everything that is not the header: what an answer says in its status
+# line is asserted on the status, and what it says in a header is asserted here.
+header_of() { # header_of NAME
+  python3 -c "
+import sys
+name = sys.argv[1].lower() + ':'
+for line in open('$work/headers', encoding='utf-8', errors='replace'):
+    if line.lower().startswith(name):
+        print(line.split(':', 1)[1].strip())
+        break
+" "$1"
+}
+# fetch_application asks for one path of one application, at the host the application
+# is served on and through the entrance that has a certificate for it: the host does
+# not resolve here, so the address the entrance answers on is given instead.
+fetch_application() { # fetch_application APP_HOST CERT KEY [PATH] [COOKIE]
+  local host=$1 certificate=$2 key=$3 path=${4:-/} cookie=${5:-}
+  local -a args=(--silent --show-error --max-time 10 -o "$work/body" -w '%{http_code}' -D "$work/headers" \
+    --cert "$certificate" --key "$key" --resolve "$host:443:127.0.0.1")
+  [[ -n "$cookie" ]] && args+=(--cookie "$cookie")
+  curl "${args[@]}" "https://$host$path" 2>/dev/null || true
+}
+# open_application asks the gateway to open one application of one node, the way a
+# client does, and prints the origin the application is to be loaded from.
+open_application() { # open_application NODE_ID APP_ID
+  local status
+  status=$(code_with GET "$work/device.crt.pem" "$work/device.key.pem" "https://$public_host/__remote_everything/open/$2" "$(for_node "$1")")
+  [[ "$status" == 302 ]] || fail "opening $2 answered $status: $(cat "$work/body")"
+  header_of Location
+}
 # What the deployment answers for one node: the header is the whole of how a
 # request says which machine it is for.
 for_node() { echo "X-Remote-Everything-Node: $1"; }
+free_port() { python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"; }
 
 for tool in python3 curl openssl ss; do
   command -v "$tool" >/dev/null || fail "$tool is required"
@@ -129,6 +172,38 @@ for index in 0 1; do
 done
 [[ "${node_listens[0]}" != "${node_listens[1]}" ]] || fail "both nodes listen on one address"
 [[ "${node_ids[0]}" != "${node_ids[1]}" ]] || fail "both nodes carry one identity"
+
+step "each machine records the applications it runs"
+# An application is the node's own: what it runs, and the loopback address it
+# answers on. Each one answers on a port of its own because each one is served at an
+# origin of its own — what is asserted here is the origin, and what is served there.
+declare -A app_ports=() app_markers=()
+for index in 0 1; do
+  for app in ${node_apps[$index]}; do
+    key="$index/$app"
+    port=$(free_port)
+    app_ports[$key]=$port
+    app_markers[$key]="accept-$app-${node_names[$index],,}"
+    directory="$work/apps/$index/$app"
+    mkdir -p "$directory"
+    printf '%s\n' "${app_markers[$key]}" >"$directory/index.html"
+    # The applications here answer from servers this script runs, so the program the
+    # node would start them with is one that does nothing: the node serves what
+    # answers on the port, and what answers there is held for the length of the run.
+    cat >"$work/app-$index-$app.json" <<EOF
+{"id": "$app", "name": "$app", "description": "", "icon": "A", "accent": "#2563eb",
+ "launch_fragment": "", "proxy_url": "http://127.0.0.1:$port", "command": "/bin/true",
+ "arguments": [], "stop_command": "", "stop_arguments": [], "workdir": "", "adapter": ""}
+EOF
+    "$work/bin/node" app set --state "$work/state/node-$index" --file "$work/app-$index-$app.json" >/dev/null
+  done
+  "$work/bin/node" app list --state "$work/state/node-$index" | python3 -c "
+import json, sys
+apps = json.load(sys.stdin)
+assert apps['schema'] == 1 and apps['apps'] is not None, apps
+print('node ${node_names[$index]} runs ' + ', '.join(app['id'] for app in apps['apps']))
+"
+done
 
 step "the gateway creates its identity"
 "$work/bin/gateway" init --state "$work/state/gateway" --origin "https://$public_host" >"$work/gateway-init.json"
@@ -227,6 +302,15 @@ for index in 0 1; do
   "$work/bin/node" serve --state "$work/state/node-$index" >"$work/logs/node-$index.log" 2>&1 &
   pids+=($!)
   node_pids+=($!)
+done
+# What each application answers with, held for the length of the run: the node
+# proxies to the port its registry names, and something has to answer there.
+for index in 0 1; do
+  for app in ${node_apps[$index]}; do
+    key="$index/$app"
+    python3 -m http.server "${app_ports[$key]}" --bind 127.0.0.1 --directory "$work/apps/$index/$app" >"$work/logs/app-$index-$app.log" 2>&1 &
+    pids+=($!)
+  done
 done
 
 step "the entrance answers on 443"
@@ -377,11 +461,72 @@ status=$(code_with GET "$work/device.crt.pem" "$work/device.key.pem" "https://$p
 json 'value["ok"] and value["computer_connected"]' 'the granted node did not answer' <"$work/body"
 echo "the granted node answers, and only the granted one is listed"
 
-step "the admitted device reaches an application page"
-[[ $(code_with GET "$work/device.crt.pem" "$work/device.key.pem" "https://$public_host/editor/" "$(for_node "${node_ids[0]}")") == 200 ]] \
-  || fail "the page a device opened was not served"
-grep -q '尚未选择远程应用' "$work/body" || fail 'the page did not come from the node'
-echo "page traffic is served to the admitted device"
+step "the entrance asks the gateway before it issues a certificate"
+# An application host has no certificate until the first request for it, and the
+# entrance asks the gateway first — on the address it forwards everything else to,
+# in its own name, and without a credential of its own. A gateway that answered a
+# host it does not serve would have the entrance issue certificates for names that
+# reach nothing.
+ask="http://127.0.0.1:$status_port/__remote_everything_tls_ask"
+ask_status() { # ask_status DOMAIN
+  curl -sS -o /dev/null -w '%{http_code}' --max-time 5 "$ask?domain=$1" 2>/dev/null || true
+}
+[[ "$(ask_status "editor.${node_ids[0]:0:8}.$public_host")" == 200 ]] || fail "the gateway would not answer for a host it serves"
+[[ "$(ask_status "aaaaaaaa.$public_host")" == 403 ]] || fail "the gateway answered for a host it does not serve"
+[[ "$(ask_status "editor.${node_ids[0]:0:8}.other.example.com")" == 403 ]] || fail "the gateway answered for another gateway's host"
+[[ "$(ask_status "$public_host")" == 403 ]] || fail "the gateway answered for its own host"
+echo "the gateway allows the hosts it serves and refuses every other"
+
+step "each application is served at an origin of its own"
+editors_workshop="editor.${node_ids[0]:0:8}.$public_host"
+gallery_workshop="gallery.${node_ids[0]:0:8}.$public_host"
+editor_attic="editor.${node_ids[1]:0:8}.$public_host"
+# Opening an application is answered with an absolute origin of that application's
+# own, and with the same one every time it is opened: what a browser keeps for an
+# application lives under its origin, so an application whose origin moved would
+# come back empty. Two applications of one node, and one application of two nodes,
+# are three origins.
+[[ "$(open_application "${node_ids[0]}" editor)" == "https://$editors_workshop/" ]] || fail "the first application is not served at an origin of its own"
+[[ "$(open_application "${node_ids[0]}" gallery)" == "https://$gallery_workshop/" ]] || fail "the second application is not served at an origin of its own"
+[[ "$(open_application "${node_ids[1]}" editor)" == "https://$editor_attic/" ]] || fail "a node's application is not served under that node's prefix"
+[[ "$(open_application "${node_ids[0]}" editor)" == "https://$editors_workshop/" ]] || fail "the same application came back at another origin"
+[[ "$editors_workshop" != "$gallery_workshop" && "$editors_workshop" != "$editor_attic" ]] || fail "two applications share one origin"
+echo "opened at $editors_workshop, $gallery_workshop and $editor_attic"
+
+step "each application answers at its own origin"
+# What each application is started from is the gateway's control surface, the way a
+# client starts one; what each is then served from is its own origin, over the
+# certificate the entrance issued for that host on demand.
+for index in 0 1; do
+  for app in ${node_apps[$index]}; do
+    status=$(code_with POST "$work/device.crt.pem" "$work/device.key.pem" "https://$public_host/__remote_everything/apps/$app/start" "$(for_node "${node_ids[$index]}")")
+    [[ "$status" == 200 ]] || fail "starting $app on ${node_names[$index]} answered $status: $(cat "$work/body")"
+    json 'value["ok"] and value["code"] == "ready"' "the application ${app} did not start on ${node_names[$index]}" <"$work/body"
+  done
+done
+for asked in "$editors_workshop:0:editor" "$gallery_workshop:0:gallery" "$editor_attic:1:editor"; do
+  IFS=: read -r host index app <<<"$asked"
+  status=$(fetch_application "$host" "$work/device.crt.pem" "$work/device.key.pem")
+  [[ "$status" == 200 ]] || fail "$host answered $status: $(cat "$work/body")"
+  grep -qF "${app_markers[$index/$app]}" "$work/body" || fail "$host did not serve $app of ${node_names[$index]}"
+done
+echo "every application answers at its own origin"
+# Which application a browser is looking at is said by the origin it is on and by
+# nothing else: a client that claims one in the cookie the gateway uses internally
+# is still served the application its origin names.
+status=$(fetch_application "$editors_workshop" "$work/device.crt.pem" "$work/device.key.pem" "/" "RemoteEverythingApp=gallery")
+[[ "$status" == 200 ]] || fail "a forged application cookie was answered with $status"
+grep -qF "${app_markers[0/editor]}" "$work/body" || fail "a client did not get the application its origin names"
+grep -qF "${app_markers[0/gallery]}" "$work/body" && fail "a client chose which application it is served"
+# An application's origin serves that application and nothing else: the protocol's
+# own paths are not part of it, and neither is the gateway's own host.
+[[ $(fetch_application "$editors_workshop" "$work/device.crt.pem" "$work/device.key.pem" "/__remote_everything/nodes") == 404 ]] \
+  || fail "an application origin answered a protocol path"
+json 'value["code"] == "not_found"' 'the protocol paths must not exist on an application origin' <"$work/body"
+[[ $(code_with GET "$work/device.crt.pem" "$work/device.key.pem" "https://$public_host/editor/" "$(for_node "${node_ids[0]}")") == 404 ]] \
+  || fail "the gateway's own host served an application path"
+json 'value["code"] == "not_found"' 'the control origin must not serve application paths' <"$work/body"
+echo "the control origin carries the protocol, and each application origin carries one application"
 
 step "one node going down does not take the other with it"
 kill -KILL "${node_pids[1]}" 2>/dev/null || fail "the second node could not be stopped"
@@ -433,4 +578,4 @@ assert sorted(devices[0]['nodes']) == sorted(['${node_ids[0]}', '${node_ids[1]}'
 print(json.dumps({k: devices[0][k] for k in ('device_name', 'status', 'approved_at', 'activated_at')}, ensure_ascii=False))
 "
 
-printf '{"ok":true,"suite":"public-deployment","semantics":20}\n'
+printf '{"ok":true,"suite":"public-deployment","semantics":27}\n'

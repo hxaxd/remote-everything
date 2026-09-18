@@ -57,6 +57,14 @@ type State struct {
 	Nodes          []Node     `json:"nodes"`
 }
 
+// ValidAppID is the shape of an application id: what a node's catalog carries,
+// what an application host names, and what picks out the application an origin
+// serves. It is one rule with one home, because a catalog, a host and a route all
+// have to agree about which ids exist.
+func ValidAppID(value string) bool {
+	return validID.MatchString(value)
+}
+
 // ValidNodeName is the shape of the label an operator gives a node. It is what a
 // client shows, so it has to be printable and it has to be there. It is exported
 // because the URI an invitation is delivered in carries the same label, and the
@@ -164,6 +172,26 @@ func FindNode(nodes []Node, id string) (Node, bool) {
 		}
 	}
 	return Node{}, false
+}
+
+// NodeByPrefix returns the node whose id begins with a prefix, when exactly one
+// node this gateway serves does. It is how an application host names a node — a
+// hostname label carries eight hex characters of a 64-hex id and no more — and a
+// gateway that served two nodes sharing a prefix could not tell which of them such
+// a host meant, so a prefix two nodes answer to is one that names neither.
+func NodeByPrefix(nodes []Node, prefix string) (Node, bool) {
+	found := Node{}
+	matches := 0
+	for _, node := range nodes {
+		if len(node.ID) > len(prefix) && node.ID[:len(prefix)] == prefix {
+			found = node
+			matches++
+		}
+	}
+	if matches != 1 {
+		return Node{}, false
+	}
+	return found, true
 }
 
 // ResolveNode finds the node an operator named, by the name it was given or by its

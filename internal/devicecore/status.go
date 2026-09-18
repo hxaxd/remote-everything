@@ -173,6 +173,14 @@ func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *htt
 		gatewaycore.WriteJSON(writer, http.StatusOK, map[string]bool{"ok": true})
 		return
 	}
+	// The entrance in front of this gateway asks this in its own name, without a
+	// device credential, and it is answered on its own: what it asks about is not
+	// anything a device owns, and the question is answered by this gateway rather
+	// than by any node.
+	if path == TLSAskPath {
+		service.answerTLSPermission(writer, request)
+		return
+	}
 	if path == "/__remote_everything_activate" && request.Method == http.MethodPost {
 		if !service.statusLimiter.allow(clientIP(request)) {
 			gatewaycore.WriteJSON(writer, http.StatusTooManyRequests, gatewaycore.Error("rate_limited"))
