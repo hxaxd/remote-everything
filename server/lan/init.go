@@ -49,6 +49,12 @@ type lanState struct {
 	gatewaycore.State
 	LAN          lanCertificate   `json:"lan"`
 	Applications []lanApplication `json:"applications"`
+	// ApplicationsHost is where this entrance's applications listen: an address
+	// of this machine, or the wildcard address, which is what an operator who
+	// wants to open an application from the machine itself as much as from a
+	// phone asks for. Empty means the entrance was told nothing, and then its
+	// applications listen wherever the entrance itself listens.
+	ApplicationsHost string `json:"applications_host"`
 }
 
 // lanApplication is one application of one node as this entrance serves it: the
@@ -107,6 +113,26 @@ func (state lanState) listener() (string, error) {
 	return state.Address(listenerName)
 }
 
+// applicationsHost is where this entrance's applications listen. An entrance that
+// was told an address serves them there — an operator who wants to open an
+// application from the machine itself says the wildcard address, and one who
+// wants them nowhere else says the address the entrance is reached at — and an
+// entrance that was told nothing serves them wherever it serves everything else.
+func (state lanState) applicationsHost() (string, error) {
+	if state.ApplicationsHost != "" {
+		return state.ApplicationsHost, nil
+	}
+	listenAddress, err := state.listener()
+	if err != nil {
+		return "", err
+	}
+	host, _, err := net.SplitHostPort(listenAddress)
+	if err != nil {
+		return "", errors.New("invalid LAN state")
+	}
+	return host, nil
+}
+
 // repair moves the entrance's listener to a new port and keeps everything else.
 func (state lanState) repair() (lanState, error) {
 	shared, err := state.State.Repair(map[string]int{listenerName: listenerPort})
@@ -138,6 +164,7 @@ func (state lanState) validate() error {
 	expectedCertificate := "lan-server-" + state.LAN.CertificateFingerprint + ".crt.pem"
 	expectedKey := "lan-server-" + state.LAN.CertificateFingerprint + ".key.pem"
 	if !validLANHost(host) ||
+		(state.ApplicationsHost != "" && !netaddr.ValidListenHost(state.ApplicationsHost)) ||
 		!validSHA256.MatchString(state.LAN.CertificateFingerprint) ||
 		state.Origin != expectedOrigin ||
 		state.LAN.CertificateFile != expectedCertificate || state.LAN.PrivateKeyFile != expectedKey ||
@@ -172,6 +199,7 @@ type lanInitResult struct {
 	Origin                 string `json:"origin"`
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	PublicKeyPin           string `json:"public_key_pin"`
+	ApplicationsHost       string `json:"applications_host"`
 }
 
 type lanNodeResult struct {
@@ -367,8 +395,10 @@ func loadLANCertificate(root string, state lanState) (*x509.Certificate, error) 
 
 // reconcileLANState writes the state for an entrance that is being initialized.
 // The entrance's own identity, host and certificate are what its clients were
-// paired with, so they must be the ones already in place.
-func reconcileLANState(root, host, installationID, fingerprint, certificateFile, keyFile string) (lanState, error) {
+// paired with, so they must be the ones already in place. Where its applications
+// listen is the operator's to change — it is an address of this machine and not
+// part of what a client was paired with — so being told one is what records it.
+func reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile string) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
 		// This entrance is what its clients dial, so its origin is its own host
@@ -396,16 +426,21 @@ func reconcileLANState(root, host, installationID, fingerprint, certificateFile,
 	} else if existingHost, hostErr := state.host(); hostErr != nil || existingHost != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
 		return lanState{}, errors.New("existing LAN state does not match host or certificate")
 	}
+	state.ApplicationsHost = applicationsHost
 	if err := jsonfile.Write(filepath.Join(root, lanStateFile), state, 0o600); err != nil {
 		return lanState{}, err
 	}
 	return state, nil
 }
 
-func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
+func initializeLAN(root, host, applicationsHost string, validDays int) (lanInitResult, error) {
 	host = strings.TrimSpace(host)
+	applicationsHost = strings.TrimSpace(applicationsHost)
 	if !validLANHost(host) {
 		return lanInitResult{}, errors.New("invalid LAN host")
+	}
+	if applicationsHost != "" && !netaddr.ValidListenHost(applicationsHost) {
+		return lanInitResult{}, errors.New("invalid applications host")
 	}
 	if validDays < 1 || validDays > 3650 {
 		return lanInitResult{}, errors.New("valid-days must be between 1 and 3650")
@@ -455,7 +490,7 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 		return lanInitResult{}, err
 	}
 	fingerprint := devicecore.CertificateFingerprint(certificate)
-	state, err := reconcileLANState(root, host, installationID, fingerprint, certificateFile, keyFile)
+	state, err := reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile)
 	if err != nil {
 		if createdCertificate {
 			_ = os.Remove(filepath.Join(root, certificateFile))
@@ -467,10 +502,16 @@ func initializeLAN(root, host string, validDays int) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
+	applicationsListen, err := state.applicationsHost()
+	if err != nil {
+		return lanInitResult{}, err
+	}
 	return lanInitResult{
-		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
-		Origin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
-		PublicKeyPin: devicecore.PublicKeyPin(certificate),
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, Origin: state.Origin,
+		CertificateFingerprint: state.LAN.CertificateFingerprint, PublicKeyPin: devicecore.PublicKeyPin(certificate),
+		// The address the applications listen on as it now stands, which is the
+		// wildcard address until an operator says otherwise.
+		ApplicationsHost: applicationsListen,
 	}, nil
 }
 
@@ -697,11 +738,12 @@ func runLANInit(parts []string, output io.Writer) error {
 	flags.SetOutput(io.Discard)
 	state := flags.String("state", "", "")
 	host := flags.String("host", "", "")
+	applicationsHost := flags.String("applications-host", "", "")
 	validDays := flags.Int("valid-days", 825, "")
 	if flags.Parse(parts) != nil || flags.NArg() != 0 {
 		return errors.New("invalid init arguments")
 	}
-	result, err := initializeLAN(*state, *host, *validDays)
+	result, err := initializeLAN(*state, *host, *applicationsHost, *validDays)
 	if err != nil {
 		return err
 	}

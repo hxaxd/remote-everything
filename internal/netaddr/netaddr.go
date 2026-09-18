@@ -59,6 +59,16 @@ func ValidUnicast(address string) bool {
 	return ValidUnicastHost(host) && Valid(address, host)
 }
 
+// ValidListenHost reports whether host is one a gateway may listen on: the
+// wildcard address, which every interface of the machine carries, or a specific
+// IPv4 address.
+func ValidListenHost(host string) bool {
+	if host == "0.0.0.0" {
+		return true
+	}
+	return ValidUnicastHost(host)
+}
+
 // ValidListen reports whether address is one a gateway may serve on: the
 // wildcard address or a specific IPv4 address, with a port this project
 // allocates from. A gateway that fronts its own clients may listen on every
@@ -68,7 +78,7 @@ func ValidListen(address string) bool {
 	if err != nil {
 		return false
 	}
-	if host != "0.0.0.0" && !ValidUnicastHost(host) {
+	if !ValidListenHost(host) {
 		return false
 	}
 	return Valid(address, host)

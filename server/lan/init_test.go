@@ -36,7 +36,7 @@ func TestInitializeLAN(t *testing.T) {
 	// The operator names the state directory here for the first time, so it is one
 	// that does not exist yet: init creates it the way the other shapes do.
 	root := filepath.Join(t.TempDir(), "lan-state")
-	first, err := initializeLAN(root, "127.0.0.1", 30)
+	first, err := initializeLAN(root, "127.0.0.1", "", 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,14 +66,14 @@ func TestInitializeLAN(t *testing.T) {
 	if _, err := openLANService(root); err == nil {
 		t.Fatal("an entrance serving no node was opened")
 	}
-	second, err := initializeLAN(root, "127.0.0.1", 30)
+	second, err := initializeLAN(root, "127.0.0.1", "", 30)
 	if err != nil || second.CertificateFingerprint != first.CertificateFingerprint {
 		t.Fatalf("init is not idempotent: %+v %v", second, err)
 	}
-	if _, err := initializeLAN(root, "localhost", 30); err == nil {
+	if _, err := initializeLAN(root, "localhost", "", 30); err == nil {
 		t.Fatal("accepted an existing certificate for a different host")
 	}
-	if _, err := initializeLAN(root, "::1", 30); err == nil {
+	if _, err := initializeLAN(root, "::1", "", 30); err == nil {
 		t.Fatal("accepted an IPv6 host while the LAN service is IPv4-only")
 	}
 }
@@ -88,7 +88,7 @@ func TestAddLANNodeRecordsAndDeliversOneNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
@@ -192,7 +192,7 @@ func TestLANRenewalAndRepairKeepTheNodes(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	first, err := initializeLAN(root, "127.0.0.1", 30)
+	first, err := initializeLAN(root, "127.0.0.1", "", 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestLANRenewalAndRepairKeepTheNodes(t *testing.T) {
 			t.Fatalf("retired TLS file %q still exists or could not be checked: %v", name, err)
 		}
 	}
-	current, err := initializeLAN(root, "127.0.0.1", 60)
+	current, err := initializeLAN(root, "127.0.0.1", "", 60)
 	if err != nil || current.CertificateFingerprint != renewed.CertificateFingerprint {
 		t.Fatalf("renewed LAN certificate is not current: %+v %v", current, err)
 	}
@@ -260,7 +260,7 @@ func TestLANRenewalAndRepairKeepTheNodes(t *testing.T) {
 // one, and the node machine is left holding a binding that authenticates nothing.
 func TestRemoveLANNodeForgetsTheNodeEntirely(t *testing.T) {
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	ids := []string{}
@@ -331,7 +331,7 @@ func TestRemoveLANNodeForgetsTheNodeEntirely(t *testing.T) {
 // imports, until it does so answering this entrance only after it is restarted.
 func TestRenewLANNodeTokenReplacesTheTokenAndDeliversIt(t *testing.T) {
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	node, err := nodecore.Initialize(t.TempDir(), "127.0.0.1")
@@ -374,7 +374,7 @@ func TestRenewLANNodeTokenReplacesTheTokenAndDeliversIt(t *testing.T) {
 // 命令行的形状：每个动作都从参数进来。flag 解析错一位，就是一条命令整个不可用。
 func TestLANNodeCommandsTakeTheirArguments(t *testing.T) {
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	node, err := nodecore.Initialize(t.TempDir(), "127.0.0.1")
@@ -423,4 +423,52 @@ func sameNames(got, want []string) bool {
 		}
 	}
 	return true
+}
+
+// Where an entrance serves its applications is the operator's to decide: it is an
+// address of this machine rather than part of what a client was paired with, and an
+// entrance that was told nothing serves them wherever it serves itself.
+func TestLANApplicationsListenWhereTheEntranceWasTold(t *testing.T) {
+	root := t.TempDir()
+	result, err := initializeLAN(root, "127.0.0.1", "0.0.0.0", 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ApplicationsHost != "0.0.0.0" {
+		t.Fatalf("an entrance told to serve its applications on every interface reports %q", result.ApplicationsHost)
+	}
+	state, err := loadLANState(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ApplicationsHost != "0.0.0.0" {
+		t.Fatalf("the recorded applications address is %q", state.ApplicationsHost)
+	}
+
+	silent := t.TempDir()
+	result, err = initializeLAN(silent, "127.0.0.1", "", 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Nothing said means "wherever the entrance is reached", which for an entrance
+	// on the wildcard address is every interface of the machine.
+	if result.ApplicationsHost != "0.0.0.0" {
+		t.Fatalf("an entrance told nothing serves its applications on %q", result.ApplicationsHost)
+	}
+	state, err = loadLANState(silent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ApplicationsHost != "" {
+		t.Fatalf("an entrance told nothing recorded %q", state.ApplicationsHost)
+	}
+	if host, err := state.applicationsHost(); err != nil || host != "0.0.0.0" {
+		t.Fatalf("an entrance told nothing serves its applications on %q (%v)", host, err)
+	}
+
+	// An address this machine cannot listen on is refused rather than recorded.
+	refused := t.TempDir()
+	if _, err := initializeLAN(refused, "127.0.0.1", "gateway.example.com", 30); err == nil {
+		t.Fatal("a name was accepted as the address applications listen on")
+	}
 }

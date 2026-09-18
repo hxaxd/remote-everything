@@ -46,7 +46,7 @@ func startLANEntrance(t *testing.T) *lanHarness {
 	t.Helper()
 	harness := &lanHarness{nodeRequests: map[string][]string{}}
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	// Each node is a machine of its own, at the address this entrance records for
@@ -224,7 +224,7 @@ func TestLANNodesAreRecordedWhereTheyAre(t *testing.T) {
 func openTestLANEntrance(t *testing.T) (*lanService, string) {
 	t.Helper()
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
 		t.Fatal(err)
 	}
 	node, err := nodecore.Initialize(t.TempDir(), "127.0.0.1")
@@ -323,7 +323,12 @@ func TestLANApplicationsAreServedAgainWhereTheRecordSays(t *testing.T) {
 	}
 	// An application whose address this entrance can no longer hold is dropped
 	// rather than served at an address that is not there: it is opened again at a
-	// new origin, and the state stops naming one.
+	// new origin, and the state stops naming one. The listener a surface brings is
+	// closed first, because that is what "this entrance was down" means: nothing of
+	// it holds the address any more, and something else took it.
+	if err := surfaces[1].Listener.Close(); err != nil {
+		t.Fatal(err)
+	}
 	held, err := net.Listen("tcp4", net.JoinHostPort(applicationHost, portText))
 	if err != nil {
 		t.Fatal(err)
@@ -404,5 +409,53 @@ func TestLANStateRefusesApplicationMappingsItCannotServe(t *testing.T) {
 	}
 	if _, err := loadLANState(service.root); err == nil {
 		t.Fatal("two origins for one application were accepted")
+	}
+}
+
+// An application listens where its entrance was told to serve it, while its origin
+// stays the host this entrance recorded for its clients: an address an application
+// is reached at is not the same thing as an address this machine listens on.
+func TestLANApplicationsListenOnTheAddressTheyWereGiven(t *testing.T) {
+	service, nodeID := openTestLANEntrance(t)
+	address, err := netaddr.Reserve(applicationHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, portText, _ := net.SplitHostPort(address)
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadLANState(service.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.ApplicationsHost = "127.0.0.1"
+	state.Applications = []lanApplication{{NodeID: nodeID, AppID: "editor", Port: port}}
+	if err := state.save(service.root); err != nil {
+		t.Fatal(err)
+	}
+	again, err := openLANService(service.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The surfaces are what a start binds, so they are asked for before anything is
+	// opened here — the order an entrance itself runs in.
+	surfaces, err := again.Surfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(surfaces) != 2 || surfaces[1].Address != net.JoinHostPort("127.0.0.1", portText) {
+		t.Fatalf("an entrance told to serve its applications on loopback serves %+v", surfaces)
+	}
+	if surfaces[1].Listener == nil {
+		t.Fatal("an application surface holds no listener of its own")
+	}
+	defer surfaces[1].Listener.Close()
+	// What a client is sent to is the host this entrance is reached at, which is
+	// what its certificate covers, and not the address the application listens on.
+	origin, err := again.Origin(nodeID, "editor")
+	if err != nil || origin != "https://127.0.0.1:"+portText {
+		t.Fatalf("an application is reached at %q (%v)", origin, err)
 	}
 }
