@@ -1,0 +1,37 @@
+{
+  "description": "Which path a node is reached by: a reachable private one wins, then the fastest reachable, and nothing reachable is no path at all.",
+  "cases": [
+    {
+      "name": "private beats public",
+      "paths": [
+        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 20, "isPrivate": false },
+        { "origin": "https://192.168.1.10:58627", "reachable": true, "latencyMs": 40, "isPrivate": true }
+      ],
+      "chosen": "https://192.168.1.10:58627"
+    },
+    {
+      "name": "fastest wins inside a class",
+      "paths": [
+        { "origin": "https://slow.example.com", "reachable": true, "latencyMs": 90, "isPrivate": false },
+        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 20, "isPrivate": false }
+      ],
+      "chosen": "https://gw.example.com"
+    },
+    {
+      "name": "unreachable private loses to reachable public",
+      "paths": [
+        { "origin": "https://192.168.1.10:58627", "reachable": false, "latencyMs": null, "isPrivate": true },
+        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 60, "isPrivate": false }
+      ],
+      "chosen": "https://gw.example.com"
+    },
+    {
+      "name": "nothing reachable is no path",
+      "paths": [
+        { "origin": "https://192.168.1.10:58627", "reachable": false, "latencyMs": null, "isPrivate": true },
+        { "origin": "https://gw.example.com", "reachable": null, "latencyMs": null, "isPrivate": false }
+      ],
+      "chosen": null
+    }
+  ]
+}

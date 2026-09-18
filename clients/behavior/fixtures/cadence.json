@@ -1,0 +1,13 @@
+{
+  "description": "How often the clients look at things, and how long they wait. Three clients that behave alike have the same patience: a node list refreshed every minute on one platform and every five on another is two products, not one. Each client asserts its own constants against these, so a cadence changed in one place is changed everywhere or the tests say so.",
+  "nodeRefreshMs": 60000,
+  "catalogRefreshMs": 30000,
+  "controlPollMs": 1000,
+  "controlPollFactor": 1.5,
+  "controlPollCeilingMs": 5000,
+  "controlPollTimeoutMs": 60000,
+  "approvalPollMs": 5000,
+  "approvalPollTimeoutMs": 600000,
+  "probeTimeoutMs": 2000,
+  "requestTimeoutMs": 10000
+}
