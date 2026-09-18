@@ -16,11 +16,10 @@ import (
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 )
 
-// applicationHost is where the applications of this entrance listen: the machine's
-// own address, so a client reaches an application wherever it reaches the entrance
-// itself. Which host its clients dial is not this one — it is the host the
-// entrance recorded, which its certificate covers — and the port is what tells one
-// application's origin from another's.
+// applicationHost is where this entrance's applications listen when nobody said:
+// the wildcard address, so an application is reachable wherever this machine is.
+// An operator who wants it somewhere else — an application is also worth opening
+// from the machine itself — says so at init, and the state carries it.
 const applicationHost = "0.0.0.0"
 
 // lanService is the LAN entrance: the state that describes where it is and whom
@@ -89,6 +88,10 @@ func (service *lanService) Trust() *devicecore.Trust {
 // entrance already serves. The devices behind it are what answers on all of them —
 // this entrance is what its clients reach, so it is the one that terminates, and
 // it terminates the same way for an application as for anything else.
+//
+// It is asked for once, when the entrance starts, and each application's listener
+// is taken here rather than shared: an address can only be taken once, and taking
+// it is what lets an entrance that cannot have one go on serving the rest.
 func (service *lanService) Surfaces() ([]entrance.Surface, error) {
 	listenAddress, err := service.state.listener()
 	if err != nil {
@@ -110,24 +113,32 @@ func (service *lanService) Surfaces() ([]entrance.Surface, error) {
 // applicationSurfaces is the addresses of the applications this entrance already
 // serves, rebuilt from the state at every start: an origin that was handed out is
 // one a browser has storage under, so the application has to come back at the same
-// address. An address this entrance can no longer hold — something else took the
-// port while it was down — is dropped from the state instead, and that application
-// is given a new origin the next time somebody opens it, which is the one thing
-// left to do about it: an origin that cannot be served is worse than a new one.
+// address. Each listener is taken here rather than handed to a start that binds
+// everything it was given, because the failures are not the same size: an address
+// this entrance can no longer hold — something else took the port while it was
+// down — is dropped from the state, and that application is given a new origin the
+// next time somebody opens it, while the entrance goes on serving everything else.
 func (service *lanService) applicationSurfaces(configuration *tls.Config) []entrance.Surface {
 	service.applicationsMu.Lock()
 	defer service.applicationsMu.Unlock()
+	host, err := service.state.applicationsHost()
+	if err != nil {
+		logline.Log("gateway", "error", "the address this entrance serves applications on is unreadable", "code", err.Error())
+		return nil
+	}
 	surfaces := make([]entrance.Surface, 0, len(service.state.Applications))
 	kept := make([]lanApplication, 0, len(service.state.Applications))
 	for _, application := range service.state.Applications {
-		if !canBind(application.address()) {
-			logline.Log("gateway", "warn", "an application's port is taken; it will be served at a new origin when it is opened again",
-				"node_id", application.NodeID, "app_id", application.AppID, "port", strconv.Itoa(application.Port))
+		address := application.address(host)
+		listener, err := net.Listen("tcp4", address)
+		if err != nil {
+			logline.Log("gateway", "warn", "an application's address is taken; it will be served at a new origin when it is opened again",
+				"node_id", application.NodeID, "app_id", application.AppID, "address", address)
 			delete(service.applications, application.key())
 			continue
 		}
 		kept = append(kept, application)
-		surfaces = append(surfaces, service.applicationSurface(application, configuration))
+		surfaces = append(surfaces, service.applicationSurface(application, address, configuration, listener))
 	}
 	if len(kept) != len(service.state.Applications) {
 		service.state.Applications = kept
@@ -144,13 +155,14 @@ func (service *lanService) applicationSurfaces(configuration *tls.Config) []entr
 // which device is asking the same way it is on the entrance's own address — this
 // entrance terminates the TLS here too, so the certificate it verified is what
 // speaks for the device.
-func (service *lanService) applicationSurface(application lanApplication, configuration *tls.Config) entrance.Surface {
+func (service *lanService) applicationSurface(application lanApplication, address string, configuration *tls.Config, listener net.Listener) entrance.Surface {
 	handler := devicecore.WithClientFingerprint(service.trust.AppHandler(application.NodeID, application.AppID))
-	server := gatewaycore.NewServer(application.address(), handler)
+	server := gatewaycore.NewServer(address, handler)
 	server.TLSConfig = configuration
 	return entrance.Surface{
-		Address: application.address(),
-		Bind:    func(listener net.Listener) error { return server.ServeTLS(listener, "", "") },
+		Address:  address,
+		Listener: listener,
+		Bind:     func(listener net.Listener) error { return server.ServeTLS(listener, "", "") },
 	}
 }
 
@@ -189,7 +201,11 @@ func (service *lanService) Origin(nodeID, appID string) (string, error) {
 // about, while a record written before anything answers on it is an application a
 // client is sent to and finds nothing at.
 func (service *lanService) startApplication(nodeID, appID string) (lanApplication, error) {
-	address, err := netaddr.Reserve(applicationHost)
+	host, err := service.state.applicationsHost()
+	if err != nil {
+		return lanApplication{}, err
+	}
+	address, err := netaddr.Reserve(host)
 	if err != nil {
 		return lanApplication{}, err
 	}
@@ -206,11 +222,12 @@ func (service *lanService) startApplication(nodeID, appID string) (lanApplicatio
 	if err != nil {
 		return lanApplication{}, err
 	}
-	surface := service.applicationSurface(application, configuration)
-	listener, err := net.Listen("tcp", surface.Address)
+	listenAddress := application.address(host)
+	listener, err := net.Listen("tcp4", listenAddress)
 	if err != nil {
 		return lanApplication{}, err
 	}
+	surface := service.applicationSurface(application, listenAddress, configuration, listener)
 	previous := service.state.Applications
 	service.state.Applications = append(append([]lanApplication{}, previous...), application)
 	if err := service.state.save(service.root); err != nil {
@@ -260,10 +277,10 @@ func (application lanApplication) key() string {
 	return applicationKey(application.NodeID, application.AppID)
 }
 
-// address is where this application listens: the machine's own address and the
-// port this entrance gave it.
-func (application lanApplication) address() string {
-	return net.JoinHostPort(applicationHost, strconv.Itoa(application.Port))
+// address is where this application listens: the address this entrance serves its
+// applications on, and the port it gave this one.
+func (application lanApplication) address(host string) string {
+	return net.JoinHostPort(host, strconv.Itoa(application.Port))
 }
 
 // origin is where this application is served as its clients address it: the host
@@ -282,15 +299,4 @@ func withoutApplicationsOf(applications []lanApplication, nodeID string) []lanAp
 		}
 	}
 	return kept
-}
-
-// canBind reports whether this entrance can still hold an address: the port is
-// free for it to take, and nothing else answered for that application while this
-// entrance was not running.
-func canBind(address string) bool {
-	listener, err := net.Listen("tcp4", address)
-	if err != nil {
-		return false
-	}
-	return listener.Close() == nil
 }

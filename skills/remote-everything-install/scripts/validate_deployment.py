@@ -6,9 +6,21 @@ import os
 import re
 import subprocess
 import tomllib
+from pathlib import Path
 
 
 FRP_POOL_COUNT = 32
+
+
+def gateway_ask_path():
+    """The path the entrance asks the gateway at, read from where the gateway names
+    it: one name in two places is a name that drifts, and this is the check that
+    catches the drift rather than agreeing with it."""
+    source = Path(__file__).resolve().parents[3] / "internal" / "devicecore" / "application.go"
+    match = re.search(r'TLSAskPath\s*=\s*"([^"]+)"', source.read_text(encoding="utf-8"))
+    if not match:
+        raise ValueError(f"the gateway names no ask path in {source}")
+    return match.group(1)
 
 
 def read_rendered(path):
@@ -125,7 +137,7 @@ def validate_caddy_contract(text):
     if not re.search(r"^\s*on_demand\s*$", active, re.MULTILINE):
         raise ValueError("Caddy must obtain application certificates on demand")
     ask = re.search(r"^\s*ask\s+(\S+)\s*$", active, re.MULTILINE)
-    if not ask or not ask.group(1).startswith("http://127.0.0.1:") or not ask.group(1).endswith("/__remote_everything_tls_ask"):
+    if not ask or not ask.group(1).startswith("http://127.0.0.1:") or not ask.group(1).endswith(gateway_ask_path()):
         raise ValueError("Caddy on-demand TLS must ask the gateway on loopback")
     try:
         ipaddress.ip_address(site_address)

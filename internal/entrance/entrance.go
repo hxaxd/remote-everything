@@ -42,6 +42,13 @@ type Gateway interface {
 type Surface struct {
 	// Address is the address the gateway recorded for it.
 	Address string
+	// Listener, when set, is a listener this surface already holds. A shape that
+	// answers on an address it had to take for itself — one application's own
+	// address, which is nobody's but this gateway's — binds it before offering the
+	// surface, so a surface that cannot be bound is simply not offered and nothing
+	// else is affected. A surface without one is bound here, and failing to bind it
+	// is the gateway failing to serve.
+	Listener net.Listener
 	// Bind answers on a listener that is already bound, which is where a shape
 	// says how it serves there — over TLS it terminates itself, or over what the
 	// entrance in front of it forwards. Nothing else in the deployment has to know
@@ -62,9 +69,12 @@ func Serve(gateway Gateway, log func(component, level, message string, keyValues
 	}
 	stopped := make(chan error, len(surfaces))
 	for _, surface := range surfaces {
-		listener, err := net.Listen("tcp", surface.Address)
-		if err != nil {
-			return err
+		listener := surface.Listener
+		if listener == nil {
+			listener, err = net.Listen("tcp", surface.Address)
+			if err != nil {
+				return err
+			}
 		}
 		go func(surface Surface, listener net.Listener) {
 			log("gateway", "info", "listening", "path", surface.Address)
