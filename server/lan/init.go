@@ -26,6 +26,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/jsonfile"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/secret"
+	"github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
 )
 
 var (
@@ -36,9 +37,11 @@ var (
 )
 
 const (
-	listenerName = "lan"
-	listenerPort = 58626
-	lanStateFile = "lan.json"
+	listenerName   = "lan"
+	listenerPort   = 58626
+	lanStateFile   = "lan.json"
+	nodeTunnelHost = "127.0.0.1"
+	nodeTunnelPort = 58628
 )
 
 // lanState is the LAN entrance's state: the same gateway state every entrance
@@ -55,6 +58,7 @@ type lanState struct {
 	// phone asks for. Empty means the entrance was told nothing, and then its
 	// applications listen wherever the entrance itself listens.
 	ApplicationsHost string `json:"applications_host"`
+	RequireApproval  bool   `json:"require_approval,omitempty"`
 }
 
 // lanApplication is one application of one node as this entrance serves it: the
@@ -143,6 +147,21 @@ func (state lanState) repair() (lanState, error) {
 	return state, nil
 }
 
+// ensureFRPS reserves and records an FRPS listener if one is not already present.
+func (state *lanState) ensureFRPS() error {
+	for _, l := range state.Listeners {
+		if l.Name == "frps" {
+			return nil
+		}
+	}
+	address, err := state.AllocateNodeAddress("0.0.0.0", 58630)
+	if err != nil {
+		return err
+	}
+	state.Listeners = append(state.Listeners, gatewaycore.Listener{Name: "frps", Address: address})
+	return state.Validate()
+}
+
 func (state lanState) save(root string) error {
 	return jsonfile.Write(filepath.Join(root, lanStateFile), state, 0o600)
 }
@@ -200,16 +219,32 @@ type lanInitResult struct {
 	CertificateFingerprint string `json:"certificate_fingerprint"`
 	PublicKeyPin           string `json:"public_key_pin"`
 	ApplicationsHost       string `json:"applications_host"`
+	RequireApproval        bool   `json:"require_approval,omitempty"`
+	FRPSListen             string `json:"frps_listen,omitempty"`
+	FRPSTokenFile          string `json:"frps_token_file,omitempty"`
+	TunnelCAFile           string `json:"tunnel_ca_file,omitempty"`
 }
 
 type lanNodeResult struct {
-	OK              bool   `json:"ok"`
-	State           string `json:"state"`
-	NodeID          string `json:"node_id"`
-	NodeName        string `json:"node_name"`
-	NodeAddress     string `json:"node_address"`
-	NodeBootstrap   string `json:"node_bootstrap"`
-	RestartRequired bool   `json:"restart_required"`
+	OK                      bool   `json:"ok"`
+	State                   string `json:"state"`
+	NodeID                  string `json:"node_id"`
+	NodeName                string `json:"node_name"`
+	NodeAddress             string `json:"node_address"`
+	NodeBootstrap           string `json:"node_bootstrap"`
+	TunnelMaterialDir       string `json:"tunnel_material_directory,omitempty"`
+	TunnelClientFingerprint string `json:"tunnel_client_fingerprint,omitempty"`
+	RestartRequired         bool   `json:"restart_required"`
+}
+
+type tunnelRenewResult struct {
+	OK                      bool   `json:"ok"`
+	InstallationID          string `json:"installation_id"`
+	NodeBootstrap           string `json:"node_bootstrap"`
+	TunnelCAFile            string `json:"tunnel_ca_file"`
+	TunnelMaterialDir       string `json:"tunnel_material_directory"`
+	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
+	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
 
 type lanNodeRemoveResult struct {
@@ -315,29 +350,45 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	repaired, err := state.repair()
+	preferred := map[string]int{listenerName: listenerPort}
+	if _, err := state.Address("frps"); err == nil {
+		preferred["frps"] = 58630
+	}
+	repairedShared, err := state.State.Repair(preferred)
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	listenAddress, err := repaired.listener()
+	state.State = repairedShared
+	listenAddress, err := state.listener()
 	if err != nil {
 		return lanInitResult{}, err
 	}
 	// The port is part of the origin clients dial, so moving the port moves the
 	// origin with it.
 	_, port, _ := net.SplitHostPort(listenAddress)
-	host, err := repaired.host()
+	host, err := state.host()
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	repaired.Origin = "https://" + net.JoinHostPort(host, port)
-	if err := repaired.save(root); err != nil {
+	state.Origin = "https://" + net.JoinHostPort(host, port)
+	if err := state.save(root); err != nil {
 		return lanInitResult{}, err
 	}
+	frpsListen, _ := state.Address("frps")
+	var frpsTokenFile, tunnelCAFile string
+	if frpsListen != "" {
+		frpsTokenFile = filepath.Join(root, tunnelbootstrap.FRPSTokenName)
+		tunnelCAFile = filepath.Join(root, tunnelbootstrap.TunnelCACertName)
+	}
 	return lanInitResult{
-		OK: true, InstallationID: repaired.InstallationID, ListenAddress: listenAddress,
-		Origin: repaired.Origin, CertificateFingerprint: repaired.LAN.CertificateFingerprint,
-		PublicKeyPin: devicecore.PublicKeyPin(certificate),
+		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
+		Origin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
+		PublicKeyPin:     devicecore.PublicKeyPin(certificate),
+		ApplicationsHost: state.ApplicationsHost,
+		RequireApproval:  state.RequireApproval,
+		FRPSListen:       frpsListen,
+		FRPSTokenFile:    frpsTokenFile,
+		TunnelCAFile:     tunnelCAFile,
 	}, nil
 }
 
@@ -393,19 +444,45 @@ func loadLANCertificate(root string, state lanState) (*x509.Certificate, error) 
 	return certificate, nil
 }
 
+type lanInitConfig struct {
+	requireApproval bool
+	tunnel          bool
+}
+
+// LANInitOption configures LAN initialization.
+type LANInitOption func(*lanInitConfig)
+
+// WithRequireApproval configures whether the gateway requires administrator approval
+// for newly paired devices.
+func WithRequireApproval(require bool) LANInitOption {
+	return func(c *lanInitConfig) { c.requireApproval = require }
+}
+
+// WithTunnel configures whether the gateway allocates an FRPS tunnel listener and
+// generates tunnel credentials.
+func WithTunnel(tunnel bool) LANInitOption {
+	return func(c *lanInitConfig) { c.tunnel = tunnel }
+}
+
 // reconcileLANState writes the state for an entrance that is being initialized.
 // The entrance's own identity, host and certificate are what its clients were
 // paired with, so they must be the ones already in place. Where its applications
 // listen is the operator's to change — it is an address of this machine and not
 // part of what a client was paired with — so being told one is what records it.
-func reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile string) (lanState, error) {
+func reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile string, requireApproval, tunnel bool) (lanState, error) {
 	state, err := loadLANState(root)
 	if errors.Is(err, os.ErrNotExist) {
 		// This entrance is what its clients dial, so its origin is its own host
 		// and the port it just allocated.
-		listeners, allocateErr := gatewaycore.AllocateListeners([]gatewaycore.ListenerPreference{
+		preferences := []gatewaycore.ListenerPreference{
 			{Name: listenerName, Host: "0.0.0.0", PreferredPort: listenerPort},
-		})
+		}
+		if tunnel {
+			preferences = append(preferences, gatewaycore.ListenerPreference{
+				Name: "frps", Host: "0.0.0.0", PreferredPort: 58630,
+			})
+		}
+		listeners, allocateErr := gatewaycore.AllocateListeners(preferences)
 		if allocateErr != nil {
 			return lanState{}, allocateErr
 		}
@@ -418,22 +495,45 @@ func reconcileLANState(root, host, applicationsHost, installationID, fingerprint
 		if stateErr != nil {
 			return lanState{}, stateErr
 		}
-		state = lanState{State: shared, LAN: lanCertificate{
-			CertificateFingerprint: fingerprint, CertificateFile: certificateFile, PrivateKeyFile: keyFile,
-		}, Applications: []lanApplication{}}
+		state = lanState{
+			State: shared,
+			LAN: lanCertificate{
+				CertificateFingerprint: fingerprint, CertificateFile: certificateFile, PrivateKeyFile: keyFile,
+			},
+			Applications:    []lanApplication{},
+			RequireApproval: requireApproval,
+		}
 	} else if err != nil {
 		return lanState{}, err
 	} else if existingHost, hostErr := state.host(); hostErr != nil || existingHost != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
 		return lanState{}, errors.New("existing LAN state does not match host or certificate")
+	} else {
+		if requireApproval {
+			state.RequireApproval = true
+		}
+		if tunnel {
+			if err := state.ensureFRPS(); err != nil {
+				return lanState{}, err
+			}
+		}
 	}
 	state.ApplicationsHost = applicationsHost
+	if tunnel {
+		if _, err := tunnelbootstrap.EnsureGatewayMaterial(root, installationID); err != nil {
+			return lanState{}, err
+		}
+	}
 	if err := jsonfile.Write(filepath.Join(root, lanStateFile), state, 0o600); err != nil {
 		return lanState{}, err
 	}
 	return state, nil
 }
 
-func initializeLAN(root, host, applicationsHost string, validDays int) (lanInitResult, error) {
+func initializeLAN(root, host, applicationsHost string, validDays int, opts ...LANInitOption) (lanInitResult, error) {
+	config := lanInitConfig{}
+	for _, opt := range opts {
+		opt(&config)
+	}
 	host = strings.TrimSpace(host)
 	applicationsHost = strings.TrimSpace(applicationsHost)
 	if !validLANHost(host) {
@@ -490,7 +590,7 @@ func initializeLAN(root, host, applicationsHost string, validDays int) (lanInitR
 		return lanInitResult{}, err
 	}
 	fingerprint := devicecore.CertificateFingerprint(certificate)
-	state, err := reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile)
+	state, err := reconcileLANState(root, host, applicationsHost, installationID, fingerprint, certificateFile, keyFile, config.requireApproval, config.tunnel)
 	if err != nil {
 		if createdCertificate {
 			_ = os.Remove(filepath.Join(root, certificateFile))
@@ -506,12 +606,22 @@ func initializeLAN(root, host, applicationsHost string, validDays int) (lanInitR
 	if err != nil {
 		return lanInitResult{}, err
 	}
+	frpsListen, _ := state.Address("frps")
+	var frpsTokenFile, tunnelCAFile string
+	if frpsListen != "" {
+		frpsTokenFile = filepath.Join(root, tunnelbootstrap.FRPSTokenName)
+		tunnelCAFile = filepath.Join(root, tunnelbootstrap.TunnelCACertName)
+	}
 	return lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, Origin: state.Origin,
 		CertificateFingerprint: state.LAN.CertificateFingerprint, PublicKeyPin: devicecore.PublicKeyPin(certificate),
 		// The address the applications listen on as it now stands, which is the
 		// wildcard address until an operator says otherwise.
 		ApplicationsHost: applicationsListen,
+		RequireApproval:  state.RequireApproval,
+		FRPSListen:       frpsListen,
+		FRPSTokenFile:    frpsTokenFile,
+		TunnelCAFile:     tunnelCAFile,
 	}, nil
 }
 
@@ -530,24 +640,80 @@ func addLANNode(root, name, nodeID, nodeAddress, bootstrapDir string) (lanNodeRe
 	if !gatewaycore.ValidNodeName(name) {
 		return lanNodeResult{}, errors.New("invalid node name")
 	}
-	if !netaddr.ValidUnicast(nodeAddress) {
-		return lanNodeResult{}, errors.New("invalid node address")
-	}
 	state, err := loadLANState(root)
 	if err != nil {
 		return lanNodeResult{}, err
 	}
-	added, err := gatewaycore.DeliverNode(root, state.State, gatewaycore.Node{ID: nodeID, Name: name, Address: nodeAddress}, bootstrapDir)
-	if err != nil {
-		return lanNodeResult{}, err
+
+	var tunnelMaterialDir, tunnelFingerprint string
+	if nodeAddress != "" {
+		if !netaddr.ValidUnicast(nodeAddress) {
+			return lanNodeResult{}, errors.New("invalid node address")
+		}
+		added, err := gatewaycore.DeliverNode(root, state.State, gatewaycore.Node{ID: nodeID, Name: name, Address: nodeAddress}, bootstrapDir)
+		if err != nil {
+			return lanNodeResult{}, err
+		}
+		state.State = added
+	} else {
+		if err := state.ensureFRPS(); err != nil {
+			return lanNodeResult{}, err
+		}
+		material, err := tunnelbootstrap.EnsureGatewayMaterial(root, state.InstallationID)
+		if err != nil {
+			return lanNodeResult{}, err
+		}
+		address := ""
+		if existing, ok := state.FindNode(nodeID); ok {
+			address = existing.Address
+		} else if address, err = state.AllocateNodeAddress(nodeTunnelHost, nodeTunnelPort); err != nil {
+			return lanNodeResult{}, err
+		}
+		nodeAddress = address
+		added, err := gatewaycore.DeliverNode(root, state.State, gatewaycore.Node{ID: nodeID, Name: name, Address: nodeAddress}, bootstrapDir)
+		if err != nil {
+			return lanNodeResult{}, err
+		}
+		tunnel, err := tunnelbootstrap.EnsureTunnelMaterial(bootstrapDir, material)
+		if err != nil {
+			return lanNodeResult{}, err
+		}
+		tunnelMaterialDir = tunnel.Directory
+		tunnelFingerprint = tunnel.Fingerprint
+		state.State = added
 	}
-	state.State = added
+
 	if err := state.save(root); err != nil {
 		return lanNodeResult{}, err
 	}
 	return lanNodeResult{
 		OK: true, State: root, NodeID: nodeID, NodeName: name, NodeAddress: nodeAddress,
-		NodeBootstrap: filepath.Clean(bootstrapDir), RestartRequired: true,
+		NodeBootstrap: filepath.Clean(bootstrapDir), TunnelMaterialDir: tunnelMaterialDir,
+		TunnelClientFingerprint: tunnelFingerprint, RestartRequired: true,
+	}, nil
+}
+
+func renewLANTunnelIdentity(root, nodeBootstrap string) (tunnelRenewResult, error) {
+	if !filepath.IsAbs(nodeBootstrap) {
+		return tunnelRenewResult{}, errors.New("node bootstrap path must be absolute")
+	}
+	state, err := loadLANState(root)
+	if err != nil {
+		return tunnelRenewResult{}, err
+	}
+	material, err := tunnelbootstrap.EnsureGatewayMaterial(root, state.InstallationID)
+	if err != nil {
+		return tunnelRenewResult{}, err
+	}
+	tunnel, err := tunnelbootstrap.RenewTunnelMaterial(nodeBootstrap, material)
+	if err != nil {
+		return tunnelRenewResult{}, err
+	}
+	return tunnelRenewResult{
+		OK: true, InstallationID: state.InstallationID,
+		NodeBootstrap: filepath.Clean(nodeBootstrap), TunnelCAFile: material.CACertFile,
+		TunnelIssuerDN:    material.CACertificate.Subject.String(),
+		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
 	}, nil
 }
 
@@ -639,7 +805,7 @@ func runLANNode(parts []string, output io.Writer) error {
 	}
 	switch parts[0] {
 	case "add":
-		if *name == "" || *nodeID == "" || *nodeAddress == "" || *bootstrapDir == "" {
+		if *name == "" || *nodeID == "" || *bootstrapDir == "" {
 			return errors.New("invalid node add arguments")
 		}
 		result, err := addLANNode(*state, *name, *nodeID, *nodeAddress, *bootstrapDir)
@@ -740,10 +906,34 @@ func runLANInit(parts []string, output io.Writer) error {
 	host := flags.String("host", "", "")
 	applicationsHost := flags.String("applications-host", "", "")
 	validDays := flags.Int("valid-days", 825, "")
+	requireApproval := flags.Bool("require-approval", false, "")
+	tunnel := flags.Bool("tunnel", false, "")
 	if flags.Parse(parts) != nil || flags.NArg() != 0 {
 		return errors.New("invalid init arguments")
 	}
-	result, err := initializeLAN(*state, *host, *applicationsHost, *validDays)
+	opts := []LANInitOption{}
+	if *requireApproval {
+		opts = append(opts, WithRequireApproval(true))
+	}
+	if *tunnel {
+		opts = append(opts, WithTunnel(true))
+	}
+	result, err := initializeLAN(*state, *host, *applicationsHost, *validDays, opts...)
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(result)
+}
+
+func runLANTunnelRenew(parts []string, output io.Writer) error {
+	flags := flag.NewFlagSet("tunnel renew", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	state := flags.String("state", "", "")
+	nodeBootstrap := flags.String("node-bootstrap", "", "")
+	if flags.Parse(parts) != nil || flags.NArg() != 0 || *state == "" || *nodeBootstrap == "" {
+		return errors.New("invalid tunnel renew arguments")
+	}
+	result, err := renewLANTunnelIdentity(*state, *nodeBootstrap)
 	if err != nil {
 		return err
 	}

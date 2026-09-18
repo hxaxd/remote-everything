@@ -42,11 +42,11 @@ type lanHarness struct {
 	nodeRequests map[string][]string
 }
 
-func startLANEntrance(t *testing.T) *lanHarness {
+func startLANEntrance(t *testing.T, opts ...LANInitOption) *lanHarness {
 	t.Helper()
 	harness := &lanHarness{nodeRequests: map[string][]string{}}
 	root := t.TempDir()
-	if _, err := initializeLAN(root, "127.0.0.1", "", 30); err != nil {
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30, opts...); err != nil {
 		t.Fatal(err)
 	}
 	// Each node is a machine of its own, at the address this entrance records for
@@ -184,11 +184,16 @@ func (harness *lanHarness) request(credential *tls.Certificate, origin, method, 
 	return response, contents, nil
 }
 
-// A LAN invitation is handed over in person, so redeeming it is the whole
-// admission and there is no operator step for this shape.
-func (harness *lanHarness) ApprovesInline() bool { return true }
+func (harness *lanHarness) ApprovesInline() bool { return !harness.service.state.RequireApproval }
 
-func (harness *lanHarness) Approve(string) error { return nil }
+func (harness *lanHarness) Approve(fingerprint string) error {
+	var out bytes.Buffer
+	return harness.service.trust.RunCLI([]string{"approve", fingerprint}, &out)
+}
+
+func TestLANEntranceBehaviourWithRequireApproval(t *testing.T) {
+	entrancetest.Run(t, startLANEntrance(t, WithRequireApproval(true)))
+}
 
 func (harness *lanHarness) NodeSaw(nodeID string) []string {
 	harness.mutex.Lock()

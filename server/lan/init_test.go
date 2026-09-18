@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net"
 	"net/url"
 	"os"
@@ -470,5 +471,101 @@ func TestLANApplicationsListenWhereTheEntranceWasTold(t *testing.T) {
 	refused := t.TempDir()
 	if _, err := initializeLAN(refused, "127.0.0.1", "gateway.example.com", 30); err == nil {
 		t.Fatal("a name was accepted as the address applications listen on")
+	}
+}
+
+func TestLANInitOptions_RequireApprovalAndTunnel(t *testing.T) {
+	root := t.TempDir()
+	res, err := initializeLAN(root, "127.0.0.1", "", 30, WithRequireApproval(true), WithTunnel(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.RequireApproval {
+		t.Fatal("expected RequireApproval to be true")
+	}
+	if res.FRPSListen == "" || res.FRPSTokenFile == "" || res.TunnelCAFile == "" {
+		t.Fatalf("expected tunnel files to be populated: %+v", res)
+	}
+	if _, err := os.Stat(res.FRPSTokenFile); err != nil {
+		t.Fatalf("FRPS token file not written: %v", err)
+	}
+	if _, err := os.Stat(res.TunnelCAFile); err != nil {
+		t.Fatalf("Tunnel CA file not written: %v", err)
+	}
+
+	rootCLI := t.TempDir()
+	var out bytes.Buffer
+	if err := runLANInit([]string{"--state", rootCLI, "--host", "127.0.0.1", "--require-approval", "--tunnel"}, &out); err != nil {
+		t.Fatalf("runLANInit failed: %v", err)
+	}
+	var cliRes lanInitResult
+	if err := json.Unmarshal(out.Bytes(), &cliRes); err != nil {
+		t.Fatal(err)
+	}
+	if !cliRes.RequireApproval || cliRes.FRPSListen == "" {
+		t.Fatalf("CLI result did not reflect flags: %+v", cliRes)
+	}
+}
+
+func TestLANTunnelNodeAddAndRenew(t *testing.T) {
+	root := t.TempDir()
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30, WithTunnel(true)); err != nil {
+		t.Fatal(err)
+	}
+	nodeID := strings.Repeat("a", 64)
+	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
+	nodeRes, err := addLANNode(root, "TunnelDesk", nodeID, "", bootstrapDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nodeRes.OK || nodeRes.NodeAddress != "127.0.0.1:58628" {
+		t.Fatalf("unexpected nodeRes: %+v", nodeRes)
+	}
+	if nodeRes.TunnelMaterialDir == "" || nodeRes.TunnelClientFingerprint == "" {
+		t.Fatalf("expected tunnel material in result: %+v", nodeRes)
+	}
+	for _, file := range []string{"bootstrap.json", "control-token"} {
+		if _, err := os.Stat(filepath.Join(bootstrapDir, file)); err != nil {
+			t.Fatalf("missing expected bootstrap file %q: %v", file, err)
+		}
+	}
+	for _, file := range []string{"tunnel-client.crt.pem", "tunnel-client.key.pem", "frps-token"} {
+		if _, err := os.Stat(filepath.Join(nodeRes.TunnelMaterialDir, file)); err != nil {
+			t.Fatalf("missing expected tunnel material file %q: %v", file, err)
+		}
+	}
+
+	renewRes, err := renewLANTunnelIdentity(root, bootstrapDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !renewRes.OK || renewRes.TunnelClientFingerprint == nodeRes.TunnelClientFingerprint {
+		t.Fatalf("expected renewed fingerprint: %+v", renewRes)
+	}
+
+	var cliOut bytes.Buffer
+	nodeID2 := strings.Repeat("b", 64)
+	bootstrapDir2 := filepath.Join(t.TempDir(), "bootstrap2")
+	if err := runLANNode([]string{"add", "--state", root, "--name", "Desk2", "--node-id", nodeID2, "--node-bootstrap", bootstrapDir2}, &cliOut); err != nil {
+		t.Fatalf("runLANNode without address failed: %v", err)
+	}
+	var cliNodeRes lanNodeResult
+	if err := json.Unmarshal(cliOut.Bytes(), &cliNodeRes); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cliNodeRes.NodeAddress, "127.0.0.1:") || cliNodeRes.NodeAddress == nodeRes.NodeAddress {
+		t.Fatalf("expected distinct loopback address, got %q (first was %q)", cliNodeRes.NodeAddress, nodeRes.NodeAddress)
+	}
+
+	var renewOut bytes.Buffer
+	if err := runLANTunnelRenew([]string{"--state", root, "--node-bootstrap", bootstrapDir2}, &renewOut); err != nil {
+		t.Fatalf("runLANTunnelRenew failed: %v", err)
+	}
+	var cliRenewRes tunnelRenewResult
+	if err := json.Unmarshal(renewOut.Bytes(), &cliRenewRes); err != nil {
+		t.Fatal(err)
+	}
+	if !cliRenewRes.OK || cliRenewRes.TunnelClientFingerprint == "" {
+		t.Fatalf("unexpected cli renew result: %+v", cliRenewRes)
 	}
 }

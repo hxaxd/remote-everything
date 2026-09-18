@@ -15,15 +15,17 @@
 ## LAN：Windows、Linux、macOS
 
 ```text
-remote-everything-lan-server init --state PATH --host HOST [--valid-days DAYS]
-remote-everything-lan-server node add --state PATH --name NAME --node-id NODE_ID --node-address HOST:PORT --node-bootstrap ABSOLUTE_PATH
+remote-everything-lan-server init --state PATH --host HOST [--valid-days DAYS] [--applications-host HOST] [--require-approval] [--tunnel]
+remote-everything-lan-server node add --state PATH --name NAME --node-id NODE_ID [--node-address HOST:PORT] --node-bootstrap ABSOLUTE_PATH
 remote-everything-lan-server node list --state PATH
 remote-everything-lan-server node remove --state PATH --node NODE
 remote-everything-lan-server node token renew --state PATH --node NODE --node-bootstrap ABSOLUTE_PATH
+remote-everything-lan-server tunnel renew --state PATH --node-bootstrap ABSOLUTE_PATH
 remote-everything-lan-server certificate renew --state PATH [--valid-days DAYS]
 remote-everything-lan-server ports repair --state PATH
 remote-everything-lan-server serve --state PATH
 remote-everything-lan-server device --state PATH list
+remote-everything-lan-server device --state PATH approve FINGERPRINT
 remote-everything-lan-server device --state PATH invite --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH]
 remote-everything-lan-server device --state PATH renew --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT
 remote-everything-lan-server device --state PATH grant --node NODE FINGERPRINT
@@ -32,13 +34,13 @@ remote-everything-lan-server device --state PATH invitation list
 remote-everything-lan-server device --state PATH invitation cancel TOKEN_HASH
 ```
 
-LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`lan.json`、入口自己的服务器证书、设备 CA、设备记录、每台节点的控制令牌都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin。`--applications-host` 决定应用监听在哪个地址上：不写就跟随入口自己的监听地址，写 `0.0.0.0` 就是每个接口都听（例如你想在这台机器上直接开这些应用），写某个具体地址就只听那里。它不影响客户端拨的地址——那始终是 `--host` 加端口（客户端就拨这个地址，所以它必须与证书覆盖的主机一致）。`node add` 把一台机器记成这个入口的节点，并把它要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到那台机器执行 `binding add --bootstrap`，绑定才成立。`--node-id` 是那台机器 `init` 输出的 `node_id`，`--node-address` 是入口拨号用的地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`origin`、`applications_host`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：终端发出的每一个请求都落在信任层上，只有兑换邀请那一个不需要凭据，其余（含应用流量）都只对已批准设备开放——客户端在 WebView 里出示同一张证书；控制面的请求用节点头说明要哪台，应用流量则去应用自己的 origin（哪个应用由 origin 说了算，网关在转发给节点时自己写上路由 cookie）。两种形态因此只差 TLS 在哪终止。
+LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内（或通过隧道穿透）。`--state` 是入口自己的状态目录（`lan.json`、入口自己的服务器证书、设备 CA、设备记录、每台节点的控制令牌都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin。`--applications-host` 决定应用监听在哪个地址上：不写就跟随入口自己的监听地址，写 `0.0.0.0` 就是每个接口都听（例如你想在这台机器上直接开这些应用），写某个具体地址就只听那里。`--require-approval` 开启设备人工审批模式（开启后设备配对处于 pending，须由操作者执行 `device approve` 后方可激活；默认关闭，即扫码兑换即激活）。`--tunnel` 为 LAN 网关开辟内置 FRPS 隧道监听与 CA 凭证。`node add` 把一台机器记成这个入口的节点：如果指定 `--node-address HOST:PORT`，入口直连该局域网地址；如果省略 `--node-address`，入口自动分配本地回环端口并通过内置 FRPS 穿透，在 `--node-bootstrap` 目录下输出 `bootstrap.json`、`control-token` 与 `frpc/` 隧道证书。由 Agent 把该目录送到那台机器执行 `binding add --bootstrap`，绑定才成立。`tunnel renew` 用于轮换某台节点的客户端隧道证书。`init` 输出 `installation_id`、`listen_address`、`origin`、`applications_host`、证书 SHA-256 指纹与公钥摘要（若开启 `--tunnel` 还会输出 `frps_listen`、`frps_token_file` 和 `tunnel_ca_file`），不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书。
 
 LAN 的应用**各占一个端口**：第一次 `open` 某个应用时入口让系统分配一个端口、立即监听、并把 `(节点, 应用) → 端口` 写进 `lan.json`，之后这个应用就一直在这个 origin 上（重启时按记录重新监听；端口被别人占了就丢掉这条记录，下次 `open` 重新分配一个）。一个证书覆盖入口的所有端口（客户端钉的是证书，不是 origin），每个端口后面的信任层与入口自身一致。`/__remote_everything/open` 还是控制面上带着节点头的那一个请求；端口只是把结果落到实处。
 
 一台节点换地址后，重新执行一次 `node add` 指到新地址即可：节点按 `node_id` 原地更新，入口身份与证书都沿用现有的，客户端无需重新配对。加一台新节点同理，只是加完要重启入口才会服务它。
 
-LAN 的邀请是操作者当面交出去的，兑换即批准，没有需要人工确认的一步；`device approve` 在 LAN 上没有意义（这条命令会被明确拒绝，而不是报一个找不到待批准设备）。邀请是**给一台节点开门**的：兑换它就把那台节点记到该设备名下，设备随后只能进这些节点；再给同一台设备开另一台节点的门，用 `device grant --node` 追加，不需要重新扫码。续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；客户端钉的正是这张证书，所以必须重新执行一次 `device invite`，让它扫新载荷、以相同 `installation_id` 原子替换该 Profile 的指纹，不新建实例。入口端口即客户端 Profile 的 origin：`ports repair` 改变端口后原 Profile 全部失效，同样要重新发一次邀请。
+LAN 默认的邀请是操作者当面交出去的，兑换即批准，没有需要人工确认的一步；若在 `init` 时指定了 `--require-approval`，则兑换后处于待批准状态，必须执行 `device approve` 批准设备后方可激活。邀请是**给一台节点开门**的：兑换它就把那台节点记到该设备名下，设备随后只能进这些节点；再给同一台设备开另一台节点的门，用 `device grant --node` 追加，不需要重新扫码。续期时先停 LAN 入口，执行 `certificate renew` 写入新的版本化证书/私钥并原子切换 `lan.json` 引用，再启动入口并验证；客户端钉的正是这张证书，所以必须重新执行一次 `device invite`，让它扫新载荷、以相同 `installation_id` 原子替换该 Profile 的指纹，不新建实例。入口端口即客户端 Profile 的 origin：`ports repair` 改变端口后原 Profile 全部失效，同样要重新发一次邀请。
 
 ## public：仅 Linux
 
