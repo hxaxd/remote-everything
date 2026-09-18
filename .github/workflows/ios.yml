@@ -1,0 +1,87 @@
+name: iOS
+
+# Its own workflow because the macOS runner is the expensive one: an Android or
+# HarmonyOS change should not boot a simulator. Within it, a pull request builds
+# and tests, while the static analyzer — a second full pass over the same code —
+# waits for main.
+on:
+  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ios/**'
+      - 'clients/release.json'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'clients/release.json'
+      - '.github/workflows/ios.yml'
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ios:
+    name: iOS build and test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        working-directory: clients/ios
+        run: xcodegen generate
+      # A simulator build from scratch is most of this job's minutes; the
+      # derived data from the last run is what makes the next one quick.
+      - name: Restore the build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/derived-data
+          key: ios-derived-${{ hashFiles('clients/ios/**') }}
+          restore-keys: |
+            ios-derived-
+      - name: Select an available simulator
+        id: simulator
+        shell: bash
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          groups = json.load(sys.stdin)["devices"]
+          candidates = []
+          for runtime, devices in groups.items():
+              match = re.search(r"\.iOS-(\d+)-(\d+)", runtime)
+              if not match:
+                  continue
+              version = tuple(map(int, match.groups()))
+              for device in devices:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone") and "SE" not in device["name"]:
+                      candidates.append((version, device["name"], device["udid"]))
+          if not candidates:
+              raise SystemExit("no available iPhone simulator")
+          print(sorted(candidates)[-1][2])
+          ')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+      - name: Build and run unit tests
+        working-directory: clients/ios
+        run: |
+          xcodebuild test \
+            -project RemoteEverything.xcodeproj \
+            -scheme RemoteEverything \
+            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/derived-data" \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Run Xcode static analyzer
+        if: github.event_name != 'pull_request'
+        working-directory: clients/ios
+        run: |
+          xcodebuild analyze \
+            -project RemoteEverything.xcodeproj \
+            -scheme RemoteEverything \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/derived-data" \
+            CODE_SIGNING_ALLOWED=NO
