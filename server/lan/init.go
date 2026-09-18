@@ -47,7 +47,27 @@ const (
 // the nodes it serves are separate services that may well be separate machines.
 type lanState struct {
 	gatewaycore.State
-	LAN lanCertificate `json:"lan"`
+	LAN          lanCertificate   `json:"lan"`
+	Applications []lanApplication `json:"applications"`
+}
+
+// lanApplication is one application of one node as this entrance serves it: the
+// port it answers on, which together with the host this entrance recorded is the
+// whole of that application's origin. The port is recorded here rather than
+// derived, because an application's origin is where a browser keeps everything it
+// remembers about that application: an origin that moved between restarts would
+// leave that behind, and the application would come back to itself empty.
+type lanApplication struct {
+	NodeID string `json:"node_id"`
+	AppID  string `json:"app_id"`
+	Port   int    `json:"port"`
+}
+
+// validPort is the shape of a port an application is served on: one this project
+// allocates from, because a port below that is one an unprivileged process cannot
+// hold in the first place.
+func validPort(port int) bool {
+	return port >= 1024 && port <= 65535
 }
 
 // lanCertificate is the half of the state that is LAN-specific: the TLS identity
@@ -123,6 +143,24 @@ func (state lanState) validate() error {
 		state.LAN.CertificateFile != expectedCertificate || state.LAN.PrivateKeyFile != expectedKey ||
 		!validLANCertificateFile.MatchString(state.LAN.CertificateFile) || !validLANKeyFile.MatchString(state.LAN.PrivateKeyFile) {
 		return errors.New("invalid LAN state")
+	}
+	// Each application is served on a port of its own, for a node this entrance
+	// serves: two entries sharing a port would answer for each other, and an origin
+	// for a node that is gone reaches nothing. Whether a node still runs an
+	// application is not this state's to say — that belongs to that node, and this
+	// entrance serves what it was opened for.
+	seenApplications := map[string]bool{}
+	seenApplicationPorts := map[int]bool{}
+	for _, application := range state.Applications {
+		if !validSHA256.MatchString(application.NodeID) || !gatewaycore.ValidAppID(application.AppID) || !validPort(application.Port) ||
+			seenApplications[application.key()] || seenApplicationPorts[application.Port] {
+			return errors.New("invalid LAN state")
+		}
+		if _, ok := state.FindNode(application.NodeID); !ok {
+			return errors.New("invalid LAN state")
+		}
+		seenApplications[application.key()] = true
+		seenApplicationPorts[application.Port] = true
 	}
 	return nil
 }
@@ -352,7 +390,7 @@ func reconcileLANState(root, host, installationID, fingerprint, certificateFile,
 		}
 		state = lanState{State: shared, LAN: lanCertificate{
 			CertificateFingerprint: fingerprint, CertificateFile: certificateFile, PrivateKeyFile: keyFile,
-		}}
+		}, Applications: []lanApplication{}}
 	} else if err != nil {
 		return lanState{}, err
 	} else if existingHost, hostErr := state.host(); hostErr != nil || existingHost != host || state.LAN.CertificateFingerprint != fingerprint || state.LAN.CertificateFile != certificateFile || state.LAN.PrivateKeyFile != keyFile {
@@ -475,7 +513,10 @@ func addLANNode(root, name, nodeID, nodeAddress, bootstrapDir string) (lanNodeRe
 // removeLANNode takes a node out of this entrance: it stops serving it, it stops
 // reaching it, and nothing a device holds says it may reach it any more. What is
 // left on that machine — the binding it imported — is the operator's to take down,
-// and this entrance no longer has anything pointing at it.
+// and this entrance no longer has anything pointing at it. The origins its
+// applications were served at go with it: a node this entrance does not serve has
+// no application this entrance serves, and a mapping kept for one would be a state
+// file that describes less than it did.
 func removeLANNode(root, nodeValue string) (lanNodeRemoveResult, error) {
 	service, err := openLANService(root)
 	if err != nil {
@@ -493,6 +534,7 @@ func removeLANNode(root, nodeValue string) (lanNodeRemoveResult, error) {
 	// once, and what is left behind by a failure — a device's list, a token file —
 	// reaches nothing.
 	service.state.State = reduced
+	service.state.Applications = withoutApplicationsOf(service.state.Applications, node.ID)
 	if err := service.state.save(root); err != nil {
 		return lanNodeRemoveResult{}, err
 	}

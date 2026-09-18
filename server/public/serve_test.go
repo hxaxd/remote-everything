@@ -16,6 +16,8 @@ import (
 	"github.com/hxaxd/remote-everything/internal/devicecore"
 	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/entrancetest"
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
 
 // A public entrance is a gateway shape, and the same behaviour suite drives it:
@@ -40,12 +42,61 @@ func TestPublicEntranceAnswersPairingOnItsOwnSurface(t *testing.T) {
 	}
 }
 
+// The host a request arrives on is what tells the three things apart that the
+// entrance in front of this gateway forwards: the protocol, one application of one
+// node, and the permission that entrance asks before it issues a certificate for
+// one more application host. Everything else this gateway does not serve.
+func TestPublicEntranceTellsRequestsApartByHost(t *testing.T) {
+	harness := startPublicEntrance(t)
+	nodes := harness.service.State().Nodes
+	applicationHost := func(node gatewaycore.Node, appID string) string {
+		t.Helper()
+		host, err := gatewaycore.AppHost(node.ID, appID, harness.host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return host
+	}
+	// The entrance asks in its own name and without a credential of its own, on the
+	// address it forwards to rather than on a host.
+	ask := func(domain string) (int, string, error) {
+		return harness.Dial(nil, http.MethodGet, "/__remote_everything_tls_ask?domain="+domain, nil, nil)
+	}
+	if status, body, err := ask(applicationHost(nodes[0], entrancetest.AppID)); err != nil || status != http.StatusOK {
+		t.Fatalf("an application host was not allowed a certificate: %d %s %v", status, body, err)
+	}
+	// Every node this gateway serves has hostnames of its own, and one of them is
+	// not the other.
+	if status, body, err := ask(applicationHost(nodes[1], entrancetest.AppID)); err != nil || status != http.StatusOK {
+		t.Fatalf("an application host of another node was not allowed a certificate: %d %s %v", status, body, err)
+	}
+	for _, refused := range []string{
+		applicationHost(nodes[0], "missing"),                     // an application the node does not run
+		"editor." + nodes[0].ID[:8] + ".other.example.com",       // another gateway's domain
+		"editor." + strings.Repeat("99", 4) + "." + harness.host, // a node this gateway does not serve
+		harness.host, // the gateway's own host
+	} {
+		if status, _, err := ask(refused); err != nil || status != http.StatusForbidden {
+			t.Fatalf("%s was allowed a certificate: %d %v", refused, status, err)
+		}
+	}
+	// A host that is none of the three is not answered as one of them, and neither
+	// is an application host naming a node this gateway does not serve.
+	for _, unknown := range []string{"elsewhere.example.com", "editor." + strings.Repeat("99", 4) + "." + harness.host} {
+		response, body, err := harness.request(nil, harness.status, unknown, http.MethodGet, "/", nil, nil)
+		if err != nil || response.StatusCode != http.StatusNotFound || !strings.Contains(string(body), `"not_found"`) {
+			t.Fatalf("%s answered %d %s (%v)", unknown, response.StatusCode, body, err)
+		}
+	}
+}
+
 // publicHarness is the public entrance as the shared suite sees it: its two
-// loopback surfaces, the fingerprint the entrance in front of it injects, and the
-// two machines behind it.
+// loopback surfaces, the host the entrance in front of it forwards requests for,
+// the fingerprint it injects, and the two machines behind it.
 type publicHarness struct {
 	service      *publicService
 	root         string
+	host         string
 	status       string
 	pairing      string
 	mutex        sync.Mutex
@@ -80,6 +131,10 @@ func startPublicEntrance(t *testing.T) *publicHarness {
 		t.Fatal(err)
 	}
 	harness.service = service
+	// The host the entrance in front of this gateway forwards is the host this
+	// gateway recorded: every request the protocol has is asked on it, and an
+	// application is reached on a host of its own under it.
+	harness.host = hostOf(service.State().Origin)
 	for index, surface := range surfaces {
 		listener, listenErr := net.Listen("tcp", "127.0.0.1:0")
 		if listenErr != nil {
@@ -118,16 +173,59 @@ func (harness *publicHarness) serveNode(t *testing.T, id, address string) {
 func (harness *publicHarness) Gateway() entrance.Gateway { return harness.service }
 
 // Dial sends one request the way this shape's clients reach it: in the clear,
-// through the entrance that authenticated them and said who they are.
+// through the entrance that authenticated them and said who they are. The
+// entrance in front of this gateway forwards the host it was asked for, which for
+// the protocol's own requests is the host this gateway recorded.
 func (harness *publicHarness) Dial(credential *tls.Certificate, method, path string, header map[string]string, body []byte) (int, string, error) {
+	// The entrance forwards the pairing endpoint to its own upstream and everything
+	// else to this one, which is the whole of how it tells them apart.
 	origin := harness.status
 	if path == "/__remote_everything_pair" {
 		origin = harness.pairing
 	}
-	request, err := http.NewRequest(method, origin+path, bytes.NewReader(body))
+	response, contents, err := harness.request(credential, origin, harness.host, method, path, header, body)
 	if err != nil {
 		return 0, "", err
 	}
+	return response.StatusCode, string(contents), nil
+}
+
+// Open asks this gateway to open one application, which is a request on the host
+// it recorded: what comes back is the application's own host, which the entrance in
+// front of it resolves and which is what has to resolve here.
+func (harness *publicHarness) Open(credential *tls.Certificate, node gatewaycore.Node, appID string) (int, string, error) {
+	header := map[string]string{proxysecurity.NodeHeader: node.ID}
+	response, _, err := harness.request(credential, harness.status, harness.host, http.MethodGet, "/__remote_everything/open/"+appID, header, nil)
+	if err != nil {
+		return 0, "", err
+	}
+	return response.StatusCode, response.Header.Get("Location"), nil
+}
+
+// DialApplication sends one request to one application's own host, which is the
+// host this gateway serves that application under: the entrance in front of it
+// issues a certificate for that host and forwards it here as it arrived.
+func (harness *publicHarness) DialApplication(credential *tls.Certificate, node gatewaycore.Node, appID, method, path string, header map[string]string, body []byte) (int, string, error) {
+	host, err := gatewaycore.AppHost(node.ID, appID, harness.host)
+	if err != nil {
+		return 0, "", err
+	}
+	response, contents, err := harness.request(credential, harness.status, host, method, path, header, body)
+	if err != nil {
+		return 0, "", err
+	}
+	return response.StatusCode, string(contents), nil
+}
+
+// request sends one request the way the entrance in front of this gateway forwards
+// one: over plain HTTP to a loopback surface, in the name of the host that was
+// asked for and with the fingerprint of the certificate the entrance verified.
+func (harness *publicHarness) request(credential *tls.Certificate, origin, host, method, path string, header map[string]string, body []byte) (*http.Response, []byte, error) {
+	request, err := http.NewRequest(method, origin+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	request.Host = host
 	for name, value := range header {
 		request.Header.Set(name, value)
 	}
@@ -137,17 +235,21 @@ func (harness *publicHarness) Dial(credential *tls.Certificate, method, path str
 	if credential != nil && len(credential.Certificate) > 0 {
 		certificate, parseErr := x509.ParseCertificate(credential.Certificate[0])
 		if parseErr != nil {
-			return 0, "", parseErr
+			return nil, nil, parseErr
 		}
 		request.Header.Set("X-Remote-Everything-Client-Fingerprint", devicecore.CertificateFingerprint(certificate))
 	}
-	response, err := http.DefaultClient.Do(request)
+	// Opening an application is answered with the application's own host, and that
+	// answer is what these requests are about: a client that followed it would be
+	// testing the application rather than the redirect.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	response, err := client.Do(request)
 	if err != nil {
-		return 0, "", err
+		return nil, nil, err
 	}
 	defer response.Body.Close()
 	contents, _ := io.ReadAll(response.Body)
-	return response.StatusCode, string(contents), nil
+	return response, contents, nil
 }
 
 // A public invitation travels over a network nobody is watching, so the operator

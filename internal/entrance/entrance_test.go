@@ -47,6 +47,8 @@ type stubNode struct{}
 
 func (stubNode) ServeNode(string, http.ResponseWriter, *http.Request) {}
 
+func (stubNode) ServeApplication(string, string, http.ResponseWriter, *http.Request) {}
+
 func (stubNode) ConnectedList(nodeID string) (json.RawMessage, bool) {
 	if _, ok := stubNodeFor(nodeID); !ok {
 		return nil, false
