@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"net"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/webclient"
 )
 
 // applicationHost is where this entrance's applications listen when nobody said:
@@ -26,9 +28,10 @@ const applicationHost = "0.0.0.0"
 // it serves, the device trust that decides which devices may reach the nodes, and
 // the gateway the trust reaches them through.
 type lanService struct {
-	root  string
-	state lanState
-	trust *devicecore.Trust
+	root       string
+	state      lanState
+	trust      *devicecore.Trust
+	webHandler *webclient.Handler
 
 	// applications is what this entrance serves at origins of its own, one
 	// application of one node per port. The ports live in the state too, because
@@ -71,6 +74,17 @@ func openLANService(root string) (*lanService, error) {
 		return nil, err
 	}
 	service.trust = trust
+
+	sessionMgr, err := webclient.NewSessionManager(root)
+	if err != nil {
+		return nil, err
+	}
+	webHandler, err := webclient.NewHandler(trust, sessionMgr)
+	if err != nil {
+		return nil, err
+	}
+	service.webHandler = webHandler
+
 	return service, nil
 }
 
@@ -102,7 +116,19 @@ func (service *lanService) Surfaces() ([]entrance.Surface, error) {
 	if err != nil {
 		return nil, err
 	}
-	server := gatewaycore.NewServer(listenAddress, devicecore.WithClientFingerprint(service.trust))
+	entranceHandler := http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if service.webHandler != nil && service.webHandler.IsWebClientRequest(request) {
+			service.webHandler.ServeHTTP(writer, request)
+			return
+		}
+		var coreHandler http.Handler = service.trust
+		if service.webHandler != nil {
+			coreHandler = service.webHandler.WithWebSession(coreHandler)
+		}
+		coreHandler = devicecore.WithClientFingerprint(coreHandler)
+		coreHandler.ServeHTTP(writer, request)
+	})
+	server := gatewaycore.NewServer(listenAddress, entranceHandler)
 	server.TLSConfig = configuration
 	surfaces := []entrance.Surface{{
 		Address: listenAddress,
@@ -157,8 +183,12 @@ func (service *lanService) applicationSurfaces(configuration *tls.Config) []entr
 // entrance terminates the TLS here too, so the certificate it verified is what
 // speaks for the device.
 func (service *lanService) applicationSurface(application lanApplication, address string, configuration *tls.Config, listener net.Listener) entrance.Surface {
-	handler := devicecore.WithClientFingerprint(service.trust.AppHandler(application.NodeID, application.AppID))
-	server := gatewaycore.NewServer(address, handler)
+	var appHandler http.Handler = service.trust.AppHandler(application.NodeID, application.AppID)
+	if service.webHandler != nil {
+		appHandler = service.webHandler.WithWebSession(appHandler)
+	}
+	appHandler = devicecore.WithClientFingerprint(appHandler)
+	server := gatewaycore.NewServer(address, appHandler)
 	server.TLSConfig = configuration
 	return entrance.Surface{
 		Address:  address,

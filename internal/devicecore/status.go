@@ -223,3 +223,72 @@ func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *htt
 	// node that was decided on, and everything from here is that node answering.
 	service.node.ServeNode(node.ID, writer, request)
 }
+
+// WebDeviceState describes the authorization state of a web device.
+type WebDeviceState struct {
+	Fingerprint string   `json:"fingerprint"`
+	DeviceName  string   `json:"device_name"`
+	Status      string   `json:"status"`
+	Nodes       []string `json:"nodes"`
+}
+
+// ActivateWebDevice checks or activates a web client device by fingerprint.
+func (service *Trust) ActivateWebDevice(fingerprint string) (WebDeviceState, string, error) {
+	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
+	if !validHex64.MatchString(fingerprint) {
+		return WebDeviceState{}, "unauthorized", errors.New("missing device fingerprint")
+	}
+	record, err := service.loadDeviceRecord(fingerprint)
+	if err != nil || record.Status == "revoked" {
+		return WebDeviceState{}, "unauthorized", errors.New("device unavailable")
+	}
+	if record.Status == "pending" {
+		expires, parseErr := parseTimestamp(record.PendingExpiresAt)
+		if parseErr != nil || !time.Now().UTC().Before(expires) {
+			return WebDeviceState{}, "invitation_expired", errors.New("pending device expired")
+		}
+		if service.approveOnRedemption {
+			if record.ApprovedAt == "" {
+				now := isoUTC(time.Now())
+				record.ApprovalRequestedAt = now
+				record.ApprovedAt = now
+				record.Status = "approved"
+				record.ActivatedAt = now
+				record.PendingExpiresAt = ""
+				if err := service.writeDeviceRecord(record); err != nil {
+					return WebDeviceState{}, "activation_failed", err
+				}
+				service.audit("web device approved by invitation", "fingerprint", fingerprint, "device_name", record.DeviceName)
+			}
+		} else {
+			if record.ApprovalRequestedAt == "" {
+				record.ApprovalRequestedAt = isoUTC(time.Now())
+				if err := service.writeDeviceRecord(record); err != nil {
+					return WebDeviceState{}, "activation_failed", err
+				}
+				service.audit("web device approval requested", "fingerprint", fingerprint, "device_name", record.DeviceName)
+			}
+			if record.ApprovedAt == "" {
+				return WebDeviceState{
+					Fingerprint: fingerprint,
+					DeviceName:  record.DeviceName,
+					Status:      "pending",
+					Nodes:       record.Nodes,
+				}, "approval_pending", errors.New("device approval pending")
+			}
+			record.Status = "approved"
+			record.ActivatedAt = isoUTC(time.Now())
+			record.PendingExpiresAt = ""
+			if err := service.writeDeviceRecord(record); err != nil {
+				return WebDeviceState{}, "activation_failed", err
+			}
+			service.audit("web device activated", "fingerprint", fingerprint, "device_name", record.DeviceName)
+		}
+	}
+	return WebDeviceState{
+		Fingerprint: fingerprint,
+		DeviceName:  record.DeviceName,
+		Status:      record.Status,
+		Nodes:       record.Nodes,
+	}, "", nil
+}
