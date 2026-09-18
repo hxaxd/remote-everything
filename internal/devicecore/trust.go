@@ -66,6 +66,10 @@ const (
 type Node interface {
 	// ServeNode answers one request for one node this gateway serves.
 	ServeNode(nodeID string, writer http.ResponseWriter, request *http.Request)
+	// ServeApplication answers one request on the origin one application of one
+	// node is served at, with the application this gateway writes into the request
+	// rather than the one the request claims.
+	ServeApplication(nodeID, appID string, writer http.ResponseWriter, request *http.Request)
 	// ConnectedList is what the node with this id runs, as that node said it. A
 	// gateway serves several, and each of them answers for itself.
 	ConnectedList(nodeID string) (json.RawMessage, bool)

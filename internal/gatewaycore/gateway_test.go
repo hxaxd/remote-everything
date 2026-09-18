@@ -137,6 +137,28 @@ func ask(gateway *Gateway, nodeID, method, target string) *httptest.ResponseReco
 	return response
 }
 
+// askApplication sends one request on an application's own origin, the way the
+// gateway is asked for one once the origin was resolved and the device's reach was
+// checked.
+func askApplication(gateway *Gateway, nodeID, appID, method, target string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(method, target, nil)
+	response := httptest.NewRecorder()
+	gateway.ServeApplication(nodeID, appID, response, request)
+	return response
+}
+
+// appHost is where one application of one node is served on the test gateway's
+// domain: what a client that opened an application is sent to, and what a request
+// on an application origin arrives with.
+func appHost(t *testing.T, index int, appID string) (string, string) {
+	t.Helper()
+	host, err := AppHost(testNodeIDs[index], appID, "gateway.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return host, "https://" + host
+}
+
 // Every request says which node it is for, and that is where it goes: a gateway
 // that answered one node's request with another's catalog, or that sent it to
 // every node, would show here.
@@ -324,33 +346,54 @@ func TestCatalogActionAndOpenContract(t *testing.T) {
 		}
 	}
 
-	response := ask(gateway, nodeID, http.MethodGet, "/__remote_everything/open/"+testApps[0])
-	if response.Code != http.StatusFound || response.Header().Get("Location") != "/" {
-		t.Fatalf("unexpected open response: %d", response.Code)
+	// Opening an application is answered with an absolute address of that
+	// application's own, and with nothing a client would carry back here: the
+	// origin says which application is being looked at, so no cookie says it.
+	host, origin := appHost(t, 0, testApps[0])
+	if host == "" || !strings.HasPrefix(origin, "https://"+testApps[0]+".") {
+		t.Fatalf("application %s is served at %q", testApps[0], origin)
 	}
-	cookies := response.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "RemoteEverythingApp" || cookies[0].Value != testApps[0] || !cookies[0].Secure || !cookies[0].HttpOnly {
-		t.Fatalf("unexpected application cookie: %#v", cookies)
+	response := ask(gateway, nodeID, http.MethodGet, "/__remote_everything/open/"+testApps[0])
+	if response.Code != http.StatusFound || response.Header().Get("Location") != origin+"/" || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("unexpected open response: %d %#v", response.Code, response.Header())
+	}
+	if cookies := response.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("opening an application set cookies: %#v", cookies)
+	}
+	// The same application comes back to the same origin however often it is
+	// opened: that is what its browser storage belongs to.
+	if again := ask(gateway, nodeID, http.MethodGet, "/__remote_everything/open/"+testApps[0]); again.Header().Get("Location") != origin+"/" {
+		t.Fatalf("opening an application twice moved it: %q", again.Header().Get("Location"))
+	}
+	// An application this node does not run is not opened at any origin.
+	if missing := ask(gateway, nodeID, http.MethodGet, "/__remote_everything/open/missing"); missing.Code != http.StatusNotFound || !strings.Contains(missing.Body.String(), `"app_not_found"`) {
+		t.Fatalf("an application that does not exist answered %d %s", missing.Code, missing.Body.String())
 	}
 	if saw := cluster.saw(1); len(saw) != 0 {
 		t.Fatalf("the other node was asked too: %v", saw)
 	}
 }
 
-func TestProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
+// An application is served at an origin of its own, which is where the gateway
+// says which application a request is for: what the client claims under the same
+// name is a choice the client made, and a client does not get to make it. The
+// application's own request and answer are otherwise untouched.
+func TestApplicationProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
 	var (
-		mutex        sync.Mutex
-		capturedHost string
+		mutex          sync.Mutex
+		capturedHost   string
+		capturedCookie string
 	)
 	gateway, cluster := newTestGateway(t, func(writer http.ResponseWriter, request *http.Request) {
 		mutex.Lock()
 		capturedHost = request.Host
+		capturedCookie = request.Header.Get("Cookie")
 		mutex.Unlock()
 		if request.URL.Path != "/room/ws" || request.URL.RawQuery != "a=1" {
 			t.Errorf("request target changed: path=%q query=%q", request.URL.Path, request.URL.RawQuery)
 		}
-		if request.Header.Get("Cookie") != "session=value" || request.Header.Get("Upgrade") != "websocket" {
-			t.Errorf("cookie or upgrade header lost")
+		if request.Header.Get("Upgrade") != "websocket" {
+			t.Errorf("upgrade header lost")
 		}
 		if request.Header.Get("Authorization") != "secret" {
 			t.Errorf("application authorization header lost")
@@ -364,27 +407,158 @@ func TestProxyPreservesRequestAndStripsInternalHeaders(t *testing.T) {
 		writer.Header().Add("Set-Cookie", "session=value; Path=/; HttpOnly")
 		WriteJSON(writer, http.StatusOK, map[string]bool{"ok": true})
 	})
-	request := httptest.NewRequest(http.MethodGet, "https://gateway.example/room/ws?a=1", nil)
-	request.Host = "gateway.example"
-	request.Header.Set("Cookie", "session=value")
+	host, origin := appHost(t, 0, testApps[0])
+	request := httptest.NewRequest(http.MethodGet, origin+"/room/ws?a=1", nil)
+	request.Host = host
+	request.Header.Set("Cookie", "session=value; RemoteEverythingApp="+testApps[1])
 	request.Header.Set("Upgrade", "websocket")
 	request.Header.Set("Connection", "Upgrade")
 	request.Header.Set("Authorization", "secret")
 	request.Header.Set(proxysecurity.ClientFingerprintHeader, "secret")
 	request.Header.Set(proxysecurity.NodeHeader, cluster.id(0))
 	response := httptest.NewRecorder()
-	gateway.ServeNode(cluster.id(0), response, request)
+	gateway.ServeApplication(cluster.id(0), testApps[0], response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("unexpected proxy response: %d %s", response.Code, response.Body.String())
 	}
 	mutex.Lock()
 	defer mutex.Unlock()
-	if capturedHost != "gateway.example" {
-		t.Errorf("upstream Host should preserve the public entrance host, got %q", capturedHost)
+	if capturedHost != host {
+		t.Errorf("upstream Host should preserve the application origin host, got %q", capturedHost)
+	}
+	if !strings.Contains(capturedCookie, "session=value") || !strings.Contains(capturedCookie, proxysecurity.RoutingCookieName+"="+testApps[0]) {
+		t.Errorf("the node was told %q", capturedCookie)
+	}
+	if strings.Contains(capturedCookie, testApps[1]) {
+		t.Errorf("the application the client claimed was passed on: %q", capturedCookie)
 	}
 	cookies := response.Header().Values("Set-Cookie")
 	if len(cookies) != 1 || !strings.HasPrefix(cookies[0], "session=value") {
 		t.Fatalf("application could overwrite routing cookie or its own cookie was lost: %#v", cookies)
+	}
+}
+
+// An application path on the control origin is not served there: application
+// traffic belongs to the application's own origin, and the control origin carries
+// the protocol and nothing else.
+func TestTheControlOriginServesNoApplication(t *testing.T) {
+	gateway, cluster := newTestGateway(t, nil)
+	for _, path := range []string{"/", "/editor/", "/room/ws"} {
+		response := ask(gateway, cluster.id(0), http.MethodGet, path)
+		if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"not_found"`) {
+			t.Fatalf("%s on the control origin answered %d %s", path, response.Code, response.Body.String())
+		}
+	}
+	for index := range cluster.nodes {
+		if saw := cluster.saw(index); len(saw) != 0 {
+			t.Fatalf("node %d answered a request on the control origin: %v", index, saw)
+		}
+	}
+}
+
+// A node's control plane is the gateway's own way in, and the protocol's paths are
+// the protocol's: an origin that serves an application serves that application and
+// nothing else, whatever the node behind it would answer.
+func TestAnApplicationOriginServesNothingElse(t *testing.T) {
+	gateway, cluster := newTestGateway(t, nil)
+	_, origin := appHost(t, 0, testApps[0])
+	for _, asked := range []struct {
+		path string
+		code int
+		body string
+	}{
+		{proxysecurity.ControlPath, http.StatusForbidden, `"forbidden"`},
+		{"/%5f%5flocal_remote_control", http.StatusForbidden, `"forbidden"`},
+		{"/__remote_everything/nodes", http.StatusNotFound, `"not_found"`},
+		{"/__remote_everything/apps", http.StatusNotFound, `"not_found"`},
+	} {
+		request := httptest.NewRequest(http.MethodGet, origin+asked.path, nil)
+		response := httptest.NewRecorder()
+		gateway.ServeApplication(cluster.id(0), testApps[0], response, request)
+		if response.Code != asked.code || !strings.Contains(response.Body.String(), asked.body) {
+			t.Fatalf("%s on an application origin answered %d %s", asked.path, response.Code, response.Body.String())
+		}
+	}
+	// An application origin of a node this gateway does not serve, and one that
+	// names an application that is not an id at all, have nothing to route.
+	if response := askApplication(gateway, strings.Repeat("ee", 32), testApps[0], http.MethodGet, origin+"/"); response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"node_not_found"`) {
+		t.Fatalf("an application origin of an unknown node answered %d %s", response.Code, response.Body.String())
+	}
+	if response := askApplication(gateway, cluster.id(0), "Not An Id", http.MethodGet, origin+"/"); response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"app_not_found"`) {
+		t.Fatalf("an application origin naming no application answered %d %s", response.Code, response.Body.String())
+	}
+	for index := range cluster.nodes {
+		if saw := cluster.saw(index); len(saw) != 0 {
+			t.Fatalf("node %d answered a request it was not asked: %v", index, saw)
+		}
+	}
+}
+
+// Which origin an application is served at is the shape's to say, and what it says
+// is what a client is sent to: an entrance that serves its applications somewhere
+// else tells the gateway so rather than the gateway guessing.
+func TestOpeningAnApplicationAnswersWhereTheShapeServesIt(t *testing.T) {
+	gateway, cluster := newTestGateway(t, nil)
+	gateway.SetAppAddressing(stubAddressing{origin: "https://192.0.2.10:41000"})
+	response := ask(gateway, cluster.id(0), http.MethodGet, "/__remote_everything/open/"+testApps[0])
+	if response.Code != http.StatusFound || response.Header().Get("Location") != "https://192.0.2.10:41000/" {
+		t.Fatalf("unexpected open response: %d %#v", response.Code, response.Header())
+	}
+}
+
+// stubAddressing is one shape's answer to where its applications are served: one
+// origin for every application, which is all this test needs to see be used.
+type stubAddressing struct{ origin string }
+
+func (addressing stubAddressing) Origin(string, string) (string, error) {
+	return addressing.origin, nil
+}
+
+// An application host carries the node it belongs to and the application itself,
+// and it is read back the same way: what it does not name is not an application
+// host at all, since a host that names none is not one a gateway can route.
+func TestApplicationHostsNameOneNodeAndOneApplication(t *testing.T) {
+	host, err := AppHost(testNodeIDs[0], "demo", "Gateway.Example")
+	if err != nil || host != "demo.a1a1a1a1.gateway.example" {
+		t.Fatalf("an application host is %q (%v)", host, err)
+	}
+	// A host is not case sensitive and may carry the port of the origin it is
+	// dialled at: both are the same host, and they name the same application.
+	for _, accepted := range []struct{ host, node, app string }{
+		{"demo.a1a1a1a1.gateway.example", testNodeIDs[0], "demo"},
+		{"demo.a1a1a1a1.GATEWAY.Example:443", testNodeIDs[0], "demo"},
+		{"other.b2b2b2b2.gateway.example.", testNodeIDs[1], "other"},
+	} {
+		prefix, appID, ok := ParseAppHost(accepted.host, "gateway.example")
+		if !ok || prefix != accepted.node[:8] || appID != accepted.app {
+			t.Fatalf("%q parsed as %q %q %v", accepted.host, prefix, appID, ok)
+		}
+	}
+	for _, refused := range []string{
+		"",                                    // no host at all
+		"a1a1a1a1.gateway.example",            // no application
+		"demo.gateway.example",                // no node
+		"demo.a1a1a1.gateway.example",         // a prefix that is not eight characters
+		"demo.a1a1a1a1g.gateway.example",      // a prefix that is not hex
+		"demo.a1a1a1a1.other.example",         // another gateway's domain
+		"demo.a1a1a1a1",                       // no domain
+		"demo.a1a1a1a1.gateway.example.extra", // one label too many
+		"de mo.a1a1a1a1.gateway.example",      // not a host
+	} {
+		if prefix, appID, ok := ParseAppHost(refused, "gateway.example"); ok {
+			t.Fatalf("%q parsed as %q %q", refused, prefix, appID)
+		}
+	}
+	for _, refused := range []struct{ nodeID, appID, domain string }{
+		{testNodeIDs[0], "Demo", "gateway.example"},
+		{testNodeIDs[0], "", "gateway.example"},
+		{strings.Repeat("a1", 31), "demo", "gateway.example"},
+		{testNodeIDs[0], "demo", "gateway.example:443"},
+		{testNodeIDs[0], "demo", ""},
+	} {
+		if host, err := AppHost(refused.nodeID, refused.appID, refused.domain); err == nil {
+			t.Fatalf("an application host was built as %q", host)
+		}
 	}
 }
 

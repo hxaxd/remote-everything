@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 )
 
@@ -188,17 +189,113 @@ func TestRevokingIsPerNodeOrOfTheWholeDevice(t *testing.T) {
 	}
 }
 
-func TestApplicationProxyStripsInternalHeaders(t *testing.T) {
+// An application is served at an origin of its own, and what is served there is
+// served to the devices that hold the node that application belongs to: the origin
+// says which application a request is for, and the certificate the entrance
+// verified says who is asking.
+func TestAnApplicationOriginIsServedToTheDevicesThatHoldItsNode(t *testing.T) {
 	fixture := newGatewayFixture(t, false)
 	fingerprint := admitted(t, fixture, 0)
-	request := httptest.NewRequest(http.MethodGet, "/page", nil)
-	request.Header.Set(clientFingerprintHeader, fingerprint)
-	request.Header.Set(proxysecurity.NodeHeader, testNodeIDs[0])
-	request.Header.Set("Authorization", "secret")
-	recorder := httptest.NewRecorder()
-	fixture.trust.statusHTTPHandler(recorder, request)
-	if recorder.Code != http.StatusOK || recorder.Body.String() != "proxied" {
-		t.Fatalf("proxy response = %d %q", recorder.Code, recorder.Body.String())
+	before := []int{len(fixture.nodes[0].saw()), len(fixture.nodes[1].saw())}
+	ask := func(fingerprint, nodeID, appID string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "/page", nil)
+		if fingerprint != "" {
+			request.Header.Set(clientFingerprintHeader, fingerprint)
+		}
+		request.Header.Set("Authorization", "secret")
+		recorder := httptest.NewRecorder()
+		fixture.trust.AppHandler(nodeID, appID).ServeHTTP(recorder, request)
+		return recorder
+	}
+	if result := ask(fingerprint, testNodeIDs[0], "fixture"); result.Code != http.StatusOK || result.Body.String() != "proxied" {
+		t.Fatalf("application response = %d %q", result.Code, result.Body.String())
+	}
+	// A device that holds one node does not reach an application of another, and a
+	// client with no credential reaches nothing at all. Neither is answered by
+	// asking the node.
+	for _, refused := range []struct{ fingerprint, nodeID string }{
+		{fingerprint, testNodeIDs[1]},
+		{"", testNodeIDs[0]},
+		{strings.Repeat("ef", 32), testNodeIDs[0]},
+	} {
+		recorder := ask(refused.fingerprint, refused.nodeID, "fixture")
+		if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), `"unauthorized"`) {
+			t.Fatalf("an application of %s was served to %q: %d %s", refused.nodeID, refused.fingerprint, recorder.Code, recorder.Body.String())
+		}
+	}
+	if saw := len(fixture.nodes[0].saw()); saw != before[0]+1 {
+		t.Fatalf("node 0 answered %d requests, want one more than %d", saw, before[0])
+	}
+	if saw := len(fixture.nodes[1].saw()); saw != before[1] {
+		t.Fatalf("a node a device does not hold answered an application request: %v", fixture.nodes[1].saw())
+	}
+}
+
+// The entrance in front of a public gateway asks this gateway, before it issues a
+// certificate, whether one more application host is one that is served. It asks
+// without a device credential — it has none to show — and it is answered about the
+// host it names and nothing else: a host this gateway does not serve, a node it
+// does not serve, a node that is off, and an application that node does not run are
+// all refused, and only this machine may ask at all.
+func TestTheTLSPermissionAnswersOnlyForServedApplicationHosts(t *testing.T) {
+	fixture := newGatewayFixture(t, false)
+	applicationHost := func(index int, appID string) string {
+		host, err := gatewaycore.AppHost(testNodeIDs[index], appID, "remote.example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return host
+	}
+	allowed := []string{applicationHost(0, "fixture"), applicationHost(1, "fixture")}
+	refused := []string{
+		applicationHost(0, "missing"),                                // an application the node does not run
+		"fixture." + testNodeIDs[0][:8] + ".other.example.com",       // another gateway's domain
+		"remote.example.com",                                         // the gateway's own host
+		"fixture." + testNodeIDs[0][:7] + ".remote.example.com",      // a prefix that is not eight characters
+		"fixture." + strings.Repeat("99", 4) + ".remote.example.com", // a node this gateway does not serve
+		"",
+	}
+	ask := func(domain, remoteAddress, method string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(method, "/__remote_everything_tls_ask?domain="+domain, nil)
+		request.RemoteAddr = remoteAddress
+		recorder := httptest.NewRecorder()
+		fixture.trust.statusHTTPHandler(recorder, request)
+		return recorder
+	}
+	for _, domain := range allowed {
+		if result := ask(domain, "127.0.0.1:51234", http.MethodGet); result.Code != http.StatusOK {
+			t.Fatalf("%s was not allowed a certificate: %d %s", domain, result.Code, result.Body.String())
+		}
+	}
+	for _, domain := range refused {
+		if result := ask(domain, "127.0.0.1:51234", http.MethodGet); result.Code != http.StatusForbidden {
+			t.Fatalf("%s was allowed a certificate: %d %s", domain, result.Code, result.Body.String())
+		}
+	}
+	// A node that is off answers nothing, so a certificate for its applications
+	// would be a name that reaches nothing: the ask is refused while it is down.
+	fixture.nodes[0].setDown(true)
+	if result := ask(allowed[0], "127.0.0.1:51234", http.MethodGet); result.Code != http.StatusForbidden {
+		t.Fatalf("an application of a node that is off was allowed a certificate: %d %s", result.Code, result.Body.String())
+	}
+	if result := ask(allowed[1], "127.0.0.1:51234", http.MethodGet); result.Code != http.StatusOK {
+		t.Fatalf("the node that stayed up was refused: %d %s", result.Code, result.Body.String())
+	}
+	fixture.nodes[0].setDown(false)
+	// Only this machine asks it: the entrance stands in front of this gateway, and
+	// an answer given to anyone else is this gateway's answer lent to them.
+	for _, remoteAddress := range []string{"192.0.2.10:51234", "[2001:db8::1]:51234"} {
+		if result := ask(allowed[0], remoteAddress, http.MethodGet); result.Code != http.StatusForbidden {
+			t.Fatalf("a request from %s was answered: %d %s", remoteAddress, result.Code, result.Body.String())
+		}
+	}
+	if result := ask(allowed[0], "127.0.0.1:51234", http.MethodPost); result.Code != http.StatusForbidden {
+		t.Fatalf("the permission was asked as %s: %d", http.MethodPost, result.Code)
+	}
+	// The ask is not a device's request and is not answered as one either: a device
+	// that asks about a host is answered by the same rule as the entrance.
+	if result := ask("remote.example.com", "127.0.0.1:51234", http.MethodGet); result.Code != http.StatusForbidden {
+		t.Fatalf("a device asking about a host was answered %d", result.Code)
 	}
 }
 
