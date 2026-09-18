@@ -1,0 +1,24 @@
+{
+  "description": "Every refusal the wire can carry, and the one name the client says it by. clients/contracts/schemas/errors.schema.json is the list; this is what each client's core must produce for it.",
+  "cases": [
+    { "code": "node_required", "key": "error.node_gone" },
+    { "code": "unauthorized", "key": "error.node_gone" },
+    { "code": "node_not_found", "key": "error.node_gone" },
+    { "code": "not_found", "key": "error.not_found" },
+    { "code": "forbidden", "key": "error.not_found" },
+    { "code": "invitation_denied", "key": "pair.denied" },
+    { "code": "invitation_expired", "key": "pair.expired" },
+    { "code": "approval_pending", "key": "node.pending" },
+    { "code": "computer_offline", "key": "node.offline" },
+    { "code": "app_not_found", "key": "error.app_gone" },
+    { "code": "rate_limited", "key": "error.busy" },
+    { "code": "server_busy", "key": "error.busy" },
+    { "code": "pairing_failed", "key": "pair.gateway_trouble" },
+    { "code": "activation_failed", "key": "pair.gateway_trouble" },
+    { "code": "internal_error", "key": "pair.gateway_trouble" },
+    { "code": "invalid_device_name", "key": "error.client" },
+    { "code": "invalid_credential_password", "key": "error.client" },
+    { "code": "invalid_body", "key": "error.client" },
+    { "code": "invalid_json", "key": "error.client" }
+  ]
+}

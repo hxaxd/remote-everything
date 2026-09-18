@@ -1,0 +1,34 @@
+{
+  "description": "The same machine seen through a LAN gateway and a public one: one row, two paths, and the LAN path chosen while it answers.",
+  "identities": [
+    { "origin": "https://192.168.1.10:58627", "isPrivate": true },
+    { "origin": "https://gw.example.com", "isPrivate": false }
+  ],
+  "answers": [
+    {
+      "origin": "https://192.168.1.10:58627",
+      "ok": true,
+      "reachable": true,
+      "latencyMs": 4,
+      "nodes": [{ "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "客厅电脑" }]
+    },
+    {
+      "origin": "https://gw.example.com",
+      "ok": true,
+      "reachable": true,
+      "latencyMs": 42,
+      "nodes": [{ "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "客厅电脑" }]
+    }
+  ],
+  "expected": {
+    "nodes": [
+      {
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "name": "客厅电脑",
+        "pathCount": 2,
+        "chosenOrigin": "https://192.168.1.10:58627",
+        "chosenIsPrivate": true
+      }
+    ]
+  }
+}
