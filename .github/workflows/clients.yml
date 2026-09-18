@@ -1,26 +1,23 @@
 name: Clients
 
+# What every client has to agree on, whichever one changed: the version they are
+# all built from, and the HarmonyOS source gate (which needs no SDK and is the
+# only place HarmonyOS is checked outside a developer's machine).
 on:
   workflow_call:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - 'AGENTS.local.md'
-      - '.github/CODEOWNERS'
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/PULL_REQUEST_TEMPLATE.md'
-      - 'review-evidence/**'
+    paths:
+      - 'clients/**'
+      - '.github/workflows/clients.yml'
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'LICENSE'
-      - 'AGENTS.local.md'
-      - '.github/CODEOWNERS'
-      - '.github/ISSUE_TEMPLATE/**'
-      - '.github/PULL_REQUEST_TEMPLATE.md'
-      - 'review-evidence/**'
+    paths:
+      - 'clients/**'
+      - '.github/workflows/clients.yml'
+
+concurrency:
+  group: clients-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -37,84 +34,8 @@ jobs:
       - name: Verify three-client version alignment
         run: python clients/validate_versions.py
 
-  android:
-    name: Android test, lint, and debug build
-    needs: versions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: gradle
-      - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses > /dev/null 2>&1 || true
-      - name: Test, lint, and assemble
-        working-directory: clients/android
-        run: bash ./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-      - name: Reject packaged deployment credentials
-        working-directory: clients/android
-        run: |
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          test -s "$apk"
-          if unzip -l "$apk" | grep -Ei '\.p12$|remote-everything\.properties$'; then
-            echo "::error::deployment credential packaged in universal client"
-            exit 1
-          fi
-
-  ios:
-    name: iOS build, test, and analyze
-    needs: versions
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install XcodeGen
-        run: brew install xcodegen
-      - name: Generate the Xcode project
-        working-directory: clients/ios
-        run: xcodegen generate
-      - name: Select an available simulator
-        id: simulator
-        shell: bash
-        run: |
-          udid=$(xcrun simctl list devices available --json | python3 -c '
-          import json, re, sys
-          groups = json.load(sys.stdin)["devices"]
-          candidates = []
-          for runtime, devices in groups.items():
-              match = re.search(r"\.iOS-(\d+)-(\d+)", runtime)
-              if not match:
-                  continue
-              version = tuple(map(int, match.groups()))
-              for device in devices:
-                  if device.get("isAvailable") and device["name"].startswith("iPhone") and "SE" not in device["name"]:
-                      candidates.append((version, device["name"], device["udid"]))
-          if not candidates:
-              raise SystemExit("no available iPhone simulator")
-          print(sorted(candidates)[-1][2])
-          ')
-          echo "udid=$udid" >> "$GITHUB_OUTPUT"
-      - name: Build and run unit tests
-        working-directory: clients/ios
-        run: |
-          xcodebuild test \
-            -project RemoteEverything.xcodeproj \
-            -scheme RemoteEverything \
-            -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}" \
-            -enableCodeCoverage YES \
-            CODE_SIGNING_ALLOWED=NO
-      - name: Run Xcode static analyzer
-        working-directory: clients/ios
-        run: |
-          xcodebuild analyze \
-            -project RemoteEverything.xcodeproj \
-            -scheme RemoteEverything \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO
   harmony:
     name: HarmonyOS source and project gate
-    needs: versions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -43,6 +43,16 @@ jobs:
     needs: version
     uses: ./.github/workflows/clients.yml
 
+  android-validation:
+    name: Reuse Android validation
+    needs: version
+    uses: ./.github/workflows/android.yml
+
+  ios-validation:
+    name: Reuse iOS validation
+    needs: version
+    uses: ./.github/workflows/ios.yml
+
   repository-validation:
     name: Reuse repository validation
     needs: version
@@ -50,7 +60,7 @@ jobs:
 
   components:
     name: Components (${{ matrix.goos }}-${{ matrix.goarch }})
-    needs: [node-validation, server-validation, client-validation, repository-validation]
+    needs: [node-validation, server-validation, client-validation, android-validation, ios-validation, repository-validation]
     strategy:
       fail-fast: false
       matrix:
@@ -128,7 +138,7 @@ jobs:
 
   gateway:
     name: Public gateway (linux-${{ matrix.goarch }})
-    needs: [node-validation, server-validation, client-validation, repository-validation]
+    needs: [node-validation, server-validation, client-validation, android-validation, ios-validation, repository-validation]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -156,7 +166,7 @@ jobs:
 
   android:
     name: Signed Android APK
-    needs: [node-validation, server-validation, client-validation, repository-validation]
+    needs: [node-validation, server-validation, client-validation, android-validation, ios-validation, repository-validation]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
