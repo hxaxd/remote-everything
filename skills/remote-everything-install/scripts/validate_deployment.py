@@ -80,23 +80,53 @@ def validate_frp_contract(client_text, server_text):
         raise ValueError("frps must use a file token")
 
 
+def site_addresses(text):
+    """Every site block of a Caddyfile, in the order they are written.
+
+    Only the addresses that open a block at the top level are sites: an option
+    inside the global block, such as on_demand_tls, is indented the same way and is
+    not one, so the nesting is what tells them apart.
+    """
+    addresses = []
+    depth = 0
+    for line in text.splitlines():
+        if depth == 0:
+            match = re.fullmatch(r"([^\s{}]+)\s+\{", line.rstrip())
+            if match:
+                addresses.append(match.group(1))
+        depth += line.count("{") - line.count("}")
+    return addresses
+
+
 def validate_caddy_contract(text):
     active = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
     markers = ["@pair path /__remote_everything_pair", "@tunnel expression", "@device expression"]
     positions = [active.find(marker) for marker in markers]
     if any(position < 0 for position in positions) or positions != sorted(positions):
         raise ValueError("Caddy routes must be ordered pairing, tunnel, device")
-    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given"):
+    for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given", "on_demand_tls"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
     if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
         raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
-    site_address = ""
-    for line in active.splitlines():
-        match = re.fullmatch(r"([^\s{}]+)\s+\{", line)
-        if match:
-            site_address = match.group(1)
-            break
+    # Every application of every node is served under a host of its own, which is
+    # what keeps one application's browser storage out of another's: the gateway's
+    # own host is one site, and every application host under it is another. Caddy's
+    # wildcards stand for exactly one label each, so covering
+    # `<application>.<node prefix>.<host>` takes one wildcard per label.
+    addresses = site_addresses(active)
+    if len(addresses) != 2:
+        raise ValueError("Caddy must serve the gateway host and the application hosts")
+    site_address, application_address = addresses
+    if not application_address.startswith("https://*.*.") or not application_address.removeprefix("https://*.*.") == site_address:
+        raise ValueError(f"Caddy must serve one host per application under {site_address}")
+    # An application host has no certificate until it is asked for, and it is only
+    # issued after the gateway was asked whether it serves that host.
+    if not re.search(r"^\s*on_demand\s*$", active, re.MULTILINE):
+        raise ValueError("Caddy must obtain application certificates on demand")
+    ask = re.search(r"^\s*ask\s+(\S+)\s*$", active, re.MULTILINE)
+    if not ask or not ask.group(1).startswith("http://127.0.0.1:") or not ask.group(1).endswith("/__remote_everything_tls_ask"):
+        raise ValueError("Caddy on-demand TLS must ask the gateway on loopback")
     try:
         ipaddress.ip_address(site_address)
     except ValueError:

@@ -6,7 +6,11 @@
 
 **请求怎么说明它要哪台**：除了 `/__remote_everything/nodes`（它问的是"我手里有哪几台"，不是"去哪台"，所以它不带节点头、也不该带——不然一个设备在不知道新节点头的情况下就发现不了它），其余每个已认证请求都必须带 `X-Remote-Everything-Node: <目标节点 node_id>`；不带、带一个这个入口不服务的、或带一个该设备没被授权的，一律 `401`（`node_required` / `unauthorized`，后两种情况回答同一个 code，不告诉设备哪台存在）。`/__remote_everything/open/<app>` 说的是"这次浏览器会话看哪个应用"，不是"你有没有资格看它"：授权粒度是节点，一台设备能进它持有的节点上的任何应用。
 
-文件因此也只差一点：`server.json` 就是这份状态本身；`lan.json` 是同一份状态再加一个 `lan` 块（入口自己的证书文件与指纹）。`ports repair` 是同一套实现——保住每条监听的名字与主机，只把端口搬走（LAN 的 origin 含端口，所以搬端口时 origin 跟着变；公网网关连每台节点的隧道端口一起搬，因为那些端口是它自己的隧道服务器持有的）。CLI 输出仍然用具名字段（`status_listen`、`listen_address`、`node_address`……），部署模板与运行记录按这些名字取值，不受状态文件内部结构影响。
+**每个应用有自己的 origin**：`open` 回答 `302` + 绝对 `Location`（应用 origin 的根路径），不设任何 cookie；客户端随后加载的就是那个 origin。公网形态是 `https://<app>.<节点 node_id 前 8 位十六进制>.<网关域名>`，局域网形态是 `https://<入口自己的主机>:<每应用端口>`。应用 origin 上的一切都由网关解析出 (节点, 应用)、按与其它请求同一套规则校验设备对节点的授权，然后由网关自己把内部路由 cookie 写给节点（先剥掉客户端送来的同名 cookie——选哪个应用由 origin 决定，不由客户端决定）；节点侧照旧只读这个 cookie。应用 origin 上 `/__local_remote_control` 一律 `403`，所有 `/__remote_everything*` 一律 `404`（控制面与协议端点不在这里）。入口自己的 origin 上反过来：不是协议端点的路径一律 `404`，应用流量不在这里。应用 origin 对同一个应用是稳定的（公网按名字推导、局域网按持久化端口），浏览器的存储因此一直属于同一个应用。
+
+**入口怎么拿到应用主机的证书**：公网入口对每个应用主机按需签发，签发前问网关 `GET /__remote_everything_tls_ask?domain=<host>`——它不需要设备证书（入口自己没有设备身份），只服务回环来源（入口在这台机器上）；域名必须是本网关域名下的应用主机、前缀属于本入口服务的某台节点、且那台节点确实在跑那个应用（节点离线即拒绝）。返回 200 允许、403 拒绝，没有别的答案。
+
+文件因此也只差一点：`server.json` 就是这份状态本身；`lan.json` 是同一份状态再加一个 `lan` 块（入口自己的证书文件与指纹）与一个 `applications` 列表（这个入口服务过的每个应用：`node_id`、`app_id` 与它自己的端口）。`ports repair` 是同一套实现——保住每条监听的名字与主机，只把端口搬走（LAN 的 origin 含端口，所以搬端口时 origin 跟着变；公网网关连每台节点的隧道端口一起搬，因为那些端口是它自己的隧道服务器持有的）。CLI 输出仍然用具名字段（`status_listen`、`listen_address`、`node_address`……），部署模板与运行记录按这些名字取值，不受状态文件内部结构影响。
 
 ## LAN：Windows、Linux、macOS
 
@@ -28,7 +32,9 @@ remote-everything-lan-server device --state PATH invitation list
 remote-everything-lan-server device --state PATH invitation cancel TOKEN_HASH
 ```
 
-LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`lan.json`、入口自己的服务器证书、设备 CA、设备记录、每台节点的控制令牌都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin（客户端就拨这个地址，所以它必须与证书覆盖的主机一致）。`node add` 把一台机器记成这个入口的节点，并把它要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到那台机器执行 `binding add --bootstrap`，绑定才成立。`--node-id` 是那台机器 `init` 输出的 `node_id`，`--node-address` 是入口拨号用的地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：终端发出的每一个请求都落在信任层上，只有兑换邀请那一个不需要凭据，其余（含应用页面流量）都只对已批准设备开放——客户端在 WebView 里出示同一张证书，并在每个请求上带 `X-Remote-Everything-Node` 说明它要哪台节点。两种形态因此只差 TLS 在哪终止。
+LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内。`--state` 是入口自己的状态目录（`lan.json`、入口自己的服务器证书、设备 CA、设备记录、每台节点的控制令牌都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin（客户端就拨这个地址，所以它必须与证书覆盖的主机一致）。`node add` 把一台机器记成这个入口的节点，并把它要的身份 bundle 写进 `--node-bootstrap` 指定的目录；由 Agent 把该目录送到那台机器执行 `binding add --bootstrap`，绑定才成立。`--node-id` 是那台机器 `init` 输出的 `node_id`，`--node-address` 是入口拨号用的地址，必须等于节点 `init` 时的 `--listen` 加上它的端口；`--host` 是入口自己对外的主机名或地址，客户端 Profile 的 origin 就是它加上入口端口。`init` 输出 `installation_id`、`listen_address`、`origin`、证书 SHA-256 指纹与公钥摘要，不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书：终端发出的每一个请求都落在信任层上，只有兑换邀请那一个不需要凭据，其余（含应用流量）都只对已批准设备开放——客户端在 WebView 里出示同一张证书，并在每个请求上带 `X-Remote-Everything-Node` 说明它要哪台节点。两种形态因此只差 TLS 在哪终止。
+
+LAN 的应用**各占一个端口**：第一次 `open` 某个应用时入口让系统分配一个端口、立即监听、并把 `(节点, 应用) → 端口` 写进 `lan.json`，之后这个应用就一直在这个 origin 上（重启时按记录重新监听；端口被别人占了就丢掉这条记录，下次 `open` 重新分配一个）。一个证书覆盖入口的所有端口（客户端钉的是证书，不是 origin），每个端口后面的信任层与入口自身一致。`/__remote_everything/open` 还是控制面上带着节点头的那一个请求；端口只是把结果落到实处。
 
 一台节点换地址后，重新执行一次 `node add` 指到新地址即可：节点按 `node_id` 原地更新，入口身份与证书都沿用现有的，客户端无需重新配对。加一台新节点同理，只是加完要重启入口才会服务它。
 
@@ -59,7 +65,7 @@ remote-everything-gateway device --state PATH invitation list
 remote-everything-gateway device --state PATH invitation cancel TOKEN_HASH
 ```
 
-`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、隧道 CA 与 frps token，以及三个互不相同的动态 loopback 地址（`status`、`pairing`、`frps`）；`--origin` 是 443 入口对外服务的那个地址（例如 `https://remote.example.com`），写进状态后就是这份网关发出去的每条邀请指向的地址。**443 入口的配置与节点无关**：Caddyfile 里的上游只有 `pairing`、`frps`、`status` 三个，加节点不动它一个字——所以加一台节点只发生在网关这一侧。
+`init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、隧道 CA 与 frps token，以及三个互不相同的动态 loopback 地址（`status`、`pairing`、`frps`）；`--origin` 是 443 入口对外服务的那个地址（例如 `https://remote.example.com`），写进状态后就是这份网关发出去的每条邀请指向的地址，也是每个应用 origin 的域名部分（应用主机在这里被解析出来，所以它必须是一个域名或地址本体，不带端口以外的别的东西）。**443 入口的配置与节点无关**：Caddyfile 里的上游只有 `pairing`、`frps`、`status` 三个，加节点不动它一个字——所以加一台节点只发生在网关这一侧。**DNS 要求**：为这个域名的子域准备一条通配记录（`*.<域名>` 指向入口所在主机）——应用主机是 `<app>.<节点前缀>.<域名>`，一条通配记录按 RFC 4592 覆盖这种没有更近节点存在的多级名字；证书不用通配：入口对每个应用主机按需签发。
 
 `node add` 给这台节点做三件事：从网关自己的隧道服务器上分配一个 loopback 端口（`node_address`，就是隧道代理要发布的那个 `remotePort`）、给它签发**它自己的**控制令牌（写在网关状态目录的 `nodes/<node_id>`，一台一拍，一台机器泄露不牵连其他机器）、把交付目录写出来。输出里的 `node_address` 决定那台机器上 frpc 配置的两个值（`node_tunnel_port` 取它的端口，`node_host` / `node_port` 取节点自己的 `listen_address`），`tunnel_material_directory` 是材料位置，`tunnel_client_fingerprint` 记进运行记录。已有节点重新 `node add` 只做原地更新，隧道端口不动——那个端口是那台机器上正在跑的隧道代理发布的。
 

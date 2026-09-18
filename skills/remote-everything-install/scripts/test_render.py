@@ -112,12 +112,20 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("profile shortlived", rendered)
         self.assertNotIn("default_sni", rendered)
         self.assertNotIn("strict_sni_host insecure_off", rendered)
+        # Every application of every node is served on a host of its own under the
+        # gateway's host, so what the entrance renders is one site for the gateway
+        # and one for the two labels an application host takes.
+        self.assertIn("https://*.*.remote.example.com {", rendered)
+        self.assertIn("on_demand_tls {", rendered)
+        self.assertIn("ask http://127.0.0.1:5003/__remote_everything_tls_ask", rendered)
+        self.assertIn("\t\ton_demand\n", rendered)
         result, output, _ = self.render("caddy", {**caddy, "public_host": "192.0.2.1"})
         self.assertEqual(result.returncode, 0, result.stderr)
         rendered = output.read_text(encoding="utf-8")
         self.assertIn("profile shortlived", rendered)
         self.assertIn("default_sni 192.0.2.1", rendered)
         self.assertIn("strict_sni_host insecure_off", rendered)
+        self.assertIn("https://*.*.192.0.2.1 {", rendered)
         for invalid in (
             {**caddy, "device_ca_file": "relative.pem"},
             {**caddy, "status_upstream": "192.0.2.1:5003"},
