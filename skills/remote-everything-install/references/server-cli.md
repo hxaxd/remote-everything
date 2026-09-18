@@ -36,6 +36,10 @@ remote-everything-lan-server device --state PATH invitation cancel TOKEN_HASH
 
 LAN 入口是独立服务，和节点可以不在同一台机器上，只要求两者在同一局域网内（或通过隧道穿透）。`--state` 是入口自己的状态目录（`lan.json`、入口自己的服务器证书、设备 CA、设备记录、每台节点的控制令牌都在这里），与节点的状态目录互不相干，入口不读节点状态。`init` 创建 schema 1 的 `lan.json`，生成或沿用入口身份与证书，自动选择入口端口，并以 `--host` 加该端口写下自己的 origin。`--applications-host` 决定应用监听在哪个地址上：不写就跟随入口自己的监听地址，写 `0.0.0.0` 就是每个接口都听（例如你想在这台机器上直接开这些应用），写某个具体地址就只听那里。`--require-approval` 开启设备人工审批模式（开启后设备配对处于 pending，须由操作者执行 `device approve` 后方可激活；默认关闭，即扫码兑换即激活）。`--tunnel` 为 LAN 网关开辟内置 FRPS 隧道监听与 CA 凭证。`node add` 把一台机器记成这个入口的节点：如果指定 `--node-address HOST:PORT`，入口直连该局域网地址；如果省略 `--node-address`，入口自动分配本地回环端口并通过内置 FRPS 穿透，在 `--node-bootstrap` 目录下输出 `bootstrap.json`、`control-token` 与 `frpc/` 隧道证书。由 Agent 把该目录送到那台机器执行 `binding add --bootstrap`，绑定才成立。`tunnel renew` 用于轮换某台节点的客户端隧道证书。`init` 输出 `installation_id`、`listen_address`、`origin`、`applications_host`、证书 SHA-256 指纹与公钥摘要（若开启 `--tunnel` 还会输出 `frps_listen`、`frps_token_file` 和 `tunnel_ca_file`），不产出二维码——邀请按设备签发，由 `device invite` 生成。`serve` 只读取持久化地址与自身状态，用自己的证书终止 TLS，并要求客户端出示它签发的设备证书。
 
+**无域名公网部署（No-Domain Remote LAN with Tunnel）**：当需要在公网服务器或远端主机上部署、但**没有独立域名**时，直接使用带隧道的 LAN 形态：`remote-everything-lan-server init --state PATH --host <公网IP> --tunnel --require-approval`。该形态既拥有公网服务器的全球可达性与 FRP 隧道穿透能力，又彻底免除了域名购买、DNS 解析配置、商业 CA 证书签发与 Caddy 反代门槛；移动端通过 SPKI 公钥钉扎免受自签名告警困扰，安全性与公网 mTLS 严格等价。
+
+**内置通用 Web 客户端 (Gateway-hosted Web Client SPA)**：网关通过 Go embed 自带轻量单页面 Web 客户端，用户在任何现代浏览器中打开 `https://<host>:<port>/` 即可直接加载。前端通过 WebCrypto API（PBKDF2 + AES-GCM + IndexedDB）构建零知识加密保险箱。配对时生成 `sha256("web:" + client_id)` 指纹并签发 HttpOnly Session Cookie；网关中间件将有效会话透明映射为内部客户端指纹，完全复用后端路由与设备准入机制。当打开应用时（`open` 端点返回 302），网关在重定向 URL 中自动附带单次有效短寿命 Ticket（`_reticket=<token>`），确保不同端口间平滑完成跨域跨端口授权。
+
 LAN 的应用**各占一个端口**：第一次 `open` 某个应用时入口让系统分配一个端口、立即监听、并把 `(节点, 应用) → 端口` 写进 `lan.json`，之后这个应用就一直在这个 origin 上（重启时按记录重新监听；端口被别人占了就丢掉这条记录，下次 `open` 重新分配一个）。一个证书覆盖入口的所有端口（客户端钉的是证书，不是 origin），每个端口后面的信任层与入口自身一致。`/__remote_everything/open` 还是控制面上带着节点头的那一个请求；端口只是把结果落到实处。
 
 一台节点换地址后，重新执行一次 `node add` 指到新地址即可：节点按 `node_id` 原地更新，入口身份与证书都沿用现有的，客户端无需重新配对。加一台新节点同理，只是加完要重启入口才会服务它。

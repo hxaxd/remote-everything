@@ -10,13 +10,15 @@ import (
 	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
+	"github.com/hxaxd/remote-everything/internal/webclient"
 )
 
 // publicService is the public entrance: its state, the device trust that guards
 // what it serves, and the gateway the trust reaches every node it serves through.
 type publicService struct {
-	state gatewaycore.State
-	trust *devicecore.Trust
+	state      gatewaycore.State
+	trust      *devicecore.Trust
+	webHandler *webclient.Handler
 }
 
 // State is what this gateway recorded about itself.
@@ -59,12 +61,24 @@ func (service *publicService) entranceHandler() http.Handler {
 		// than on a host — it is a question about a host — and everything else this
 		// gateway answers is answered for the host it was asked for.
 		if rawPath(request) == devicecore.TLSAskPath || host == domain {
-			service.trust.ServeHTTP(writer, request)
+			if service.webHandler != nil && service.webHandler.IsWebClientRequest(request) {
+				service.webHandler.ServeHTTP(writer, request)
+				return
+			}
+			var coreHandler http.Handler = service.trust
+			if service.webHandler != nil {
+				coreHandler = service.webHandler.WithWebSession(coreHandler)
+			}
+			coreHandler.ServeHTTP(writer, request)
 			return
 		}
 		if prefix, appID, ok := gatewaycore.ParseAppHost(host, domain); ok {
 			if node, found := gatewaycore.NodeByPrefix(service.state.Nodes, prefix); found {
-				service.trust.AppHandler(node.ID, appID).ServeHTTP(writer, request)
+				var appHandler http.Handler = service.trust.AppHandler(node.ID, appID)
+				if service.webHandler != nil {
+					appHandler = service.webHandler.WithWebSession(appHandler)
+				}
+				appHandler.ServeHTTP(writer, request)
 				return
 			}
 		}
@@ -136,5 +150,13 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &publicService{state: state, trust: trust}, nil
+	sessionMgr, err := webclient.NewSessionManager(paths.root)
+	if err != nil {
+		return nil, err
+	}
+	webHandler, err := webclient.NewHandler(trust, sessionMgr)
+	if err != nil {
+		return nil, err
+	}
+	return &publicService{state: state, trust: trust, webHandler: webHandler}, nil
 }
