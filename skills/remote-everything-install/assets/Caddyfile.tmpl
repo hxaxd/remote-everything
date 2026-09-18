@@ -2,6 +2,14 @@
 	auto_https disable_redirects
 	{{DEFAULT_SNI}}
 	{{STRICT_SNI_HOST}}
+	# One certificate per application host, issued the first time that host is
+	# asked for: every application of every node is served under a host of its own,
+	# and there is no wildcard certificate for `*.*.` names. Before issuing one this
+	# entrance asks the gateway whether it serves that host, so a certificate only
+	# ever exists for a name that answers.
+	on_demand_tls {
+		ask http://{{STATUS_UPSTREAM}}/__remote_everything_tls_ask
+	}
 }
 
 {{PUBLIC_HOST}} {
@@ -35,6 +43,47 @@
 	# traffic it carries: both leave here for the same upstream, and the fingerprint
 	# of the certificate this entrance verified travels with it. The one request
 	# that can arrive without one is the pairing endpoint above.
+	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
+	handle @device {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}
+		}
+	}
+
+	respond 401
+}
+
+# The origins of the applications themselves: `<application>.<node prefix>.<domain>`,
+# one host per application of every node this gateway serves. Each is a name of its
+# own because a browser keeps one application's storage under its origin, so two
+# applications sharing one origin would be sharing everything a browser remembers
+# about them — and the host a certificate is issued for is the host a device is
+# redirected to, which is why this site covers two labels of it rather than one:
+# Caddy's wildcards stand for exactly one label each.
+#
+# One certificate is issued per application host, on demand, and only after the
+# gateway was asked whether that host is one it serves: a request for anything else
+# is answered 401, as it is on the gateway's own host, and the gateway is told which
+# device is asking the same way — the fingerprint of the certificate this entrance
+# verified travels with it, and everything without one of those certificates stops
+# here.
+https://*.*.{{PUBLIC_HOST}} {
+	log
+	@compressible not path /__remote_everything*
+	encode @compressible zstd gzip
+
+	tls {
+		on_demand
+		issuer acme {
+			disable_http_challenge
+			{{ACME_PROFILE}}
+		}
+		client_auth {
+			mode verify_if_given
+			trust_pool file "{{DEVICE_CA_FILE}}" "{{TUNNEL_CA_FILE}}"
+		}
+	}
+
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {

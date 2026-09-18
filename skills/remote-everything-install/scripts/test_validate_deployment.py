@@ -37,7 +37,14 @@ class DeploymentContractTests(unittest.TestCase):
 
     def test_caddy_contract_requires_route_order(self):
         caddy = (ASSETS / "Caddyfile.tmpl").read_text(encoding="utf-8")
-        caddy = caddy.replace("{{PUBLIC_HOST}}", "remote.example.com").replace("{{ACME_PROFILE}}", "").replace("{{DEFAULT_SNI}}", "").replace("{{STRICT_SNI_HOST}}", "")
+        render_values = {
+            "PUBLIC_HOST": "remote.example.com", "ACME_PROFILE": "", "DEFAULT_SNI": "", "STRICT_SNI_HOST": "",
+            "DEVICE_CA_FILE": "/state/device-ca.pem", "TUNNEL_CA_FILE": "/state/tunnel-ca.pem",
+            "PAIRING_UPSTREAM": "127.0.0.1:5001", "FRPS_UPSTREAM": "127.0.0.1:5002", "STATUS_UPSTREAM": "127.0.0.1:5003",
+            "TUNNEL_ISSUER_DN": "CN=Tunnel", "DEVICE_ISSUER_DN": "CN=Device",
+        }
+        for key, value in render_values.items():
+            caddy = caddy.replace("{{" + key + "}}", value)
         validator.validate_caddy_contract(caddy)
         pair = caddy.index("@pair path")
         tunnel = caddy.index("@tunnel expression")
@@ -53,6 +60,19 @@ class DeploymentContractTests(unittest.TestCase):
             validator.validate_caddy_contract(caddy.replace("\t" + 'encode @compressible zstd gzip\n', ""))
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(caddy.replace("\t\t\theader_up X-Remote-Everything-Client-Fingerprint", "\t\t\theader_up -X-Remote-Everything-Client-Fingerprint\n\t\t\theader_up X-Remote-Everything-Client-Fingerprint"))
+        # An application's host is `<application>.<node prefix>.<domain>`: a single
+        # wildcard covers one label and would leave every application without a site
+        # that serves it, so the two it takes are part of the contract.
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("https://*.*.", "https://*."))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\ton_demand\n", ""))
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("\t\task http://127.0.0.1:5003/__remote_everything_tls_ask\n", ""))
+        # The permission is asked on loopback: the entrance stands on the gateway's
+        # own machine, and an ask endpoint anywhere else is one a stranger can answer.
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("ask http://127.0.0.1:5003/", "ask http://192.0.2.5:5003/"))
         ip_caddy = caddy.replace("remote.example.com", "192.0.2.1")
         with self.assertRaises(ValueError):
             validator.validate_caddy_contract(ip_caddy)
