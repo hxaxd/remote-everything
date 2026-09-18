@@ -17,7 +17,7 @@
 
 import { util } from '@kit.ArkTS';
 import { huks } from '@kit.UniversalKeystoreKit';
-import { randomBytes, wipe } from './Digest';
+import { randomBytes, wipe } from '../model/Digest';
 import { CredentialError } from './CredentialError';
 
 const NONCE_BYTES = 12;

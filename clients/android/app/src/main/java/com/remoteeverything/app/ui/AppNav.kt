@@ -1,6 +1,7 @@
 package com.remoteeverything.app.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -11,6 +12,11 @@ import com.remoteeverything.app.AppViewModel
 @Composable
 fun AppNav(vm: AppViewModel) {
     val nav = rememberNavController()
+    LaunchedEffect(vm.pendingInvitation) {
+        if (!vm.pendingInvitation.isNullOrBlank()) {
+            nav.navigate("pair")
+        }
+    }
     NavHost(navController = nav, startDestination = "home") {
         composable("home") {
             HomeScreen(

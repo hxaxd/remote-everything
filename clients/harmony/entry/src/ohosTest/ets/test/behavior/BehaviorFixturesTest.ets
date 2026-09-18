@@ -15,7 +15,7 @@ import { describe, expect, it } from '@ohos/hypium';
 import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { util } from '@kit.ArkTS';
 import { JsonReader } from '../../../../main/ets/core/json/Strict';
-import { ErrorCode, parseErrorCode } from '../../../../main/ets/core/api/Errors';
+import { ErrorCode, parseErrorCode } from '../../../../main/ets/core/model/Errors';
 import { CatalogAnswer, decodeCatalog, NodeSummary } from '../../../../main/ets/core/api/Dto';
 import { Cadence } from '../../../../main/ets/core/model/Cadence';
 import { MessageKeys } from '../../../../main/ets/core/model/MessageKeys';
@@ -179,6 +179,35 @@ export default function behaviorFixturesTest() {
           expect(answer.computerConnected).assertFalse();
         }
       }
+    });
+
+    // --- message-keys.json ---------------------------------------------------
+
+    it('the vocabulary is the one the fixture names', 0, () => {
+      const text: string = fixture('message-keys.json');
+      const canonical: string[] = JSON.parse(text) as string[];
+      expect(canonical.length > 0).assertTrue();
+
+      const keys: Set<string> = new Set<string>(canonical);
+      expect(keys.size).assertEqual(canonical.length);
+
+      for (const key of canonical) {
+        const resName: string = MessageKeys.resource(key);
+        expect(resName).assertEqual(key.replace(/\./g, '_'));
+      }
+    });
+
+    it('the state names are the ones the fixtures use', 0, () => {
+      expect(MessageKeys.forNodeStatus(NodeStatus.OnlineLan)).assertEqual(MessageKeys.NODE_LAN);
+      expect(MessageKeys.forNodeStatus(NodeStatus.OnlineTunnel)).assertEqual(MessageKeys.NODE_TUNNEL);
+      expect(MessageKeys.forNodeStatus(NodeStatus.Offline)).assertEqual(MessageKeys.NODE_OFFLINE);
+      expect(MessageKeys.forNodeStatus(NodeStatus.PendingApproval)).assertEqual(MessageKeys.NODE_PENDING);
+      expect(MessageKeys.forNodeStatus(NodeStatus.Unknown)).assertEqual(MessageKeys.NODE_UNKNOWN);
+
+      expect(MessageKeys.forAppState(AppState.Ready)).assertEqual(MessageKeys.APP_READY);
+      expect(MessageKeys.forAppState(AppState.Starting)).assertEqual(MessageKeys.APP_STARTING);
+      expect(MessageKeys.forAppState(AppState.Stopping)).assertEqual(MessageKeys.APP_STOPPING);
+      expect(MessageKeys.forAppState(AppState.Stopped)).assertEqual(MessageKeys.APP_STOPPED);
     });
   });
 }

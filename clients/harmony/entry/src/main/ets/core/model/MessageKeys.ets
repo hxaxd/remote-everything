@@ -10,7 +10,7 @@
 // character a platform resource name may not carry.
 
 import { AppState, NodeStatus } from './Models';
-import { ErrorCode } from '../api/Errors';
+import { ErrorCode } from './Errors';
 
 export class MessageKeys {
   // Actions
@@ -154,11 +154,6 @@ export class MessageKeys {
       case ErrorCode.ActivationFailed:
       case ErrorCode.InternalError:
         return MessageKeys.PAIR_GATEWAY_TROUBLE;
-      case ErrorCode.StopCommandFailed:
-      case ErrorCode.StateUpdateFailed:
-        return MessageKeys.ERROR_STOP_FAILED;
-      case ErrorCode.Network:
-        return MessageKeys.ERROR_NETWORK;
       case ErrorCode.NotFound:
       case ErrorCode.Forbidden:
         return MessageKeys.ERROR_NOT_FOUND;

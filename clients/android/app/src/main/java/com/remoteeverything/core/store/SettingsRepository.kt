@@ -22,11 +22,27 @@ data class Settings(
 
 private val Context.settingsStore by preferencesDataStore(name = "settings")
 
+interface IdentityRepository {
+    suspend fun currentIdentities(): List<Identity>
+    suspend fun saveIdentities(identities: List<Identity>)
+}
+
+interface SettingsStore : IdentityRepository {
+    val settings: Flow<Settings>
+    val identities: Flow<List<Identity>>
+    suspend fun setLanguage(language: Language)
+    suspend fun setAppearance(appearance: Appearance)
+}
+
 /**
  * Local persistence: settings and the identity list. Nodes are never
  * persisted as truth — they are rebuilt from the wire on every refresh.
  */
-class SettingsRepository(private val context: Context) {
+class SettingsRepository(
+    private val dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>,
+) : SettingsStore {
+
+    constructor(context: Context) : this(context.settingsStore)
 
     private object Keys {
         val LANGUAGE = stringPreferencesKey("language")
@@ -36,7 +52,7 @@ class SettingsRepository(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = false }
 
-    val settings: Flow<Settings> = context.settingsStore.data.map { prefs ->
+    override val settings: Flow<Settings> = dataStore.data.map { prefs ->
         Settings(
             language = prefs[Keys.LANGUAGE]?.let { runCatching { Language.valueOf(it) }.getOrNull() }
                 ?: Language.SYSTEM,
@@ -45,26 +61,26 @@ class SettingsRepository(private val context: Context) {
         )
     }
 
-    val identities: Flow<List<Identity>> = context.settingsStore.data.map { prefs ->
+    override val identities: Flow<List<Identity>> = dataStore.data.map { prefs ->
         prefs[Keys.IDENTITIES]?.let { raw ->
             runCatching { json.decodeFromString(ListSerializer(Identity.serializer()), raw) }.getOrNull()
         } ?: emptyList()
     }
 
-    suspend fun setLanguage(language: Language) {
-        context.settingsStore.edit { it[Keys.LANGUAGE] = language.name }
+    override suspend fun setLanguage(language: Language) {
+        dataStore.edit { it[Keys.LANGUAGE] = language.name }
     }
 
-    suspend fun setAppearance(appearance: Appearance) {
-        context.settingsStore.edit { it[Keys.APPEARANCE] = appearance.name }
+    override suspend fun setAppearance(appearance: Appearance) {
+        dataStore.edit { it[Keys.APPEARANCE] = appearance.name }
     }
 
-    suspend fun saveIdentities(identities: List<Identity>) {
-        context.settingsStore.edit {
+    override suspend fun saveIdentities(identities: List<Identity>) {
+        dataStore.edit {
             it[Keys.IDENTITIES] = json.encodeToString(ListSerializer(Identity.serializer()), identities)
         }
     }
 
     /** The identities as they are right now, for a caller that is not a screen. */
-    suspend fun currentIdentities(): List<Identity> = identities.first()
+    override suspend fun currentIdentities(): List<Identity> = identities.first()
 }

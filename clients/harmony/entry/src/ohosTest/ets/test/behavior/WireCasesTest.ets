@@ -10,7 +10,7 @@ import { util } from '@kit.ArkTS';
 import { JsonReader } from '../../../../main/ets/core/json/Strict';
 import { decodeCatalog, decodeControl, decodeError, decodeNodes, decodePairing } from
   '../../../../main/ets/core/api/Dto';
-import { decodeRelease } from '../../../../main/ets/core/api/ReleaseChannel';
+import { decodeRelease } from '../../../../main/ets/core/update/UpdateChecker';
 
 function fixture(name: string): string {
   const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
@@ -56,10 +56,13 @@ function decodeByKind(kind: string, payload: string): void {
 /** An activation is the connected catalog, or a refusal — never the offline catalog. */
 function decodeActivation(payload: string): void {
   try {
-    decodeCatalog(payload);
+    const catalog: CatalogAnswer = decodeCatalog(payload);
+    if (!catalog.computerConnected || catalog.code !== 'ready') {
+      throw new Error('an activation cannot be an offline catalog');
+    }
     return;
   } catch (error) {
-    // Not a catalog; it must be a refusal.
+    // Not a connected catalog; it must be a refusal.
   }
   decodeError(payload);
 }

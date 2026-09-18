@@ -2,6 +2,7 @@ package com.remoteeverything.app
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -15,8 +16,10 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -39,33 +42,32 @@ class AppWebActivity : ComponentActivity() {
 
     private lateinit var web: WebView
     private lateinit var container: FrameLayout
+    private var progressBar: ProgressBar? = null
     private var popup: WebView? = null
     private var material: Pkcs12.Material? = null
     private var identityHost: String = ""
     private var serverPin: ServerPin? = null
     private var appUrl: String = ""
-    private var crashCount = 0
-
-    private val vault by lazy { AndroidKeyStoreIdentityVault() }
+    private var crashCount: Int = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val target = intent.getStringExtra(ExtraUrl) ?: return finish()
-        val imageOrigin = intent.getStringExtra(ExtraIdentityOrigin) ?: return finish()
-        val appName = intent.getStringExtra(ExtraAppName).orEmpty()
-        val nodeName = intent.getStringExtra(ExtraNodeName).orEmpty()
+        val url = intent.getStringExtra(ExtraUrl) ?: run { finish(); return }
+        val identityOrigin = intent.getStringExtra(ExtraIdentityOrigin) ?: run { finish(); return }
+        val appName = intent.getStringExtra(ExtraAppName) ?: ""
+        val nodeName = intent.getStringExtra(ExtraNodeName) ?: ""
+        val pinFingerprint = intent.getStringExtra(ExtraPinFingerprint)
+        val pinPublicKey = intent.getStringExtra(ExtraPinPublicKey)
         val dark = intent.getBooleanExtra(ExtraDark, false)
-        serverPin = intent.getStringExtra(ExtraPinPublicKey)?.let { publicKeyPin ->
-            ServerPin(
-                certFingerprint = intent.getStringExtra(ExtraPinFingerprint).orEmpty(),
-                publicKeyPin = publicKeyPin,
-            )
-        }
-        identityHost = runCatching { Uri.parse(imageOrigin).host.orEmpty() }.getOrDefault("")
-        material = vault.load(imageOrigin)
-        appUrl = target
-
+        appUrl = url
+        serverPin = if (pinFingerprint != null && pinPublicKey != null) {
+            ServerPin(certFingerprint = pinFingerprint, publicKeyPin = pinPublicKey)
+        } else null
+        identityHost = Uri.parse(identityOrigin).host.orEmpty()
         buildUi(appName, nodeName, dark)
+
+        val vault = AndroidKeyStoreIdentityVault()
+        material = vault.load(identityOrigin)
         if (material == null) {
             // No credential is a state this screen can explain; staying silent here
             // is how the old client turned "the key is gone" into a blank page.
@@ -106,14 +108,20 @@ class AppWebActivity : ComponentActivity() {
             textSize = 12f
             setPadding(dp(8), 0, 0, 0)
         }
-        val reload = actionButton("⟳", primary) { web.reload() }
-        val close = actionButton("✕", primary) { finish() }
+        val reload = actionButton("⟳", primary, getString(R.string.action_retry)) { web.reload() }
+        val close = actionButton("✕", primary, getString(R.string.action_back)) { finish() }
         bar.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         bar.addView(subtitle)
         bar.addView(reload)
         bar.addView(close)
 
         container = FrameLayout(this)
+        val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            visibility = View.VISIBLE
+        }
+        progressBar = pBar
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(background)
@@ -123,13 +131,15 @@ class AppWebActivity : ComponentActivity() {
         setContentView(root)
         web = createWebView(dark, background)
         container.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)))
     }
 
-    private fun actionButton(label: String, color: Int, onClick: () -> Unit): TextView =
+    private fun actionButton(label: String, color: Int, description: String = "", onClick: () -> Unit): TextView =
         TextView(this).apply {
             text = label
             setTextColor(color)
             textSize = 18f
+            contentDescription = description.ifEmpty { label }
             setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { onClick() }
         }
@@ -196,6 +206,16 @@ class AppWebActivity : ComponentActivity() {
 
     private inner class GatewayWebViewClient : WebViewClient() {
 
+        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+            super.onPageStarted(view, url, favicon)
+            progressBar?.visibility = View.VISIBLE
+        }
+
+        override fun onPageFinished(view: WebView?, url: String?) {
+            super.onPageFinished(view, url)
+            progressBar?.visibility = View.GONE
+        }
+
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             val host = request.url.host.orEmpty()
             if (allowedHost(host)) return false
@@ -206,33 +226,16 @@ class AppWebActivity : ComponentActivity() {
         }
 
         override fun onReceivedClientCertRequest(view: WebView, request: ClientCertRequest) {
-            val identity = material
-            if (identity == null) {
-                // Never answer a challenge with cancel while an identity is expected:
-                // the kernel remembers a negative answer per host and port, and the
-                // page then fails forever without saying why. The failure page is
-                // already shown in that case.
-                return
-            }
-            if (!allowedHost(request.host.orEmpty())) {
-                request.cancel()
-                return
-            }
-            request.proceed(identity.privateKey, identity.chain.toTypedArray())
+            certHandler.handle(request)
         }
 
         override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: android.net.http.SslError) {
-            val pin = serverPin
-            val host = error.url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
-            val certificate = certificateOf(error)
-            if (pin != null && certificate != null && allowedHost(host) && matchesPin(certificate, pin)) {
-                // A LAN gateway's certificate is self-signed on purpose; the pin the
-                // invitation carried is what stands in for an authority here.
-                handler.proceed()
-                return
-            }
-            handler.cancel()
-            showFailure(getString(R.string.web_load_failed))
+            pinningClient.handleSslError(
+                handler = handler,
+                error = error,
+                onSuccess = {},
+                onFailure = { showFailure(getString(R.string.web_load_failed)) }
+            )
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -245,36 +248,48 @@ class AppWebActivity : ComponentActivity() {
             } else {
                 showFailure(getString(R.string.web_load_failed))
             }
-            // True: this Activity handled it. False would let the platform kill the
-            // whole process, which is what happens when a WebView's renderer dies.
             return true
         }
     }
 
-    private fun certificateOf(error: android.net.http.SslError): X509Certificate? = try {
-        // The certificate the platform refused, in the only form a WebView offers it.
-        val state = android.net.http.SslCertificate.saveState(error.certificate)
-        val bytes = state.getByteArray("x509-certificate") ?: return null
-        CertificateFactory.getInstance("X.509").generateCertificate(bytes.inputStream()) as? X509Certificate
-    } catch (e: Exception) {
-        null
+    private val certHandler by lazy {
+        com.remoteeverything.app.web.WebClientCertHandler(
+            materialProvider = { material },
+            isAllowedHost = ::allowedHost
+        )
     }
 
-    private fun matchesPin(certificate: X509Certificate, pin: ServerPin): Boolean {
-        val publicKeyPin = Digest.publicKeyPin(certificate)
-        val fingerprint = Digest.fingerprint(certificate)
-        return publicKeyPin == pin.publicKeyPin || fingerprint == pin.certFingerprint
+    private val pinningClient by lazy {
+        com.remoteeverything.app.web.WebPinningClient(
+            pinProvider = { serverPin },
+            isAllowedHost = ::allowedHost
+        )
     }
 
     private fun showFailure(message: String) {
+        progressBar?.visibility = View.GONE
         container.removeAllViews()
-        val view = TextView(this).apply {
-            text = message
-            textSize = 16f
-            gravity = android.view.Gravity.CENTER
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-        }
-        container.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val dark = intent.getBooleanExtra(ExtraDark, false)
+        val errorView = com.remoteeverything.app.web.WebErrorView.create(
+            context = this,
+            message = message,
+            dark = dark,
+            onRetry = {
+                container.removeAllViews()
+                val background = if (dark) Color.parseColor("#141414") else Color.parseColor("#FAFAFA")
+                web = createWebView(dark, background)
+                container.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                val pBar = ProgressBar(this@AppWebActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    isIndeterminate = true
+                    visibility = View.VISIBLE
+                }
+                progressBar = pBar
+                container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)))
+                web.loadUrl(appUrl)
+            },
+            onClose = { finish() }
+        )
+        container.addView(errorView)
     }
 
     override fun onDestroy() {

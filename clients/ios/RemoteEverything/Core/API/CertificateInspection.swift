@@ -46,9 +46,10 @@ enum CertificateInspection {
             cursor = end
         }
         guard let spki = element(in: bytes, at: cursor), spki.tag == 0x30 else { return nil }
+        let spkiStart = cursor
         let end = spki.contentOffset + spki.contentLength
         guard end <= bytes.count else { return nil }
-        return Data(bytes[spki.contentOffset..<end])
+        return Data(bytes[spkiStart..<end])
     }
 
     private struct DERElement {

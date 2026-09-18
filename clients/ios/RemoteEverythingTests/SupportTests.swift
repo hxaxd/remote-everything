@@ -207,4 +207,14 @@ final class SupportTests: XCTestCase {
         // Whatever the machine prefers, the resolved value is a real language.
         XCTAssertNotEqual(Language.system.resolved, .system)
     }
+
+    func testResolveSystemLanguage() {
+        XCTAssertEqual(Language.resolveSystemLanguage(["zh-Hans", "en"]), .zh)
+        XCTAssertEqual(Language.resolveSystemLanguage(["zh-CN"]), .zh)
+        XCTAssertEqual(Language.resolveSystemLanguage(["zh"]), .zh)
+        XCTAssertEqual(Language.resolveSystemLanguage(["en-US", "zh"]), .en)
+        XCTAssertEqual(Language.resolveSystemLanguage(["en"]), .en)
+        XCTAssertEqual(Language.resolveSystemLanguage(["ja-JP", "en"]), .en)
+        XCTAssertEqual(Language.resolveSystemLanguage([]), .en)
+    }
 }

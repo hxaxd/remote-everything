@@ -19,7 +19,7 @@
 //     larger than 20 KiB and finding that out at install time is finding out late.
 
 import { cert } from '@kit.DeviceCertificateKit';
-import { base64Decode, base64Encode, randomBytes, sha256Hex, wipe } from './Digest';
+import { base64Decode, base64Encode, randomBytes, sha256Hex, wipe } from '../model/Digest';
 import { CredentialError } from './CredentialError';
 
 /** The certificate manager's documented ceiling for one credential, in bytes. */

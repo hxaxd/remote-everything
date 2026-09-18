@@ -1,5 +1,6 @@
 package com.remoteeverything.core.pairing
 
+import com.remoteeverything.core.api.ApiClient
 import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.PairRequest
 import com.remoteeverything.core.api.PairingResponse
@@ -25,13 +26,14 @@ import java.util.Base64
 class PairingService(
     private val vault: IdentityVault,
     private val transaction: SetupTransaction,
-    private val repository: SettingsRepository,
+    private val repository: com.remoteeverything.core.store.IdentityRepository,
     private val generatePassword: () -> String = ::randomCredentialPassword,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val clientFactory: ((origin: String, pin: ServerPin?, material: Pkcs12.Material?) -> ApiClient)? = null,
 ) {
 
     sealed interface Outcome {
-        data class Activated(val identity: Identity) : Outcome
+        data class Activated(val identity: Identity, val nodeName: String = "") : Outcome
         data class ApprovalPending(val nodeName: String) : Outcome
         data class Failed(val code: ErrorCode?) : Outcome
     }
@@ -48,7 +50,8 @@ class PairingService(
 
     suspend fun run(invitation: SetupUri.Invitation, deviceName: String): Outcome {
         val password = generatePassword()
-        val client = GatewayClients.pairing(invitation.origin, pinOf(invitation))
+        val client = clientFactory?.invoke(invitation.origin, pinOf(invitation), null)
+            ?: GatewayClients.pairing(invitation.origin, pinOf(invitation))
         val pairing = try {
             client.pair(
                 PairRequest(
@@ -109,11 +112,15 @@ class PairingService(
     }
 
     private suspend fun activate(staged: StagedSetup): Outcome {
-        val client = GatewayClients.device(staged.origin, vault, staged.serverPin)
-            ?: run {
-                transaction.clear()
-                return Outcome.Failed(null)
-            }
+        val material = vault.load(staged.origin)
+        val client = if (material != null) {
+            clientFactory?.invoke(staged.origin, staged.serverPin, material)
+                ?: GatewayClients.device(staged.origin, material, staged.serverPin)
+        } else null
+        if (client == null) {
+            transaction.clear()
+            return Outcome.Failed(null)
+        }
         return try {
             client.activate(staged.nodeId)
             promote(staged)
@@ -126,6 +133,7 @@ class PairingService(
                     serverPin = staged.serverPin,
                     createdAtEpochMs = staged.createdAtEpochMs,
                 ),
+                nodeName = staged.nodeName,
             )
         } catch (e: ClientError) {
             when (e.code) {

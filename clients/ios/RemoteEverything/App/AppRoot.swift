@@ -47,7 +47,7 @@ struct AppRootView: View {
         }
         .preferredColorScheme(model.preferredColorScheme)
         .sheet(isPresented: $model.isAddingNode) {
-            AddNodeScreen()
+            PairScreen()
                 .environmentObject(model)
         }
         .sheet(isPresented: $model.isShowingSettings) {
@@ -67,7 +67,7 @@ struct AppRootView: View {
 
     private var narrowLayout: some View {
         NavigationStack(path: $model.path) {
-            NodeListScreen()
+            HomeScreen()
                 .navigationDestination(for: AppRoute.self) { route in
                     destination(for: route)
                 }
@@ -77,7 +77,7 @@ struct AppRootView: View {
     private var wideLayout: some View {
         HStack(spacing: 0) {
             NavigationStack {
-                NodeListScreen()
+                HomeScreen()
             }
             .frame(minWidth: 300, idealWidth: 340, maxWidth: 380)
             Rectangle()
@@ -114,7 +114,7 @@ struct AppRootView: View {
         case .node(let nodeID):
             NodeScreen(nodeID: nodeID)
         case .application(let nodeID, let appID):
-            AppWebScreen(
+            WebScreen(
                 nodeID: nodeID,
                 appID: appID,
                 appName: applicationName(nodeID: nodeID, appID: appID)

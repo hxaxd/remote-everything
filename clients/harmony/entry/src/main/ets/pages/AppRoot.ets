@@ -10,10 +10,12 @@ import { deviceInfo } from '@kit.BasicServicesKit';
 import { model } from '../app/AppModel';
 import { Strings, defaultDeviceName } from '../app/i18n/Strings';
 import { Metrics } from '../app/theme/Tokens';
-import { palette } from '../app/views/Widgets';
-import { EmptyScreen, NodesScreen } from '../app/views/Screens';
-import { AddNodeScreen, NodeAppsScreen, SettingsScreen } from '../app/views/Screens';
-import { WebScreen } from '../app/views/WebScreen';
+import { palette } from '../app/ui/Components';
+import { EmptyScreen, NodesScreen } from '../app/ui/HomeScreen';
+import { AddNodeScreen } from '../app/ui/PairScreen';
+import { NodeAppsScreen } from '../app/ui/NodeScreen';
+import { SettingsScreen } from '../app/ui/SettingsScreen';
+import { WebScreen } from '../app/web/WebScreen';
 
 @Entry
 @ComponentV2

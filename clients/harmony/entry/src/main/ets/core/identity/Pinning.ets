@@ -13,8 +13,8 @@
 // kernel hands over. The decision itself lives here so the two cannot drift.
 
 import { ServerPin } from '../model/Models';
-import { base64Encode, sha256, toHex } from './Digest';
-import { subjectPublicKeyInfo } from './Spki';
+import { base64Encode, sha256, toHex } from '../model/Digest';
+import { certificateCoversHost, isCertificateValid, subjectPublicKeyInfo } from './Spki';
 
 export enum PinVerdict {
   /** The certificate is the one this device holds. */
@@ -38,7 +38,13 @@ export function publicKeyPin(certificateDer: Uint8Array): string | null {
 }
 
 /** Whether one certificate may be used for one pinned gateway. */
-export function certificateMatchesPin(certificateDer: Uint8Array, pin: ServerPin): boolean {
+export function certificateMatchesPin(certificateDer: Uint8Array, pin: ServerPin, host?: string): boolean {
+  if (!isCertificateValid(certificateDer)) {
+    return false;
+  }
+  if (host && !certificateCoversHost(certificateDer, host)) {
+    return false;
+  }
   if (certificateFingerprint(certificateDer) === pin.certFingerprint) {
     return true;
   }
@@ -47,9 +53,9 @@ export function certificateMatchesPin(certificateDer: Uint8Array, pin: ServerPin
 }
 
 /** Whether a chain's leaf certificate may be used for one pinned gateway. */
-export function chainMatchesPin(chain: Uint8Array[], pin: ServerPin): PinVerdict {
+export function chainMatchesPin(chain: Uint8Array[], pin: ServerPin, host?: string): PinVerdict {
   if (chain.length === 0) {
     return PinVerdict.Refused;
   }
-  return certificateMatchesPin(chain[0], pin) ? PinVerdict.Trusted : PinVerdict.Refused;
+  return certificateMatchesPin(chain[0], pin, host) ? PinVerdict.Trusted : PinVerdict.Refused;
 }

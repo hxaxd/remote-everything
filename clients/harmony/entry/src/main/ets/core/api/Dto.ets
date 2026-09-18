@@ -18,7 +18,7 @@ const NODE_ID_PATTERN = new RegExp('^[a-f0-9]{64}$');
 const ACCENT_PATTERN = new RegExp('^#[0-9A-Fa-f]{6}$');
 const FINGERPRINT_PATTERN = new RegExp('^[a-f0-9]{64}$');
 
-export class NodeSummary {
+export class NodeSummaryDto {
   readonly id: string;
   readonly name: string;
 
@@ -28,23 +28,66 @@ export class NodeSummary {
   }
 }
 
-export class NodesAnswer {
-  readonly nodes: NodeSummary[];
+export type NodeSummary = NodeSummaryDto;
+export const NodeSummary = NodeSummaryDto;
 
-  constructor(nodes: NodeSummary[]) {
+export class AppDto {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly icon: string;
+  readonly accent: string;
+  readonly launchFragment: string;
+  readonly enabled: boolean;
+  readonly running: boolean;
+  readonly code: string;
+
+  constructor(id: string, name: string, description: string, icon: string, accent: string, launchFragment: string,
+    enabled: boolean, running: boolean, code: string) {
+    this.id = id;
+    this.name = name;
+    this.description = description;
+    this.icon = icon;
+    this.accent = accent;
+    this.launchFragment = launchFragment;
+    this.enabled = enabled;
+    this.running = running;
+    this.code = code;
+  }
+
+  toAppInfo(): AppInfo {
+    return new AppInfo(this.id, this.name, this.description, this.icon, this.accent, this.launchFragment,
+      this.enabled, this.running, this.code as AppState);
+  }
+}
+
+export class NodesResponse {
+  readonly nodes: NodeSummaryDto[];
+
+  constructor(nodes: NodeSummaryDto[]) {
     this.nodes = nodes;
   }
 }
 
-export class CatalogAnswer {
+export type NodesAnswer = NodesResponse;
+export const NodesAnswer = NodesResponse;
+
+export class CatalogResponse {
+  readonly ok: boolean;
   readonly computerConnected: boolean;
+  readonly code: string;
   readonly apps: AppInfo[];
 
-  constructor(computerConnected: boolean, apps: AppInfo[]) {
+  constructor(ok: boolean, computerConnected: boolean, code: string, apps: AppInfo[]) {
+    this.ok = ok;
     this.computerConnected = computerConnected;
+    this.code = code;
     this.apps = apps;
   }
 }
+
+export type CatalogAnswer = CatalogResponse;
+export const CatalogAnswer = CatalogResponse;
 
 /** The status codes a control answer may carry, `computer_offline` included. */
 export enum ControlCode {
@@ -57,7 +100,7 @@ export enum ControlCode {
   StateUpdateFailed = 'state_update_failed'
 }
 
-export class ControlAnswer {
+export class ControlResponse {
   readonly ok: boolean;
   readonly action: string;
   readonly computerConnected: boolean;
@@ -89,7 +132,10 @@ export class ControlAnswer {
   }
 }
 
-export class PairingAnswer {
+export type ControlAnswer = ControlResponse;
+export const ControlAnswer = ControlResponse;
+
+export class PairingResponse {
   readonly deviceName: string;
   readonly certificateFingerprint: string;
   readonly credentialPkcs12: string;
@@ -104,6 +150,9 @@ export class PairingAnswer {
   }
 }
 
+export type PairingAnswer = PairingResponse;
+export const PairingAnswer = PairingResponse;
+
 /** The state code an app's enabled/running pair has to agree with. */
 function appStateOf(enabled: boolean, running: boolean): AppState {
   if (enabled) {
@@ -112,7 +161,7 @@ function appStateOf(enabled: boolean, running: boolean): AppState {
   return running ? AppState.Stopping : AppState.Stopped;
 }
 
-function decodeApp(reader: JsonReader): AppInfo {
+export function decodeAppDto(reader: JsonReader): AppDto {
   reader.rejectUnknown(['id', 'name', 'description', 'icon', 'accent', 'launch_fragment', 'computer_connected',
     'enabled', 'running', 'code']);
   const id: string = reader.pattern('id', ID_PATTERN);
@@ -127,6 +176,9 @@ function decodeApp(reader: JsonReader): AppInfo {
   const icon: string = reader.string('icon');
   if (codePoints(icon) > 4) {
     throw new JsonError(`${reader.context()}.icon is out of bounds`);
+  }
+  if (!hasNoControlCharacters(icon)) {
+    throw new JsonError(`${reader.context()}.icon carries control characters`);
   }
   const accent: string = reader.pattern('accent', ACCENT_PATTERN);
   const launchFragment: string = reader.string('launch_fragment');
@@ -143,7 +195,11 @@ function decodeApp(reader: JsonReader): AppInfo {
   if (code !== expected) {
     throw new JsonError(`${reader.context()}.code contradicts enabled and running`);
   }
-  return new AppInfo(id, name, description, icon, accent, launchFragment, enabled, running, expected);
+  return new AppDto(id, name, description, icon, accent, launchFragment, enabled, running, code);
+}
+
+function decodeApp(reader: JsonReader): AppInfo {
+  return decodeAppDto(reader).toAppInfo();
 }
 
 function readCode(text: string, what: string): JsonReader {
@@ -204,7 +260,7 @@ export function decodeCatalog(text: string): CatalogAnswer {
     if (!connected && apps.length > 0) {
       throw new JsonError('an offline catalog still lists applications');
     }
-    return new CatalogAnswer(connected, apps);
+    return new CatalogAnswer(true, connected, code, apps);
   } catch (error) {
     throw ClientError.client(`the catalog answer is not one this client reads: ${(error as Error).message}`);
   }

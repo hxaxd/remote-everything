@@ -16,6 +16,7 @@ fun mergeNodes(answers: List<Pair<Identity, NodesResponse>>): List<Node> {
         for (dto in response.nodes) {
             val path = Path(
                 origin = identity.origin,
+                identityRef = identity.credentialRef,
                 isPrivate = isPrivate,
             )
             val existing = byId[dto.id]
@@ -31,8 +32,27 @@ fun mergeNodes(answers: List<Pair<Identity, NodesResponse>>): List<Node> {
 
 /** Whether an origin's host is a private address (RFC1918, link-local, loopback). */
 fun isPrivateOrigin(origin: String): Boolean {
-    val host = origin.removePrefix("https://").substringBefore(':')
-    val parts = host.split('.')
+    val withoutScheme = origin.removePrefix("https://")
+    val host = if (withoutScheme.startsWith("[")) {
+        val closeBracket = withoutScheme.indexOf(']')
+        if (closeBracket != -1) withoutScheme.substring(1, closeBracket) else withoutScheme
+    } else {
+        withoutScheme.substringBefore(':')
+    }
+    return isPrivateHost(host)
+}
+
+fun isPrivateHost(host: String): Boolean {
+    val value = host.lowercase().trim().removePrefix("[").removeSuffix("]")
+    if (value.contains(":")) {
+        // IPv6: loopback, link-local (fe80::/10) and unique-local (fc00::/7).
+        if (value == "::1") return true
+        if (value.startsWith("fe8") || value.startsWith("fe9") || value.startsWith("fea") || value.startsWith("feb")) {
+            return true
+        }
+        return value.startsWith("fc") || value.startsWith("fd")
+    }
+    val parts = value.split('.')
     if (parts.size != 4) return false
     val octets = parts.map { it.toIntOrNull() ?: return false }
     if (octets.any { it !in 0..255 }) return false

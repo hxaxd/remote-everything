@@ -33,9 +33,11 @@ data class Node(
 
 data class Path(
     val origin: String,
+    val identityRef: String = "",
     val reachable: Boolean? = null,
     val latencyMs: Long? = null,
     val isPrivate: Boolean,
+    val lastCheckedAt: Long? = null,
 )
 
 enum class NodeStatus { UNKNOWN, ONLINE_LAN, ONLINE_TUNNEL, OFFLINE, PENDING_APPROVAL }

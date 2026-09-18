@@ -22,10 +22,6 @@ export class Strings {
     Strings.language = language;
   }
 
-  static current(): Language {
-    return Strings.language;
-  }
-
   /**
    * Applies a language: the platform is told, so a cold start comes up in it, and the
    * running process is told as well, which is what makes the switch immediate
@@ -103,28 +99,6 @@ export class Strings {
   /** The words for an app's state, by its code. */
   static appState(state: AppState): string {
     return Strings.text(MessageKeys.forAppState(state));
-  }
-
-  static languageName(language: Language): string {
-    switch (language) {
-      case Language.Chinese:
-        return Strings.text(MessageKeys.LANGUAGE_ZH);
-      case Language.English:
-        return Strings.text(MessageKeys.LANGUAGE_EN);
-      default:
-        return Strings.text(MessageKeys.SETTINGS_LANGUAGE_SYSTEM);
-    }
-  }
-
-  static appearanceName(appearance: Appearance): string {
-    switch (appearance) {
-      case Appearance.Light:
-        return Strings.text(MessageKeys.SETTINGS_APPEARANCE_LIGHT);
-      case Appearance.Dark:
-        return Strings.text(MessageKeys.SETTINGS_APPEARANCE_DARK);
-      default:
-        return Strings.text(MessageKeys.SETTINGS_APPEARANCE_SYSTEM);
-    }
   }
 }
 

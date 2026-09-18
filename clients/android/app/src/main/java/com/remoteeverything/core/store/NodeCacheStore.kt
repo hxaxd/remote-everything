@@ -22,7 +22,10 @@ class NodeCacheStore(private val file: File) {
     } ?: emptyMap()
 
     fun save(cache: Map<String, NodesResponse>) {
-        if (cache.isEmpty()) return
+        if (cache.isEmpty()) {
+            file.delete()
+            return
+        }
         AtomicFile.write(file, json.encodeToString(serializer, cache).toByteArray(Charsets.UTF_8))
     }
 }

@@ -56,7 +56,9 @@ final class StagedSetupStore {
     /// The staged setup for an origin, when there is a readable one. An
     /// unreadable file is no setup: what cannot be understood is not resumed.
     func load(origin: String) -> StagedSetup? {
-        decode(AtomicFile.read(fileURL(origin: origin)), origin: origin)
+        guard let setup = decode(AtomicFile.read(fileURL(origin: origin))) else { return nil }
+        guard setup.origin == origin else { return nil }
+        return setup
     }
 
     /// Every staged setup on disk.
@@ -64,8 +66,8 @@ final class StagedSetupStore {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         var setups: [StagedSetup] = []
         for file in files where file.pathExtension == "json" {
-            let origin = file.deletingPathExtension().lastPathComponent
-            if let setup = decode(AtomicFile.read(file), origin: origin) {
+            let alias = file.deletingPathExtension().lastPathComponent
+            if let setup = decode(AtomicFile.read(file)), Digest.originAlias(setup.origin) == alias {
                 setups.append(setup)
             }
         }
@@ -76,12 +78,12 @@ final class StagedSetupStore {
         AtomicFile.remove(fileURL(origin: origin))
     }
 
-    private func decode(_ data: Data?, origin: String) -> StagedSetup? {
+    private func decode(_ data: Data?) -> StagedSetup? {
         guard let data else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let setup = try? decoder.decode(StagedSetup.self, from: data) else { return nil }
-        guard setup.schema == 1, setup.origin == origin else { return nil }
+        guard setup.schema == 1 else { return nil }
         return setup
     }
 }

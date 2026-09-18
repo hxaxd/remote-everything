@@ -25,11 +25,30 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(LocaleHelper.wrap(newBase))
     }
 
+    private var vmRef: AppViewModel? = null
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleInvitationIntent(intent)
+    }
+
+    private fun handleInvitationIntent(intent: android.content.Intent?) {
+        val uri = intent?.dataString
+        if (uri != null && uri.startsWith("remote-everything://setup")) {
+            vmRef?.pendingInvitation = uri
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             val vm: AppViewModel = viewModel()
+            vmRef = vm
+            LaunchedEffect(Unit) {
+                handleInvitationIntent(intent)
+            }
             LifecycleStartEffect(Unit) {
                 vm.startForegroundRefresh()
                 onStopOrDispose { vm.stopForegroundRefresh() }

@@ -73,6 +73,55 @@ enum AppState: String, Codable, Equatable {
     case starting
     case stopping
     case stopped
+    var isSteady: Bool {
+        self == .ready || self == .stopped
+    }
+}
+
+/// What language the app speaks. `system` means: Chinese when the system's first
+/// preferred language is Chinese, English otherwise (ui-contract §2/S5).
+enum Language: String, Codable, CaseIterable, Identifiable {
+    case system
+    case zh
+    case en
+
+    var id: String { rawValue }
+
+    /// The language this setting resolves to right now.
+    var resolved: Language {
+        switch self {
+        case .system: return Language.systemResolved
+        case .zh, .en: return self
+        }
+    }
+
+    static var systemResolved: Language {
+        resolveSystemLanguage(Locale.preferredLanguages)
+    }
+
+    static func resolveSystemLanguage(_ preferred: [String]) -> Language {
+        for item in preferred {
+            let tag = item.lowercased()
+            if tag.hasPrefix("zh") { return .zh }
+            if tag.hasPrefix("en") { return .en }
+        }
+        return .en
+    }
+}
+
+/// Light or dark, overriding the system when it says so.
+enum Appearance: String, Codable, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+}
+
+/// The two settings the app keeps (ui-contract §2/S5).
+struct ClientSettings: Codable, Equatable {
+    var language: Language = .system
+    var appearance: Appearance = .system
 }
 
 /// One application a node runs — catalog.schema.json's apps[] entry.

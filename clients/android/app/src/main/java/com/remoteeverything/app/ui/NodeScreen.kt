@@ -104,7 +104,7 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var opening by remember { mutableStateOf(false) }
+    var openingAppId by remember { mutableStateOf<String?>(null) }
     val dark = when (state.settings.appearance) {
         Appearance.SYSTEM -> isSystemInDarkTheme()
         Appearance.LIGHT -> false
@@ -125,8 +125,12 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
         when {
             current == null -> CenteredMessage(
                 title = l10n(MessageKeys.ERROR_NODE_GONE),
-                action = l10n(MessageKeys.ACTION_RETRY),
-                onAction = { vm.refreshNodes() },
+                body = l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                action = l10n(MessageKeys.ACTION_BACK_TO_NODES),
+                onAction = {
+                    vm.refreshNodes()
+                    onGone()
+                },
                 modifier = Modifier.padding(padding),
             )
             else -> when (val catalog = state.catalog) {
@@ -145,8 +149,12 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
 
                 CatalogUiState.Unauthorized -> CenteredMessage(
                     title = l10n(MessageKeys.ERROR_NODE_GONE),
-                    action = l10n(MessageKeys.ACTION_BACK),
-                    onAction = onGone,
+                    body = l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                    action = l10n(MessageKeys.ACTION_BACK_TO_NODES),
+                    onAction = {
+                        vm.refreshNodes()
+                        onGone()
+                    },
                     modifier = Modifier.padding(padding),
                 )
 
@@ -157,37 +165,48 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
                     modifier = Modifier.padding(padding),
                 )
 
-                is CatalogUiState.Ready -> LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                    items(catalog.apps, key = { it.id }) { app ->
-                        AppRow(
-                            app = app,
-                            onOpen = {
-                                if (!opening) {
-                                    opening = true
-                                    scope.launch {
-                                        val target = vm.open(current, app.id)
-                                        val identityOrigin = vm.originFor(current)
-                                        if (target == null || identityOrigin == null) {
-                                            snackbar.showSnackbar(openFailed)
-                                        } else {
-                                            context.startActivity(
-                                                AppWebActivity.intent(
-                                                    context = context,
-                                                    url = target.url + app.launchFragment,
-                                                    identityOrigin = identityOrigin,
-                                                    appName = app.name,
-                                                    nodeName = current.name,
-                                                    serverPin = target.serverPin,
-                                                    dark = dark,
-                                                ),
-                                            )
-                                        }
-                                        opening = false
-                                    }
-                                }
-                            },
-                            onControl = { start -> vm.control(current, app.id, start) },
+                is CatalogUiState.Ready -> {
+                    if (catalog.apps.isEmpty()) {
+                        CenteredMessage(
+                            title = l10n(MessageKeys.APPS_EMPTY_TITLE),
+                            body = l10n(MessageKeys.APPS_EMPTY_BODY),
+                            modifier = Modifier.padding(padding),
                         )
+                    } else {
+                        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+                            items(catalog.apps, key = { it.id }) { app ->
+                                AppRow(
+                                    app = app,
+                                    isOpening = openingAppId == app.id,
+                                    onOpen = {
+                                        if (openingAppId == null) {
+                                            openingAppId = app.id
+                                            scope.launch {
+                                                val target = vm.open(current, app.id)
+                                                val identityOrigin = vm.originFor(current)
+                                                if (target == null || identityOrigin == null) {
+                                                    snackbar.showSnackbar(openFailed)
+                                                } else {
+                                                    context.startActivity(
+                                                        AppWebActivity.intent(
+                                                            context = context,
+                                                            url = target.url + app.launchFragment,
+                                                            identityOrigin = identityOrigin,
+                                                            appName = app.name,
+                                                            nodeName = current.name,
+                                                            serverPin = target.serverPin,
+                                                            dark = dark,
+                                                        ),
+                                                    )
+                                                }
+                                                openingAppId = null
+                                            }
+                                        }
+                                    },
+                                    onControl = { start -> vm.control(current, app.id, start) },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -196,7 +215,12 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
 }
 
 @Composable
-private fun AppRow(app: AppInfo, onOpen: () -> Unit, onControl: (Boolean) -> Unit) {
+private fun AppRow(
+    app: AppInfo,
+    isOpening: Boolean = false,
+    onOpen: () -> Unit,
+    onControl: (Boolean) -> Unit,
+) {
     val semantic = LocalSemanticColors.current
     val accent = remember(app.accent) {
         runCatching { Color(android.graphics.Color.parseColor(app.accent)) }.getOrDefault(semantic.offline)
@@ -205,7 +229,7 @@ private fun AppRow(app: AppInfo, onOpen: () -> Unit, onControl: (Boolean) -> Uni
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
-            .clickable(enabled = app.code != AppState.STOPPED || app.enabled, onClick = onOpen)
+            .clickable(enabled = !isOpening && (app.code != AppState.STOPPED || app.enabled), onClick = onOpen)
             .padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -234,17 +258,21 @@ private fun AppRow(app: AppInfo, onOpen: () -> Unit, onControl: (Boolean) -> Uni
                 )
             }
         }
-        val (stateLabel, stateColor) = when (app.code) {
-            AppState.READY -> l10n(MessageKeys.forAppState(app.code)) to semantic.ok
-            AppState.STARTING -> l10n(MessageKeys.forAppState(app.code)) to semantic.warn
-            AppState.STOPPING -> l10n(MessageKeys.forAppState(app.code)) to semantic.warn
-            AppState.STOPPED -> l10n(MessageKeys.forAppState(app.code)) to semantic.offline
+        if (isOpening) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(2.dp), strokeWidth = 2.dp)
+        } else {
+            val (stateLabel, stateColor) = when (app.code) {
+                AppState.READY -> l10n(MessageKeys.forAppState(app.code)) to semantic.ok
+                AppState.STARTING -> l10n(MessageKeys.forAppState(app.code)) to semantic.warn
+                AppState.STOPPING -> l10n(MessageKeys.forAppState(app.code)) to semantic.warn
+                AppState.STOPPED -> l10n(MessageKeys.forAppState(app.code)) to semantic.offline
+            }
+            StatusChip(stateLabel, stateColor)
         }
-        StatusChip(stateLabel, stateColor)
         val busy = app.code == AppState.STARTING || app.code == AppState.STOPPING
         TextButton(
             onClick = { onControl(app.code == AppState.STOPPED || app.code == AppState.STOPPING) },
-            enabled = !busy && app.enabled,
+            enabled = !busy && app.enabled && !isOpening,
         ) {
             Text(
                 l10n(

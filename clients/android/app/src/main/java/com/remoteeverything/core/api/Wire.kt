@@ -41,6 +41,7 @@ object Wire {
         require(Strict.hasNoControlCharacters(app.description)) { "an application description carries control characters" }
         require(Strict.codePoints(app.description) <= 240) { "an application description is out of bounds" }
         require(Strict.codePoints(app.icon) <= 4) { "an application icon is out of bounds" }
+        require(Strict.hasNoControlCharacters(app.icon)) { "an application icon carries control characters" }
         require(Strict.isAccent(app.accent)) { "an application accent is not #RRGGBB" }
         require(Strict.isLaunchFragment(app.launch_fragment)) { "an application launch fragment is not a fragment" }
         require(app.computer_connected) { "an application in a catalog is not connected" }
@@ -48,10 +49,8 @@ object Wire {
     }
 
     fun validateControl(response: ControlResponse) {
-        if (response.computer_connected) {
-            require(flagsMatch(response.code, response.enabled, response.running)) {
-                "a control code contradicts its flags"
-            }
+        require(flagsMatch(response.code, response.enabled, response.running)) {
+            "a control code contradicts its flags"
         }
         response.error_code?.let { require(it == "stop_command_failed") { "an unknown error_code $it" } }
         response.app?.let { validateApp(it) }

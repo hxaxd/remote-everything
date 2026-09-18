@@ -12,7 +12,11 @@ object AtomicFile {
     fun write(file: File, contents: ByteArray) {
         file.parentFile?.mkdirs()
         val temporary = File(file.parentFile, file.name + ".new")
-        temporary.writeBytes(contents)
+        java.io.FileOutputStream(temporary).use { fos ->
+            fos.write(contents)
+            fos.flush()
+            fos.fd.sync()
+        }
         if (!temporary.renameTo(file)) {
             // Windows refuses a rename onto an existing file; replacing it first is
             // still atomic enough: the old file is whole until the rename lands.

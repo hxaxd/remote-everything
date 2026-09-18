@@ -54,6 +54,14 @@ function readAppearance(value: string | null): Appearance {
 export class SettingsStore {
   private store: preferences.Preferences | null = null;
 
+  constructor(store: preferences.Preferences | null = null) {
+    this.store = store;
+  }
+
+  attach(store: preferences.Preferences): void {
+    this.store = store;
+  }
+
   open(context: Context): Settings {
     try {
       this.store = preferences.getPreferencesSync(context, { name: STORE_NAME });

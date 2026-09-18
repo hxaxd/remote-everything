@@ -58,12 +58,31 @@ final class PathSelectionTests: XCTestCase {
 
     func testInvalidatingRetiresOnlyOneNode() {
         let cache = PathSelector.Cache()
-        let node = Node(id: "n", name: "Desk", paths: [
-            path(origin: "https://gw.example.com", reachable: true, latency: 10, isPrivate: false),
+        let node1 = Node(id: "n1", name: "Desk", paths: [
+            path(origin: "https://gw1.example.com", reachable: true, latency: 10, isPrivate: false),
         ])
-        XCTAssertNotNil(cache.resolve(node: node, networkKey: "wifi"))
-        cache.invalidate(nodeID: "n")
-        XCTAssertNotNil(cache.resolve(node: node, networkKey: "wifi"))
+        let node2 = Node(id: "n2", name: "Laptop", paths: [
+            path(origin: "https://gw2.example.com", reachable: true, latency: 20, isPrivate: false),
+        ])
+        XCTAssertEqual(cache.resolve(node: node1, networkKey: "wifi")?.origin, "https://gw1.example.com")
+        XCTAssertEqual(cache.resolve(node: node2, networkKey: "wifi")?.origin, "https://gw2.example.com")
+
+        // Invalidate node1 only
+        cache.invalidate(nodeID: "n1")
+
+        let node1Updated = Node(id: "n1", name: "Desk", paths: [
+            path(origin: "https://gw1.example.com", reachable: true, latency: 50, isPrivate: false),
+            path(origin: "https://faster.example.com", reachable: true, latency: 5, isPrivate: false),
+        ])
+        let node2Updated = Node(id: "n2", name: "Laptop", paths: [
+            path(origin: "https://gw2.example.com", reachable: true, latency: 20, isPrivate: false),
+            path(origin: "https://faster.example.com", reachable: true, latency: 5, isPrivate: false),
+        ])
+
+        // node1 re-evaluates because it was invalidated
+        XCTAssertEqual(cache.resolve(node: node1Updated, networkKey: "wifi")?.origin, "https://faster.example.com")
+        // node2 keeps its cached choice because its path is still reachable and it was not invalidated
+        XCTAssertEqual(cache.resolve(node: node2Updated, networkKey: "wifi")?.origin, "https://gw2.example.com")
     }
 
     func testPrivateHostsAreRecognised() {

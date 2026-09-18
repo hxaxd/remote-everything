@@ -112,3 +112,221 @@ export function subjectPublicKeyInfo(certificate: Uint8Array): Uint8Array {
   }
   return certificate.subarray(spki.start, spki.end);
 }
+
+function parseAsn1Time(data: Uint8Array, element: Element): number {
+  let text: string = '';
+  for (let index: number = element.contentStart; index < element.end; index += 1) {
+    text += String.fromCharCode(data[index]);
+  }
+  let year: number = 0;
+  let month: number = 0;
+  let day: number = 0;
+  let hour: number = 0;
+  let min: number = 0;
+  let sec: number = 0;
+
+  if (element.tag === 0x17) {
+    if (text.length < 10) {
+      throw new DerError('UTCTime is truncated');
+    }
+    const yy: number = Number.parseInt(text.substring(0, 2), 10);
+    year = yy >= 50 ? 1900 + yy : 2000 + yy;
+    month = Number.parseInt(text.substring(2, 4), 10);
+    day = Number.parseInt(text.substring(4, 6), 10);
+    hour = Number.parseInt(text.substring(6, 8), 10);
+    min = Number.parseInt(text.substring(8, 10), 10);
+    if (text.length >= 12 && text.charAt(10) !== 'Z' && text.charAt(10) !== '+' && text.charAt(10) !== '-') {
+      sec = Number.parseInt(text.substring(10, 12), 10);
+    }
+  } else if (element.tag === 0x18) {
+    if (text.length < 12) {
+      throw new DerError('GeneralizedTime is truncated');
+    }
+    year = Number.parseInt(text.substring(0, 4), 10);
+    month = Number.parseInt(text.substring(4, 6), 10);
+    day = Number.parseInt(text.substring(6, 8), 10);
+    hour = Number.parseInt(text.substring(8, 10), 10);
+    min = Number.parseInt(text.substring(10, 12), 10);
+    if (text.length >= 14 && text.charAt(12) !== 'Z' && text.charAt(12) !== '.') {
+      sec = Number.parseInt(text.substring(12, 14), 10);
+    }
+  } else {
+    throw new DerError('unsupported ASN.1 time tag in certificate');
+  }
+
+  if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day) ||
+      Number.isNaN(hour) || Number.isNaN(min) || Number.isNaN(sec)) {
+    throw new DerError('failed to parse date components');
+  }
+
+  return Date.UTC(year, month - 1, day, hour, min, sec);
+}
+
+export class CertValidity {
+  readonly notBefore: number;
+  readonly notAfter: number;
+
+  constructor(notBefore: number, notAfter: number) {
+    this.notBefore = notBefore;
+    this.notAfter = notAfter;
+  }
+}
+
+/**
+ * Parses notBefore and notAfter (epoch ms) from a DER certificate.
+ */
+export function certificateValidity(certificate: Uint8Array): CertValidity {
+  const outer: Element = readElement(certificate, 0);
+  if (outer.tag !== 0x30 || outer.end !== certificate.length) {
+    throw new DerError('a certificate is a SEQUENCE and nothing else');
+  }
+  const parts: Element[] = children(certificate, outer);
+  if (parts.length < 3 || parts[0].tag !== 0x30) {
+    throw new DerError('a certificate does not start with its tbsCertificate');
+  }
+  const tbs: Element[] = children(certificate, parts[0]);
+  let index: number = 0;
+  if (tbs.length > 0 && tbs[0].tag === 0xa0) {
+    index = 1;
+  }
+  if (tbs.length < index + 4) {
+    throw new DerError('a certificate has no validity field');
+  }
+  const validity: Element = tbs[index + 3];
+  if (validity.tag !== 0x30) {
+    throw new DerError('a certificate validity is not a SEQUENCE');
+  }
+  const times: Element[] = children(certificate, validity);
+  if (times.length < 2) {
+    throw new DerError('validity does not contain notBefore and notAfter');
+  }
+  const notBefore: number = parseAsn1Time(certificate, times[0]);
+  const notAfter: number = parseAsn1Time(certificate, times[1]);
+  return new CertValidity(notBefore, notAfter);
+}
+
+/**
+ * Checks if the certificate is currently within its valid date range.
+ */
+export function isCertificateValid(certificate: Uint8Array, nowMs: number = Date.now()): boolean {
+  try {
+    const v: CertValidity = certificateValidity(certificate);
+    return nowMs >= v.notBefore && nowMs <= v.notAfter;
+  } catch (error) {
+    return false;
+  }
+}
+
+function dnsNameMatches(pattern: string, host: string): boolean {
+  const p = pattern.toLowerCase();
+  const h = host.toLowerCase();
+  if (!p.startsWith('*.')) {
+    return p === h;
+  }
+  const suffix = p.substring(2);
+  if (!h.endsWith('.' + suffix)) {
+    return false;
+  }
+  const prefix = h.substring(0, h.length - suffix.length - 1);
+  return !prefix.includes('.');
+}
+
+/**
+ * Whether a certificate covers a given host via SubjectAlternativeName (DNS / IP)
+ * or Subject CommonName fallback.
+ */
+export function certificateCoversHost(certificate: Uint8Array, host: string): boolean {
+  if (!host || host.trim() === '') {
+    return true;
+  }
+  const wanted = host.trim().toLowerCase();
+  try {
+    const outer: Element = readElement(certificate, 0);
+    if (outer.tag !== 0x30) return false;
+    const parts: Element[] = children(certificate, outer);
+    if (parts.length < 1 || parts[0].tag !== 0x30) return false;
+    const tbs: Element[] = children(certificate, parts[0]);
+    let index: number = 0;
+    if (tbs.length > 0 && tbs[0].tag === 0xa0) {
+      index = 1;
+    }
+    const names: string[] = [];
+    let hasSan = false;
+
+    // Search extensions for SAN (OID 2.5.29.17: 0x55, 0x1d, 0x11)
+    for (let i = index + 6; i < tbs.length; i++) {
+      if (tbs[i].tag === 0xa3) {
+        const extWrapper = children(certificate, tbs[i]);
+        if (extWrapper.length > 0 && extWrapper[0].tag === 0x30) {
+          const extensions = children(certificate, extWrapper[0]);
+          for (const ext of extensions) {
+            const extParts = children(certificate, ext);
+            if (extParts.length >= 2 && extParts[0].tag === 0x06) {
+              const oid = certificate.subarray(extParts[0].contentStart, extParts[0].end);
+              if (oid.length === 3 && oid[0] === 0x55 && oid[1] === 0x1d && oid[2] === 0x11) {
+                const octet = extParts[extParts.length - 1];
+                if (octet.tag === 0x04) {
+                  const sanSeq = readElement(certificate, octet.contentStart);
+                  if (sanSeq.tag === 0x30) {
+                    const generalNames = children(certificate, sanSeq);
+                    for (const gn of generalNames) {
+                      if (gn.tag === 0x82) { // dNSName [2]
+                        hasSan = true;
+                        let name = '';
+                        for (let b = gn.contentStart; b < gn.end; b++) {
+                          name += String.fromCharCode(certificate[b]);
+                        }
+                        names.push(name.trim().toLowerCase());
+                      } else if (gn.tag === 0x87) { // iPAddress [7]
+                        hasSan = true;
+                        const ipLen = gn.end - gn.contentStart;
+                        if (ipLen === 4) {
+                          const ip = `${certificate[gn.contentStart]}.${certificate[gn.contentStart + 1]}.${certificate[gn.contentStart + 2]}.${certificate[gn.contentStart + 3]}`;
+                          names.push(ip);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (hasSan) {
+      return names.some(n => dnsNameMatches(n, wanted) || n === wanted);
+    }
+
+    // Fallback: CommonName in Subject (tbs[index + 4])
+    if (tbs.length > index + 4 && tbs[index + 4].tag === 0x30) {
+      const subject = tbs[index + 4];
+      const rdnSeq = children(certificate, subject);
+      for (const rdn of rdnSeq) {
+        if (rdn.tag === 0x31) {
+          const attrs = children(certificate, rdn);
+          for (const attr of attrs) {
+            if (attr.tag === 0x30) {
+              const attrParts = children(certificate, attr);
+              if (attrParts.length >= 2 && attrParts[0].tag === 0x06) {
+                const oid = certificate.subarray(attrParts[0].contentStart, attrParts[0].end);
+                // OID 2.5.4.3 (id-at-commonName: 0x55, 0x04, 0x03)
+                if (oid.length === 3 && oid[0] === 0x55 && oid[1] === 0x04 && oid[2] === 0x03) {
+                  let cn = '';
+                  for (let b = attrParts[1].contentStart; b < attrParts[1].end; b++) {
+                    cn += String.fromCharCode(certificate[b]);
+                  }
+                  return dnsNameMatches(cn.trim().toLowerCase(), wanted);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return false;
+  } catch (error) {
+    return false;
+  }
+}

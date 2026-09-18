@@ -160,7 +160,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         UpdateUiState.Idle -> null
                         UpdateUiState.Checking -> l10n(MessageKeys.SETTINGS_UPDATES_CHECKING)
                         UpdateUiState.UpToDate -> l10n(MessageKeys.SETTINGS_UPDATES_NONE)
-                        is UpdateUiState.Available -> l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, u.versionName, u.buildNumber)
+                        is UpdateUiState.Available -> l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, u.versionName, u.buildNumber) + " " + l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
                         UpdateUiState.ProtocolChanged -> l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL)
                         UpdateUiState.Unreachable -> l10n(MessageKeys.ERROR_NETWORK)
                     }

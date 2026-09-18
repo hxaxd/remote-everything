@@ -158,18 +158,6 @@ export class Sandbox {
     Sandbox.remove(`${relative}.tmp`);
   }
 
-  static removeDirectory(relative: string): void {
-    if (!Sandbox.exists(relative)) {
-      return;
-    }
-    try {
-      fs.rmdirSync(Sandbox.path(relative));
-    } catch (error) {
-      // An empty directory that cannot be removed is not a directory with anything in
-      // it; nothing else is left behind.
-    }
-  }
-
   /**
    * A filename for one origin. An origin is not a filename — it carries `:`, `/` and
    * whatever the operator typed as a host — so it is written out as hex of its own

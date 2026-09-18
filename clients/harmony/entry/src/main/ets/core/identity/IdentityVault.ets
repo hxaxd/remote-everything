@@ -18,7 +18,7 @@ import { ServerPin } from '../model/Models';
 import { Sandbox } from '../store/Sandbox';
 import { CertificateVault } from './CertificateVault';
 import { CredentialError, CredentialPresence } from './CredentialError';
-import { utf8Hex, wipe } from './Digest';
+import { utf8Hex, wipe } from '../model/Digest';
 import { HuksVault, SealedCredential } from './HuksVault';
 import { openCredential, OpenedCredential } from './Pkcs12';
 

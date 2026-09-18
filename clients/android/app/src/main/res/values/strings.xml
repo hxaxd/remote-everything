@@ -14,35 +14,35 @@
     <string name="action_start">Start</string>
     <string name="action_stop">Stop</string>
 
-    <string name="app_open_failed">This app could not be opened</string>
+    <string name="app_open_failed">Couldn\'t open this app</string>
     <string name="app_ready">Running</string>
     <string name="app_starting">Starting</string>
     <string name="app_stopped">Stopped</string>
     <string name="app_stopping">Stopping</string>
-    <string name="apps_empty_body">This machine is configured to open nothing.</string>
-    <string name="apps_empty_title">No applications</string>
+    <string name="apps_empty_body">No apps to open on this machine yet.</string>
+    <string name="apps_empty_title">No apps</string>
 
     <string name="device_category_default">Device</string>
     <string name="device_category_phone">Phone</string>
     <string name="device_category_tablet">Tablet</string>
 
-    <string name="empty_body">Scan or paste an invitation to reach your machines.</string>
-    <string name="empty_title">Nothing here yet</string>
+    <string name="empty_body">Scan or paste an invitation to add a machine.</string>
+    <string name="empty_title">No machines yet</string>
 
-    <string name="error_app_gone">This app is no longer there</string>
-    <string name="error_busy">Busy right now; try again later</string>
-    <string name="error_client">The request was not valid</string>
-    <string name="error_control_failed">That did not go through; try again</string>
-    <string name="error_credential_lost">The identity for this connection is gone; pair again</string>
-    <string name="error_network">Cannot reach this gateway; check the network and retry</string>
+    <string name="error_app_gone">This app is no longer available</string>
+    <string name="error_busy">Server busy, try again later</string>
+    <string name="error_client">Something went wrong, try again later</string>
+    <string name="error_control_failed">Action didn\'t go through, try again</string>
+    <string name="error_credential_lost">This connection\'s credentials are no longer valid, pair again</string>
+    <string name="error_network">Can\'t connect, check your network and try again</string>
     <string name="error_node_gone">This machine is no longer available to you</string>
-    <string name="error_node_gone_body">It may have been removed from your access.</string>
+    <string name="error_node_gone_body">The operator may have removed your access.</string>
     <string name="error_not_found">Not found</string>
-    <string name="error_stop_failed">Stop failed; the app may still be running</string>
+    <string name="error_stop_failed">Stop failed, the app may still be running</string>
 
     <string name="identity_needs_pairing">Pair this device again</string>
-    <string name="identity_needs_pairing_title">Identity missing</string>
-    <string name="identity_needs_pairing_body">This connection\'s key is no longer on this device; pair again to restore it.</string>
+    <string name="identity_needs_pairing_title">Pairing required</string>
+    <string name="identity_needs_pairing_body">This connection\'s credentials are no longer on this device, pair again</string>
     <string name="identity_unauthorized">Not authorized for this machine</string>
 
     <string name="language_en">English</string>
@@ -50,7 +50,7 @@
 
     <string name="node_lan">LAN</string>
     <string name="node_offline">Offline</string>
-    <string name="node_offline_body">It may be off, asleep, or its tunnel is down.</string>
+    <string name="node_offline_body">It may be off, asleep, or disconnected.</string>
     <string name="node_offline_title">This machine is offline</string>
     <string name="node_pending">Pending approval</string>
     <string name="node_tunnel">Tunnel</string>
@@ -59,22 +59,22 @@
     <string name="nodes_title">Machines</string>
 
     <string name="pair_action_join">Join</string>
-    <string name="pair_bad_invitation">This is not a valid invitation</string>
+    <string name="pair_bad_invitation">This isn\'t a valid invitation link</string>
     <string name="pair_confirm_body">Join machine “%2$s” via %1$s</string>
-    <string name="pair_denied">This invitation is invalid or already used</string>
+    <string name="pair_denied">This invitation is invalid or has already been used</string>
     <string name="pair_device_name">Device name</string>
-    <string name="pair_device_name_hint">A name other devices will see</string>
-    <string name="pair_device_name_required">A device name is required</string>
-    <string name="pair_expired">Invitation expired; ask the operator for a new one</string>
+    <string name="pair_device_name_hint">The name other devices will see</string>
+    <string name="pair_device_name_required">Enter a device name</string>
+    <string name="pair_expired">Invitation expired, ask the operator for a new one</string>
     <string name="pair_gateway_label">Gateway</string>
-    <string name="pair_gateway_trouble">The gateway is having trouble; contact the operator</string>
+    <string name="pair_gateway_trouble">Gateway unavailable, contact the operator</string>
     <string name="pair_input_hint">Paste the invitation link</string>
-    <string name="pair_network">Cannot reach this gateway; check the network and retry</string>
+    <string name="pair_network">Can\'t connect, check your network and try again</string>
     <string name="pair_node_label">Machine</string>
     <string name="pair_scan">Scan</string>
     <string name="pair_scan_body">Point the camera at the invitation QR code.</string>
-    <string name="pair_scan_denied">Camera access is off; enable it to scan, or paste the link</string>
-    <string name="pair_scan_failed">No invitation found in the frame</string>
+    <string name="pair_scan_denied">Scanning needs camera permission, or paste the link</string>
+    <string name="pair_scan_failed">No invitation QR code found</string>
     <string name="pair_title">Add machine</string>
     <string name="pair_waiting_approval">Waiting for the operator to approve this device</string>
     <string name="pair_working">Pairing…</string>
@@ -87,7 +87,7 @@
     <string name="settings_certificate_fingerprint">Certificate fingerprint</string>
     <string name="settings_device_name">This device</string>
     <string name="settings_forget">Forget this connection</string>
-    <string name="settings_forget_confirm">Forgetting removes access to %1$d machine(s) behind it.</string>
+    <string name="settings_forget_confirm">Forgetting removes access to all machines behind this connection (%1$d).</string>
     <string name="settings_identities">Connections</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_system">System</string>
@@ -96,16 +96,16 @@
     <string name="settings_protocol_version">Protocol version %1$d</string>
     <string name="settings_title">Settings</string>
     <string name="settings_updates">Check for updates</string>
-    <string name="settings_updates_available">Version %1$s (%2$d) available</string>
+    <string name="settings_updates_available">Version %1$s (%2$d) is available</string>
     <string name="settings_updates_check">Check for updates</string>
     <string name="settings_updates_checking">Checking…</string>
     <string name="settings_updates_current">Current version %1$s (%2$d)</string>
-    <string name="settings_updates_failed">Could not reach the update channel</string>
+    <string name="settings_updates_failed">Couldn\'t check for updates, try again later</string>
     <string name="settings_updates_none">Up to date</string>
-    <string name="settings_updates_protocol">The protocol has changed; re-pairing is required after upgrading</string>
+    <string name="settings_updates_protocol">This update changes how devices connect, so pair again after updating</string>
     <string name="settings_updates_store_hint">Install the new version from the app store</string>
     <string name="settings_version">Version</string>
 
-    <string name="web_load_failed">Failed to load</string>
+    <string name="web_load_failed">Couldn\'t load the page</string>
     <string name="web_loading">Loading…</string>
 </resources>

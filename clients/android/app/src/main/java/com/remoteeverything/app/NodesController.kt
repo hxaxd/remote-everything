@@ -101,4 +101,10 @@ class NodesController(
 
     /** The client that reaches one origin, for the traffic that is not a node list. */
     fun clientFor(identity: Identity): ApiClient? = clientFactory(identity)
+
+    /** Drops one origin from memory and on-disk node cache when forgotten. */
+    fun drop(origin: String) {
+        lastGoodAnswers.remove(origin)
+        cache?.save(lastGoodAnswers)
+    }
 }

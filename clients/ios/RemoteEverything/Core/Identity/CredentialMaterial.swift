@@ -73,7 +73,7 @@ enum CredentialMaterial {
     /// SHA-256 of the DER certificate, lowercase hex — the fingerprint the wire
     /// calls `certificate_fingerprint`.
     static func fingerprint(of certificate: SecCertificate) -> String {
-        Digest.sha256Hex(SecCertificateCopyData(certificate) as Data)
+        CertificateInspection.fingerprint(of: certificate)
     }
 
     /// Proves the private key belongs to the certificate by signing a challenge

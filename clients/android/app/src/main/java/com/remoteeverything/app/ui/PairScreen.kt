@@ -1,6 +1,9 @@
 package com.remoteeverything.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,40 +21,93 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.remoteeverything.app.AppViewModel
 import com.remoteeverything.app.PairingUiState
+import com.remoteeverything.app.R
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.MessageKeys
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
-    var input by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    var input by rememberSaveable { mutableStateOf(vm.pendingInvitation ?: "") }
     var deviceName by rememberSaveable { mutableStateOf(android.os.Build.MODEL ?: "") }
     val state by vm.state.collectAsStateWithLifecycle()
     val parsed = remember(input) { if (input.isBlank()) null else vm.parseInvitation(input) }
+
+    LaunchedEffect(vm.pendingInvitation) {
+        val pending = vm.pendingInvitation
+        if (!pending.isNullOrBlank()) {
+            input = pending
+            vm.pendingInvitation = null
+        }
+    }
+
+    // P0-1: Finish pairing immediately upon success and navigate back
+    LaunchedEffect(state.pairing) {
+        if (state.pairing is PairingUiState.Success) {
+            input = ""
+            vm.resetPairing()
+            onBack()
+        }
+    }
+
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { input = it }
+        if (result.contents != null) {
+            input = result.contents
+            vm.resetPairing()
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            scanLauncher.launch(
+                ScanOptions()
+                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                    .setBeepEnabled(false)
+                    .setOrientationLocked(false),
+            )
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar(context.getString(R.string.pair_scan_denied))
+            }
+        }
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(l10n(MessageKeys.PAIR_TITLE)) },
@@ -62,18 +118,6 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                             contentDescription = l10n(MessageKeys.ACTION_BACK),
                         )
                     }
-                },
-                actions = {
-                    TextButton(
-                        onClick = {
-                            scanLauncher.launch(
-                                ScanOptions()
-                                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                    .setBeepEnabled(false)
-                                    .setOrientationLocked(false),
-                            )
-                        },
-                    ) { Text(l10n(MessageKeys.PAIR_SCAN)) }
                 },
             )
         },
@@ -94,6 +138,10 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                     Spacer(Modifier.height(16.dp))
                     Text(l10n(MessageKeys.PAIR_WORKING))
                     Text(pairing.nodeName, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(24.dp))
+                    OutlinedButton(onClick = { vm.cancelPairing() }) {
+                        Text(l10n(MessageKeys.ACTION_CANCEL))
+                    }
                 }
 
                 is PairingUiState.Pending -> Column(
@@ -101,15 +149,55 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(l10n(MessageKeys.NODE_PENDING), style = MaterialTheme.typography.titleMedium)
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        l10n(MessageKeys.PAIR_WAITING_APPROVAL),
+                        style = MaterialTheme.typography.titleMedium,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(8.dp))
-                    Text(pairing.nodeName, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        pairing.nodeName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = { vm.resumePendingPairing() }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
-                    TextButton(onClick = onBack) { Text(l10n(MessageKeys.ACTION_BACK)) }
+                    Button(onClick = { vm.resumePendingPairing() }) {
+                        Text(l10n(MessageKeys.ACTION_RETRY))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onBack) {
+                        Text(l10n(MessageKeys.ACTION_BACK))
+                    }
                 }
 
                 else -> {
+                    // P1-1: Prominent scan button
+                    Button(
+                        onClick = {
+                            val hasCam = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.CAMERA,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasCam) {
+                                scanLauncher.launch(
+                                    ScanOptions()
+                                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                        .setBeepEnabled(false)
+                                        .setOrientationLocked(false),
+                                )
+                            } else {
+                                permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        Text(l10n(MessageKeys.PAIR_SCAN))
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
                     OutlinedTextField(
                         value = input,
                         onValueChange = {
@@ -126,6 +214,7 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                         minLines = 2,
                         modifier = Modifier.fillMaxWidth(),
                     )
+
                     if (pairing is PairingUiState.Failed) {
                         Spacer(Modifier.height(12.dp))
                         Text(
@@ -134,6 +223,7 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
+
                     if (parsed != null) {
                         Spacer(Modifier.height(16.dp))
                         Card(modifier = Modifier.fillMaxWidth()) {
@@ -147,6 +237,14 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                                     value = deviceName,
                                     onValueChange = { deviceName = it },
                                     label = { Text(l10n(MessageKeys.PAIR_DEVICE_NAME)) },
+                                    supportingText = {
+                                        if (deviceName.isBlank()) {
+                                            Text(l10n(MessageKeys.PAIR_DEVICE_NAME_REQUIRED))
+                                        } else {
+                                            Text(l10n(MessageKeys.PAIR_DEVICE_NAME_HINT))
+                                        }
+                                    },
+                                    isError = deviceName.isBlank(),
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )

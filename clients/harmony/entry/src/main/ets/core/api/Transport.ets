@@ -106,7 +106,7 @@ function pemToDer(pem: string): Uint8Array | null {
  * decision itself lives in core/identity/Pinning so the API plane and the WebView
  * cannot disagree about it.
  */
-export function pinDecision(chainPem: string[], pin: ServerPin): PinnedDecision {
+export function pinDecision(chainPem: string[], pin: ServerPin, host?: string): PinnedDecision {
   if (chainPem.length === 0) {
     return { accepted: false, reason: 'the gateway presented no certificate' };
   }
@@ -114,7 +114,7 @@ export function pinDecision(chainPem: string[], pin: ServerPin): PinnedDecision 
   if (leaf === null) {
     return { accepted: false, reason: 'the gateway certificate could not be read' };
   }
-  if (certificateMatchesPin(leaf, pin)) {
+  if (certificateMatchesPin(leaf, pin, host)) {
     return { accepted: true, reason: 'the certificate this device was told to expect' };
   }
   return { accepted: false, reason: 'the gateway presents a certificate this device was not told to expect' };
@@ -129,14 +129,8 @@ function utcStampNow(): string {
 }
 
 function withinValidity(notBefore: string, notAfter: string): boolean {
-  const stamp: string = utcStampNow();
-  const shape: RegExp = new RegExp('^[0-9]{14}Z$');
-  if (!shape.test(notBefore) || !shape.test(notAfter)) {
-    // A form this client cannot read is not evidence against the gateway; the pin,
-    // which is checked either way, is what decides.
-    return true;
-  }
-  return notBefore <= stamp && stamp <= notAfter;
+  const now: string = utcStampNow();
+  return now >= notBefore && now <= notAfter;
 }
 
 /**
@@ -144,8 +138,8 @@ function withinValidity(notBefore: string, notAfter: string): boolean {
  * named or the certificate it named, and — when the platform hands over a readable
  * validity window — that the certificate is current.
  */
-function pinnedAccepted(chainPem: string[], chain: cert.X509Cert[], pin: ServerPin): boolean {
-  if (!pinDecision(chainPem, pin).accepted) {
+function pinnedAccepted(chainPem: string[], chain: cert.X509Cert[], pin: ServerPin, host?: string): boolean {
+  if (!pinDecision(chainPem, pin, host).accepted) {
     return false;
   }
   if (chain.length === 0) {
@@ -159,13 +153,14 @@ function pinnedAccepted(chainPem: string[], chain: cert.X509Cert[], pin: ServerP
   }
 }
 
+import { RcpPool } from './RcpPool';
+
 export class Transport {
-  private readonly sessions: Map<string, rcp.Session> = new Map<string, rcp.Session>();
-  private readonly inflight: Map<string, rcp.Request> = new Map<string, rcp.Request>();
+  private readonly pool: RcpPool = new RcpPool();
 
   /** Whether this origin already has a session. */
   has(origin: string): boolean {
-    return this.sessions.has(origin);
+    return this.pool.has(origin);
   }
 
   /**
@@ -173,11 +168,11 @@ export class Transport {
    * and the caller wipes what it handed over.
    */
   open(origin: string, identity: SessionIdentity): void {
-    this.close(origin);
     try {
+      const host: string = hostOf(origin);
       const session: rcp.Session = rcp.createSession(
-        this.sessionConfiguration(this.requestConfiguration(Cadence.requestTimeoutMs, this.security(identity))));
-      this.sessions.set(origin, session);
+        this.sessionConfiguration(this.requestConfiguration(Cadence.requestTimeoutMs, this.security(identity, host))));
+      this.pool.set(origin, session);
     } catch (error) {
       throw ClientError.client('the transport refused to open a session');
     }
@@ -185,43 +180,20 @@ export class Transport {
 
   /** Drops a session, and with it the key material RCP was handed. */
   close(origin: string): void {
-    const session: rcp.Session | undefined = this.sessions.get(origin);
-    if (session === undefined) {
-      return;
-    }
-    try {
-      session.close();
-    } catch (error) {
-      // A session that cannot be closed is not a session this client keeps a
-      // reference to.
-    }
-    this.sessions.delete(origin);
-    this.inflight.delete(origin);
+    this.pool.close(origin);
   }
 
   closeAll(): void {
-    for (const origin of Array.from(this.sessions.keys())) {
-      this.close(origin);
-    }
+    this.pool.closeAll();
   }
 
   /** Cancels whatever is in flight for one origin. The call itself returns at once. */
   cancel(origin: string): void {
-    const session: rcp.Session | undefined = this.sessions.get(origin);
-    if (session === undefined) {
-      return;
-    }
-    const request: rcp.Request | undefined = this.inflight.get(origin);
-    try {
-      session.cancel(request);
-      this.inflight.delete(origin);
-    } catch (error) {
-      // The request may already have finished; nothing to cancel is the state wanted.
-    }
+    this.pool.cancelInflight(origin);
   }
 
   async send(origin: string, request: ApiRequest): Promise<ApiReply> {
-    const session: rcp.Session | undefined = this.sessions.get(origin);
+    const session: rcp.Session | undefined = this.pool.get(origin);
     if (session === undefined) {
       throw ClientError.transport('this gateway has no open session');
     }
@@ -238,22 +210,23 @@ export class Transport {
       transfer: { autoRedirect: false, timeout: { connectMs: request.timeoutMs, transferMs: request.timeoutMs } }
     };
     rcpRequest.configuration = configuration;
-    this.inflight.set(origin, rcpRequest);
+    this.pool.setInflight(origin, rcpRequest);
     try {
       const response: rcp.Response = await session.fetch(rcpRequest);
       return this.replyOf(response);
     } catch (error) {
       throw this.translate(error);
     } finally {
-      this.inflight.delete(origin);
+      this.pool.clearInflight(origin);
     }
   }
 
   /** One request on a session of its own, for the request that arrives without a credential. */
   async sendAnonymous(origin: string, pin: ServerPin | null, request: ApiRequest,
     extraHeaders: Record<string, string> = {}): Promise<ApiReply> {
+    const host: string = hostOf(origin);
     const sessionConfiguration: rcp.SessionConfiguration =
-      this.sessionConfiguration(this.requestConfiguration(request.timeoutMs, this.anonymousSecurity(pin)));
+      this.sessionConfiguration(this.requestConfiguration(request.timeoutMs, this.anonymousSecurity(pin, host)));
     let probe: rcp.Session;
     try {
       probe = rcp.createSession(sessionConfiguration);
@@ -346,15 +319,15 @@ export class Transport {
     return configuration;
   }
 
-  private anonymousSecurity(pin: ServerPin | null): rcp.SecurityConfiguration {
+  private anonymousSecurity(pin: ServerPin | null, host?: string): rcp.SecurityConfiguration {
     if (pin === null) {
       const plain: rcp.SecurityConfiguration = { remoteValidation: 'system' };
       return plain;
     }
-    return this.pinnedSecurity(pin);
+    return this.pinnedSecurity(pin, host);
   }
 
-  private security(identity: SessionIdentity): rcp.SecurityConfiguration {
+  private security(identity: SessionIdentity, host?: string): rcp.SecurityConfiguration {
     const certificate: rcp.ClientCertificate = {
       content: identity.certificate,
       type: 'P12',
@@ -366,7 +339,7 @@ export class Transport {
       const verified: rcp.SecurityConfiguration = { remoteValidation: 'system', certificate: certificate };
       return verified;
     }
-    const pinned: rcp.SecurityConfiguration = this.pinnedSecurity(identity.serverPin);
+    const pinned: rcp.SecurityConfiguration = this.pinnedSecurity(identity.serverPin, host);
     pinned.certificate = certificate;
     return pinned;
   }
@@ -377,12 +350,12 @@ export class Transport {
    * fingerprint. The system's trust store has never heard of this gateway, so the CA
    * chain is not what decides here.
    */
-  private pinnedSecurity(pin: ServerPin): rcp.SecurityConfiguration {
+  private pinnedSecurity(pin: ServerPin, host?: string): rcp.SecurityConfiguration {
     const pinning: rcp.CertificatePinning[] = [
       { kind: 'public-key', publicKeyHash: pin.publicKeyPin, hashAlgorithm: 'SHA-256' }
     ];
     const validate: rcp.ValidationCallback = (context: rcp.ValidationContext): boolean =>
-      pinnedAccepted(context.pemCerts, context.x509Certs, pin);
+      pinnedAccepted(context.pemCerts, context.x509Certs, pin, host);
     const security: rcp.SecurityConfiguration = {
       remoteValidation: validate,
       certificatePinning: pinning

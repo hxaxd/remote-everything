@@ -14,10 +14,11 @@ const SCHEMA = 1;
 const FINGERPRINT = new RegExp('^[a-f0-9]{64}$');
 
 function decodeIdentityRef(reader: JsonReader): GatewayPath {
-  reader.rejectUnknown(['origin', 'private']);
+  reader.rejectUnknown(['origin', 'identity_ref', 'private']);
   const origin: string = reader.string('origin');
+  const identityRef: string = reader.optionalString('identity_ref') ?? '';
   const isPrivate: boolean = reader.bool('private');
-  return new GatewayPath(origin, '', null, null, isPrivate, null);
+  return new GatewayPath(origin, identityRef, null, null, isPrivate, null);
 }
 
 function decodeNode(reader: JsonReader): Node {
@@ -36,7 +37,7 @@ export class NodeCacheStore {
     return `cache/nodes/${Sandbox.originKey(origin)}.json`;
   }
 
-  read(origin: string): CachedNodes | null {
+  read(origin: string, credentialRef?: string): CachedNodes | null {
     const text: string | null = Sandbox.readText(this.file(origin));
     if (text === null) {
       return null;
@@ -50,7 +51,16 @@ export class NodeCacheStore {
       const fetchedAt: number = reader.number('fetched_at');
       const nodes: Node[] = [];
       for (const entry of reader.array('nodes')) {
-        nodes.push(decodeNode(JsonReader.of(entry, 'nodes cache')));
+        const node = decodeNode(JsonReader.of(entry, 'nodes cache'));
+        // If credentialRef is supplied and path identityRef was empty, enrich it
+        if (credentialRef) {
+          const enrichedPaths = node.paths.map((p: GatewayPath) =>
+            p.identityRef ? p : new GatewayPath(p.origin, credentialRef, p.reachable, p.latencyMs, p.isPrivate, p.lastCheckedAt)
+          );
+          nodes.push(new Node(node.id, node.name, enrichedPaths));
+        } else {
+          nodes.push(node);
+        }
       }
       return new CachedNodes(origin, nodes, fetchedAt);
     } catch (error) {
@@ -77,7 +87,7 @@ export class NodeCacheStore {
   private encodeNode(node: Node): string {
     const paths: string[] = [];
     for (const path of node.paths) {
-      paths.push(`{"origin":${JSON.stringify(path.origin)},"private":${path.isPrivate}}`);
+      paths.push(`{"origin":${JSON.stringify(path.origin)},"identity_ref":${JSON.stringify(path.identityRef)},"private":${path.isPrivate}}`);
     }
     return `{"id":${JSON.stringify(node.id)},"name":${JSON.stringify(node.name)},"paths":[${paths.join(',')}]}`;
   }

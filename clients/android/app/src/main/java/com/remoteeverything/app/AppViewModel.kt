@@ -3,14 +3,11 @@ package com.remoteeverything.app
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.remoteeverything.core.api.CatalogOutcome
-import com.remoteeverything.core.api.ControlCode
-import com.remoteeverything.core.api.GatewayClients
+import com.remoteeverything.core.api.GatewayClientPool
 import com.remoteeverything.core.identity.AndroidKeyStoreIdentityVault
 import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.model.AppInfo
 import com.remoteeverything.core.model.Cadence
-import com.remoteeverything.core.model.ClientError
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.Node
@@ -40,6 +37,7 @@ sealed interface PairingUiState {
     data object Idle : PairingUiState
     data class Working(val nodeName: String) : PairingUiState
     data class Pending(val nodeName: String) : PairingUiState
+    data class Success(val nodeName: String) : PairingUiState
     data class Failed(val code: ErrorCode?) : PairingUiState
 }
 
@@ -73,31 +71,49 @@ sealed interface UpdateUiState {
     data object Unreachable : UpdateUiState
 }
 
+/**
+ * The app's single dispatcher and view model facade: coordinates the controllers,
+ * holds global lifecycle, resolves web targets, and publishes consolidated UI state.
+ */
 class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = SettingsRepository(application)
     private val vault: IdentityVault = AndroidKeyStoreIdentityVault()
-    private val pairingService = PairingService(
-        vault = vault,
-        transaction = SetupTransaction(File(application.filesDir, "pairing/staged.json")),
-        repository = repository,
-    )
+    private val pool = GatewayClientPool()
+    private val updateChecker = UpdateChecker()
+
     private val nodesController = NodesController(
-        clientFactory = { identity -> GatewayClients.device(identity.origin, vault, identity.serverPin) },
+        clientFactory = { identity -> pool.deviceClient(identity, vault) },
         cache = NodeCacheStore(File(application.filesDir, "nodes/cache.json")),
     )
-    private val updateChecker = UpdateChecker()
+
+    private val pairingSession = PairingSession(
+        scope = viewModelScope,
+        pairingService = PairingService(
+            vault = vault,
+            transaction = SetupTransaction(File(application.filesDir, "pairing/staged.json")),
+            repository = repository,
+            clientFactory = { origin, pin, material ->
+                if (material == null) pool.pairingClient(origin, pin)
+                else com.remoteeverything.core.api.GatewayClients.device(origin, material, pin)
+            },
+        ),
+        onNodesChanged = { refreshNodes() },
+    )
+
+    private val notice = MutableStateFlow<Int?>(null)
+
+    private val catalogController = CatalogController(
+        scope = viewModelScope,
+        nodesController = nodesController,
+        currentNetworkKey = ::currentNetworkKey,
+        currentIdentities = { repository.currentIdentities() },
+        onNotice = { notice.value = it },
+    )
 
     private val nodes = MutableStateFlow<List<Node>>(emptyList())
     private val refreshing = MutableStateFlow(false)
-    private val pairing = MutableStateFlow<PairingUiState>(PairingUiState.Idle)
-    private val catalog = MutableStateFlow<CatalogUiState>(CatalogUiState.Loading)
-    private val notice = MutableStateFlow<Int?>(null)
-
-    private var catalogJob: Job? = null
     private var refreshJob: Job? = null
-    private var approvalJob: Job? = null
-    private var watchingNodeId: String? = null
 
     val state: StateFlow<AppUiState> = combine(
         repository.settings,
@@ -106,25 +122,14 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         refreshing,
     ) { settings, identities, nodeList, isRefreshing ->
         AppUiState(settings = settings, identities = identities, nodes = nodeList, refreshing = isRefreshing)
-    }.combine(pairing) { current, pairingState -> current.copy(pairing = pairingState) }
-        .combine(catalog) { current, catalogState -> current.copy(catalog = catalogState) }
+    }.combine(pairingSession.pairing) { current, pairingState -> current.copy(pairing = pairingState) }
+        .combine(catalogController.catalog) { current, catalogState -> current.copy(catalog = catalogState) }
         .combine(notice) { current, message -> current.copy(notice = message) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppUiState())
 
     val updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
 
     init {
-        viewModelScope.launch {
-            // A pairing that was interrupted is finished before anything else: the
-            // invitation behind it is spent, and this is the only way it is not wasted.
-            val state = askAboutPendingDevice()
-            if (state != null) {
-                pairing.value = state
-                if (state is PairingUiState.Pending) {
-                    startApprovalPolling()
-                }
-            }
-        }
         viewModelScope.launch { refreshNodes() }
     }
 
@@ -137,7 +142,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         refreshing.value = true
         viewModelScope.launch {
             try {
-                nodes.value = nodesController.refresh(repository.currentIdentities(), NetworkEnvironment.key(getApplication()))
+                nodes.value = nodesController.refresh(repository.currentIdentities(), currentNetworkKey())
             } finally {
                 refreshing.value = false
             }
@@ -160,7 +165,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         refreshJob = null
     }
 
-    fun currentNetworkKey(): String = NetworkEnvironment.key(getApplication())
+    private val networkEnv = AndroidNetworkEnvironment(application)
+
+    fun currentNetworkKey(): String = networkEnv.currentKey()
 
     /** The path a node is reached by right now, which is also what the row shows. */
     fun pathFor(node: Node): Path? = nodesController.pathFor(node, currentNetworkKey())
@@ -172,161 +179,26 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- pairing -------------------------------------------------------------
 
-    fun parseInvitation(text: String): SetupUri.Invitation? =
-        try {
-            SetupUri.parse(text)
-        } catch (e: Exception) {
-            null
-        }
+    var pendingInvitation: String? = null
 
-    fun pair(invitation: SetupUri.Invitation, deviceName: String) {
-        if (pairing.value is PairingUiState.Working) return
-        pairing.value = PairingUiState.Working(invitation.nodeName)
-        viewModelScope.launch {
-            when (val outcome = pairingService.run(invitation, deviceName.trim())) {
-                is PairingService.Outcome.Activated -> {
-                    pairing.value = PairingUiState.Idle
-                    refreshNodes()
-                }
-                is PairingService.Outcome.ApprovalPending -> {
-                    pairing.value = PairingUiState.Pending(outcome.nodeName)
-                    refreshNodes()
-                    startApprovalPolling()
-                }
-                is PairingService.Outcome.Failed -> pairing.value = PairingUiState.Failed(outcome.code)
-            }
-        }
-    }
+    fun parseInvitation(text: String): SetupUri.Invitation? = pairingSession.parseInvitation(text)
 
-    /**
-     * One question about a device that paired and is waiting for its operator. A
-     * waiting device is asked about on its own every [Cadence.approvalPollMs] for
-     * [Cadence.approvalPollTimeoutMs], because waiting for somebody to tap retry is
-     * not the same product as being admitted a moment after they approve.
-     */
-    private suspend fun askAboutPendingDevice(): PairingUiState? =
-        when (val outcome = pairingService.resume()) {
-            null -> null
-            is PairingService.Outcome.Activated -> {
-                refreshNodes()
-                PairingUiState.Idle
-            }
-            is PairingService.Outcome.ApprovalPending -> PairingUiState.Pending(outcome.nodeName)
-            is PairingService.Outcome.Failed -> PairingUiState.Failed(outcome.code)
-        }
+    fun pair(invitation: SetupUri.Invitation, deviceName: String) = pairingSession.pair(invitation, deviceName)
 
-    private fun startApprovalPolling() {
-        if (approvalJob?.isActive == true) return
-        approvalJob = viewModelScope.launch {
-            val deadline = System.currentTimeMillis() + Cadence.approvalPollTimeoutMs
-            while (System.currentTimeMillis() < deadline) {
-                delay(Cadence.approvalPollMs)
-                when (val state = askAboutPendingDevice()) {
-                    null -> return@launch
-                    is PairingUiState.Pending -> pairing.value = state
-                    else -> {
-                        pairing.value = state
-                        return@launch
-                    }
-                }
-            }
-        }
-    }
+    fun cancelPairing() = pairingSession.cancelPairing()
 
-    fun resetPairing() {
-        if (pairing.value !is PairingUiState.Working) {
-            pairing.value = PairingUiState.Idle
-        }
-    }
+    fun resetPairing() = pairingSession.resetPairing()
 
     /** A waiting device, asked about now rather than at the next poll. */
-    fun resumePendingPairing() {
-        viewModelScope.launch {
-            val state = askAboutPendingDevice()
-            if (state != null) {
-                pairing.value = state
-                if (state !is PairingUiState.Pending) {
-                    approvalJob?.cancel()
-                }
-            }
-        }
-    }
+    fun resumePendingPairing() = pairingSession.resumePendingPairing()
 
     // --- one node's applications --------------------------------------------
 
-    fun watchNode(node: Node) {
-        if (watchingNodeId == node.id && catalogJob?.isActive == true) return
-        watchingNodeId = node.id
-        catalogJob?.cancel()
-        catalog.value = CatalogUiState.Loading
-        catalogJob = viewModelScope.launch {
-            while (true) {
-                catalog.value = fetchCatalog(node)
-                delay(Cadence.catalogRefreshMs)
-            }
-        }
-    }
+    fun watchNode(node: Node) = catalogController.watchNode(node)
 
-    fun stopWatching() {
-        catalogJob?.cancel()
-        catalogJob = null
-        watchingNodeId = null
-    }
+    fun stopWatching() = catalogController.stopWatching()
 
-    private suspend fun fetchCatalog(node: Node): CatalogUiState {
-        val path = nodesController.choosePath(node, currentNetworkKey()) ?: return CatalogUiState.Offline
-        val identity = repository.currentIdentities().firstOrNull { it.origin == path.origin }
-            ?: return CatalogUiState.Unauthorized
-        val client = nodesController.clientFor(identity) ?: return CatalogUiState.Unauthorized
-        return try {
-            CatalogOutcome.forAnswer(client.catalog(node.id)).toUiState()
-        } catch (e: ClientError) {
-            CatalogOutcome.forRefusal(e).toUiState()
-        } catch (e: Exception) {
-            CatalogUiState.Offline
-        }
-    }
-
-    fun control(node: Node, appId: String, start: Boolean) {
-        viewModelScope.launch {
-            val path = nodesController.choosePath(node, currentNetworkKey()) ?: return@launch
-            val identity = repository.currentIdentities().firstOrNull { it.origin == path.origin } ?: return@launch
-            val client = nodesController.clientFor(identity) ?: return@launch
-            val answer = try {
-                if (start) client.start(node.id, appId) else client.stop(node.id, appId)
-            } catch (e: Exception) {
-                notice.value = R.string.error_control_failed
-                return@launch
-            }
-            if (!answer.ok && answer.code == ControlCode.STATE_UPDATE_FAILED) {
-                notice.value = R.string.error_stop_failed
-            }
-            // Starting and stopping are not instant: the screen keeps asking until
-            // the application settles, so the row never shows a state it left.
-            pollUntilSettled(client, node.id, appId)
-            catalog.value = fetchCatalog(node)
-        }
-    }
-
-    private suspend fun pollUntilSettled(
-        client: com.remoteeverything.core.api.ApiClient,
-        nodeId: String,
-        appId: String,
-    ) {
-        var waited = 0L
-        var interval = Cadence.controlPollMs
-        while (waited < Cadence.controlPollTimeoutMs) {
-            delay(interval)
-            waited += interval
-            val status = try {
-                client.status(nodeId, appId)
-            } catch (e: Exception) {
-                return
-            }
-            if (status.code == ControlCode.READY || status.code == ControlCode.STOPPED) return
-            interval = (interval * Cadence.controlPollFactor).toLong().coerceAtMost(Cadence.controlPollCeilingMs)
-        }
-    }
+    fun control(node: Node, appId: String, start: Boolean) = catalogController.control(node, appId, start)
 
     /** Where the WebView is sent: the application's own origin, with the pin that origin must satisfy. */
     suspend fun open(node: Node, appId: String): OpenTarget? {
@@ -345,6 +217,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun forget(identity: Identity) {
         viewModelScope.launch {
+            pool.drop(identity.origin)
+            nodesController.drop(identity.origin)
             vault.delete(identity.origin)
             repository.saveIdentities(repository.currentIdentities().filterNot { it.origin == identity.origin })
             refreshNodes()
@@ -376,11 +250,4 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-}
-
-private fun CatalogOutcome.toUiState(): CatalogUiState = when (this) {
-    is CatalogOutcome.Apps -> CatalogUiState.Ready(apps)
-    CatalogOutcome.Offline -> CatalogUiState.Offline
-    CatalogOutcome.Unauthorized -> CatalogUiState.Unauthorized
-    CatalogOutcome.GatewayTrouble -> CatalogUiState.Failed(null)
 }

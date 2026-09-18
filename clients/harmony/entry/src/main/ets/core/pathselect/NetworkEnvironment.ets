@@ -9,7 +9,7 @@
 // platform reports that connectivity changed: "any change of network invalidates",
 // which is the rule ui-contract §4 gives for exactly this case.
 
-import connection from '@ohos.net.connection';
+import { connection } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 
 export class NetworkEnvironment {
@@ -40,20 +40,6 @@ export class NetworkEnvironment {
       // Without the events the key still follows the current network, which is the
       // part that matters.
       this.listener = null;
-    }
-  }
-
-  stop(): void {
-    const listener: connection.NetConnection | null = this.listener;
-    if (listener === null) {
-      return;
-    }
-    this.listener = null;
-    try {
-      listener.unregister((): void => {
-      });
-    } catch (error) {
-      // Nothing registered, nothing to unregister.
     }
   }
 

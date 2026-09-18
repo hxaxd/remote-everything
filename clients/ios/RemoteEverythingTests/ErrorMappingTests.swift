@@ -9,8 +9,7 @@ final class ErrorMappingTests: XCTestCase {
         for code in ErrorCode.allCases {
             let key = ErrorText.key(for: code)
             XCTAssertFalse(key.isEmpty, "\(code.rawValue) has no copy key")
-            // The lookup goes through the catalog, so a key must resolve to
-            // something other than itself when the development language has it.
+            XCTAssertTrue(key.hasPrefix("error.") || key.hasPrefix("node.") || key.hasPrefix("pair."), "Unexpected key format for \(code.rawValue): \(key)")
             XCTAssertFalse(ErrorText.text(for: code).isEmpty)
         }
         XCTAssertEqual(ErrorCode.allCases.count, 19)

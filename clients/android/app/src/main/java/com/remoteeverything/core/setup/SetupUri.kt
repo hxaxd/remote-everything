@@ -41,6 +41,12 @@ object SetupUri {
         if (uri.scheme != "remote-everything" || uri.host != "setup") {
             throw Rejected("not a setup URI")
         }
+        if (!uri.path.isNullOrEmpty() && uri.path != "/") {
+            throw Rejected("setup URI carries a path")
+        }
+        if (uri.rawFragment != null || trimmed.contains('#')) {
+            throw Rejected("setup URI carries a fragment")
+        }
         val params = linkedMapOf<String, String>()
         val query = uri.rawQuery ?: throw Rejected("no parameters")
         for (pair in query.split('&')) {
@@ -64,7 +70,7 @@ object SetupUri {
             throw Rejected("bad node name")
         }
         val originValue = params.getValue("origin")
-        if (!origin.matches(originValue)) throw Rejected("bad origin")
+        if (!isValidOrigin(originValue)) throw Rejected("bad origin")
         val invitation = params.getValue("invitation")
         if (!invitationToken.matches(invitation)) throw Rejected("bad invitation")
         val fingerprint = params["fingerprint"]
@@ -121,5 +127,30 @@ object SetupUri {
         }
         flushLiteral(literalStart, value.length)
         return String(bytes.toByteArray(), Charsets.UTF_8)
+    }
+
+    private fun isValidOrigin(value: String): Boolean {
+        if (!value.startsWith("https://")) return false
+        val authority = value.removePrefix("https://")
+        if (authority.isEmpty()) return false
+        if (authority.contains('/') || authority.contains('?') || authority.contains('#')) return false
+        if (authority.contains('@')) return false
+        val colon = authority.lastIndexOf(':')
+        val host: String
+        val portStr: String?
+        if (colon >= 0) {
+            host = authority.substring(0, colon)
+            portStr = authority.substring(colon + 1)
+        } else {
+            host = authority
+            portStr = null
+        }
+        if (host.isEmpty()) return false
+        if (portStr != null) {
+            if (portStr.isEmpty() || !portStr.all { it.isDigit() }) return false
+            val port = portStr.toIntOrNull() ?: return false
+            if (port !in 1..65535) return false
+        }
+        return true
     }
 }

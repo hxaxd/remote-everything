@@ -14,7 +14,7 @@
 // neither complete nor stable.
 
 import { certificateManager } from '@kit.DeviceCertificateKit';
-import { sha256HexOfText } from './Digest';
+import { sha256HexOfText } from '../model/Digest';
 import { CredentialError } from './CredentialError';
 
 export class CertificateVault {

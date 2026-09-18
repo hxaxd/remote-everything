@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -61,7 +62,7 @@ fun HomeScreen(vm: AppViewModel, onAdd: () -> Unit, onSettings: () -> Unit, onNo
                 title = { Text(l10n(MessageKeys.APP_NAME)) },
                 actions = {
                     IconButton(onClick = { vm.refreshNodes() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = l10n(MessageKeys.ACTION_RETRY))
+                        Icon(Icons.Default.Refresh, contentDescription = l10n(MessageKeys.SETTINGS_UPDATES_CHECK))
                     }
                     IconButton(onClick = onAdd) {
                         Icon(Icons.Default.Add, contentDescription = l10n(MessageKeys.ACTION_ADD_NODE))
@@ -73,69 +74,74 @@ fun HomeScreen(vm: AppViewModel, onAdd: () -> Unit, onSettings: () -> Unit, onNo
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            val pairing = state.pairing
-            if (pairing is PairingUiState.Pending) {
-                // A device that paired but is not approved yet: saying so is the
-                // difference between "it did not work" and "it is waiting".
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    StatusChip(l10n(MessageKeys.NODE_PENDING), semantic.warn)
-                    Text(
-                        pairing.nodeName,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f).padding(start = 12.dp),
-                    )
-                    Button(onClick = { vm.resumePendingPairing() }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
+        PullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = { vm.refreshNodes() },
+            modifier = Modifier.fillMaxSize().padding(padding),
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                val pairing = state.pairing
+                if (pairing is PairingUiState.Pending) {
+                    // A device that paired but is not approved yet: saying so is the
+                    // difference between "it did not work" and "it is waiting".
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        StatusChip(l10n(MessageKeys.NODE_PENDING), semantic.warn)
+                        Text(
+                            pairing.nodeName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f).padding(start = 12.dp),
+                        )
+                        Button(onClick = { vm.resumePendingPairing() }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
+                    }
                 }
-            }
-            if (state.nodes.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(24.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        l10n(MessageKeys.EMPTY_BODY),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(24.dp))
-                    Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
-                }
-            } else if (wide) {
-                Row(modifier = Modifier.fillMaxSize()) {
+                if (state.nodes.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            l10n(MessageKeys.EMPTY_BODY),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
+                    }
+                } else if (wide) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        NodeList(
+                            vm = vm,
+                            state = state,
+                            selectedId = selected,
+                            onSelect = { node -> selected = node.id },
+                            modifier = Modifier.weight(0.42f),
+                        )
+                        VerticalDivider()
+                        Box(modifier = Modifier.weight(0.58f)) {
+                            val nodeId = selected
+                            if (nodeId == null) {
+                                CenteredMessage(
+                                    title = l10n(MessageKeys.NODES_SELECT_HINT),
+                                )
+                            } else {
+                                NodeContent(vm = vm, nodeId = nodeId, onGone = { selected = null })
+                            }
+                        }
+                    }
+                } else {
                     NodeList(
                         vm = vm,
                         state = state,
-                        selectedId = selected,
-                        onSelect = { node -> selected = node.id },
-                        modifier = Modifier.weight(0.42f),
+                        selectedId = null,
+                        onSelect = { node -> onNode(node) },
                     )
-                    VerticalDivider()
-                    Box(modifier = Modifier.weight(0.58f)) {
-                        val nodeId = selected
-                        if (nodeId == null) {
-                            CenteredMessage(
-                                title = l10n(MessageKeys.EMPTY_TITLE),
-                                body = l10n(MessageKeys.EMPTY_BODY),
-                            )
-                        } else {
-                            NodeContent(vm = vm, nodeId = nodeId, onGone = { selected = null })
-                        }
-                    }
                 }
-            } else {
-                NodeList(
-                    vm = vm,
-                    state = state,
-                    selectedId = null,
-                    onSelect = { node -> onNode(node) },
-                )
             }
         }
     }
