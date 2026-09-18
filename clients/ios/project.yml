@@ -2,6 +2,7 @@ name: RemoteEverything
 
 options:
   bundleIdPrefix: com.remoteeverything
+  developmentLanguage: en
   deploymentTarget:
     iOS: "17.0"
 

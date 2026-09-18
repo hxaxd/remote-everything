@@ -1,0 +1,925 @@
+{
+  "cases": [
+    {
+      "name": "nodes-accept-valid",
+      "kind": "nodes",
+      "payload": {
+        "ok": true,
+        "nodes": [
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "客厅电脑"
+          }
+        ]
+      },
+      "expect": "accept",
+      "reason": "A nodes answer with one 64-lowercase-hex node id and a non-empty name is the contract's shape."
+    },
+    {
+      "name": "nodes-reject-unknown-field",
+      "kind": "nodes",
+      "payload": {
+        "ok": true,
+        "nodes": [],
+        "count": 0
+      },
+      "expect": "reject",
+      "reason": "A field outside ok and nodes is a body the client does not understand."
+    },
+    {
+      "name": "nodes-reject-missing-nodes",
+      "kind": "nodes",
+      "payload": {
+        "ok": true
+      },
+      "expect": "reject",
+      "reason": "nodes is required; a body without it is not a nodes answer."
+    },
+    {
+      "name": "nodes-reject-id-not-lowercase-hex",
+      "kind": "nodes",
+      "payload": {
+        "ok": true,
+        "nodes": [
+          {
+            "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "name": "客厅电脑"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "nodes[].id must match ^[a-f0-9]{64}$ — uppercase hex is a different string and a different node."
+    },
+    {
+      "name": "nodes-reject-empty-name",
+      "kind": "nodes",
+      "payload": {
+        "ok": true,
+        "nodes": [
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": ""
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "nodes[].name has minLength 1, so an empty name is refused."
+    },
+    {
+      "name": "catalog-accept-valid",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "jellyfin",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          },
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "#/home",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "accept",
+      "reason": "One fully valid connected catalog: empty fragment, #/home fragment, and both flags matching their code."
+    },
+    {
+      "name": "catalog-accept-offline-empty",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": false,
+        "code": "computer_offline",
+        "apps": []
+      },
+      "expect": "accept",
+      "reason": "A node that is off is an answer with an empty app list, not a refusal."
+    },
+    {
+      "name": "catalog-reject-ok-false",
+      "kind": "catalog",
+      "payload": {
+        "ok": false,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": []
+      },
+      "expect": "reject",
+      "reason": "ok is const true in a catalog answer; a catalog that says it is not ok is not a catalog."
+    },
+    {
+      "name": "catalog-reject-unknown-code",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "offline",
+        "apps": []
+      },
+      "expect": "reject",
+      "reason": "The catalog code is the closed set ready|computer_offline; an unknown value is refused, never defaulted."
+    },
+    {
+      "name": "catalog-reject-code-vs-connection",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "computer_offline",
+        "apps": []
+      },
+      "expect": "reject",
+      "reason": "code and computer_connected say the same thing twice: connected requires ready and disconnected requires computer_offline."
+    },
+    {
+      "name": "catalog-reject-offline-with-apps",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": false,
+        "code": "computer_offline",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "A catalog that says the node is offline cannot list applications, because it never asked it."
+    },
+    {
+      "name": "catalog-reject-duplicate-app-ids",
+      "kind": "catalog",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "notes",
+            "name": "Notes",
+            "description": "",
+            "icon": "N",
+            "accent": "#3366FF",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": false,
+            "code": "starting"
+          },
+          {
+            "id": "notes",
+            "name": "Notes",
+            "description": "",
+            "icon": "N",
+            "accent": "#3366FF",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": false,
+            "code": "starting"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "An application id identifies a row, so two rows with the same id are a body the client cannot render."
+    },
+    {
+      "name": "apps-accept-every-state-combination",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "jellyfin",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "#/home",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          },
+          {
+            "id": "notes",
+            "name": "Notes",
+            "description": "",
+            "icon": "N",
+            "accent": "#3366FF",
+            "launch_fragment": "#home",
+            "computer_connected": true,
+            "enabled": true,
+            "running": false,
+            "code": "starting"
+          },
+          {
+            "id": "sync",
+            "name": "Sync",
+            "description": "",
+            "icon": "S",
+            "accent": "#1A2B3C",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": true,
+            "code": "stopping"
+          },
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "accept",
+      "reason": "All four enabled+running combinations are legitimate, and a bare #home fragment and an uppercase #3366FF accent must not be over-rejected."
+    },
+    {
+      "name": "apps-reject-unknown-field",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped",
+            "port": 8080
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "An apps[] entry carries exactly the ten contract fields; anything else is refused."
+    },
+    {
+      "name": "apps-reject-missing-field",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "launch_fragment is required on every app entry even when it is empty."
+    },
+    {
+      "name": "apps-reject-id-pattern",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "Files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "The application id must match ^[a-z0-9][a-z0-9._-]{0,63}$: lowercase first, lowercase or digit or . _ - after, at most 64 characters."
+    },
+    {
+      "name": "apps-reject-name-empty",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "An application name is 1 to 80 code points, so the empty string is refused."
+    },
+    {
+      "name": "apps-reject-name-too-long",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "81 code points exceed the name's maximum of 80; the limit is counted in code points, not grapheme clusters."
+    },
+    {
+      "name": "apps-reject-name-control-character",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "Files\nold",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "A name carries no C0 or DEL control characters; U+000A is below 0x20 and is refused."
+    },
+    {
+      "name": "apps-reject-accent-not-hex",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "blue",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "The accent must be #RRGGBB: seven characters, a leading #, six hex digits."
+    },
+    {
+      "name": "apps-reject-fragment-not-hash",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "/home",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "A launch fragment is either empty or starts with #, because it is appended to a URL as a fragment."
+    },
+    {
+      "name": "apps-reject-fragment-too-long",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "#aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "computer_connected": true,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "2049 code points exceed the fragment's maximum of 2048."
+    },
+    {
+      "name": "apps-reject-computer-connected-false",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": false,
+            "enabled": false,
+            "running": false,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "computer_connected is const true on an apps[] entry: an app in a catalog came from the node, so the node was reachable."
+    },
+    {
+      "name": "apps-reject-code-contradicts-flags",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "files",
+            "name": "文件",
+            "description": "",
+            "icon": "📁",
+            "accent": "#3D8B6D",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "stopped"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "code must equal what enabled+running means: ready, starting, stopping or stopped."
+    },
+    {
+      "name": "control-accept-status-with-app",
+      "kind": "control",
+      "payload": {
+        "ok": true,
+        "action": "status",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "ready",
+        "app": {
+          "id": "jellyfin",
+          "name": "Jellyfin",
+          "description": "媒体库",
+          "icon": "🎬",
+          "accent": "#2563eb",
+          "launch_fragment": "#/home",
+          "computer_connected": true,
+          "enabled": true,
+          "running": true,
+          "code": "ready"
+        }
+      },
+      "expect": "accept",
+      "reason": "A control answer with a full app is valid, and the app inside it obeys the same rules as one in a catalog."
+    },
+    {
+      "name": "control-accept-offline",
+      "kind": "control",
+      "payload": {
+        "ok": false,
+        "action": "stop",
+        "computer_connected": false,
+        "enabled": false,
+        "running": false,
+        "code": "computer_offline"
+      },
+      "expect": "accept",
+      "reason": "ok=false with code=computer_offline is an answer about an unreachable node at HTTP 200, not a refusal."
+    },
+    {
+      "name": "control-accept-stop-command-failed",
+      "kind": "control",
+      "payload": {
+        "ok": false,
+        "action": "stop",
+        "computer_connected": true,
+        "enabled": false,
+        "running": true,
+        "code": "stopping",
+        "error_code": "stop_command_failed"
+      },
+      "expect": "accept",
+      "reason": "stop_command_failed is the one error_code the contract names, so it must not be over-rejected."
+    },
+    {
+      "name": "control-reject-unknown-action",
+      "kind": "control",
+      "payload": {
+        "ok": true,
+        "action": "restart",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "ready"
+      },
+      "expect": "reject",
+      "reason": "action is the closed set status|start|stop; an unknown action is refused rather than ignored."
+    },
+    {
+      "name": "control-reject-unknown-code",
+      "kind": "control",
+      "payload": {
+        "ok": true,
+        "action": "status",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "paused"
+      },
+      "expect": "reject",
+      "reason": "The control code is the closed set ready|starting|stopping|stopped|computer_offline|app_not_found|state_update_failed."
+    },
+    {
+      "name": "control-reject-unknown-error-code",
+      "kind": "control",
+      "payload": {
+        "ok": false,
+        "action": "stop",
+        "computer_connected": false,
+        "enabled": false,
+        "running": false,
+        "code": "computer_offline",
+        "error_code": "start_command_failed"
+      },
+      "expect": "reject",
+      "reason": "error_code names exactly stop_command_failed; any other value is a code this client does not know."
+    },
+    {
+      "name": "control-reject-code-contradicts-flags",
+      "kind": "control",
+      "payload": {
+        "ok": true,
+        "action": "status",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "stopped"
+      },
+      "expect": "reject",
+      "reason": "The control code must mean what enabled+running says, exactly as it does on an apps[] entry: ready, starting, stopping or stopped."
+    },
+    {
+      "name": "control-reject-app-not-a-valid-app",
+      "kind": "control",
+      "payload": {
+        "ok": true,
+        "action": "status",
+        "computer_connected": true,
+        "enabled": true,
+        "running": true,
+        "code": "ready",
+        "app": {
+          "id": "jellyfin",
+          "name": "Jellyfin",
+          "description": "媒体库",
+          "icon": "🎬",
+          "accent": "blue",
+          "launch_fragment": "#/home",
+          "computer_connected": true,
+          "enabled": true,
+          "running": true,
+          "code": "ready"
+        }
+      },
+      "expect": "reject",
+      "reason": "The app of a control answer is the same DTO as an apps[] entry, so its accent is refused here too."
+    },
+    {
+      "name": "pairing-accept-valid",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "hxaxd 的手机",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:00Z"
+      },
+      "expect": "accept",
+      "reason": "A fully valid pairing answer: 64-hex fingerprint, pkcs12, base64 credential, second-precision UTC expiry."
+    },
+    {
+      "name": "pairing-accept-fractional-seconds",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:00.500Z"
+      },
+      "expect": "accept",
+      "reason": "An RFC 3339 instant with fractional seconds is still an instant this client must not over-reject."
+    },
+    {
+      "name": "pairing-reject-fingerprint-not-hex64",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:00Z"
+      },
+      "expect": "reject",
+      "reason": "certificate_fingerprint must match ^[a-f0-9]{64}$; 63 characters is not a SHA-256 fingerprint."
+    },
+    {
+      "name": "pairing-reject-credential-format-not-pkcs12",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pem",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:00Z"
+      },
+      "expect": "reject",
+      "reason": "credential_format is const pkcs12: only that encoding is supported, so pem is refused."
+    },
+    {
+      "name": "pairing-reject-credential-not-base64",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "not_base64!!",
+        "pending_expires_at": "2026-09-17T10:00:00Z"
+      },
+      "expect": "reject",
+      "reason": "credential_pkcs12 must be non-empty and base64-decodable, because the client has to install it as a PKCS#12 archive."
+    },
+    {
+      "name": "pairing-reject-expiry-not-rfc3339",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "soon"
+      },
+      "expect": "reject",
+      "reason": "pending_expires_at is an RFC 3339 UTC instant; prose is not a timestamp and the pending window cannot be computed from it."
+    },
+    {
+      "name": "error-accept-unauthorized",
+      "kind": "error",
+      "payload": {
+        "ok": false,
+        "code": "unauthorized"
+      },
+      "expect": "accept",
+      "reason": "A refusal is ok=false plus one code from the contract's nineteen."
+    },
+    {
+      "name": "error-reject-ok-true",
+      "kind": "error",
+      "payload": {
+        "ok": true,
+        "code": "unauthorized"
+      },
+      "expect": "reject",
+      "reason": "ok is const false in a refusal; a body that says it succeeded is not the error shape."
+    },
+    {
+      "name": "error-reject-unknown-code",
+      "kind": "error",
+      "payload": {
+        "ok": false,
+        "code": "too_many_devices"
+      },
+      "expect": "reject",
+      "reason": "The refusal code is the closed set of nineteen; a code outside it is not a decision this client can make."
+    },
+    {
+      "name": "activation-accept-catalog",
+      "kind": "activation",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "jellyfin",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          }
+        ]
+      },
+      "expect": "accept",
+      "reason": "A successful activation is answered with the connected variant of a catalog, never the offline one."
+    },
+    {
+      "name": "activation-accept-approval-pending",
+      "kind": "activation",
+      "payload": {
+        "ok": false,
+        "code": "approval_pending"
+      },
+      "expect": "accept",
+      "reason": "HTTP 202 with approval_pending is the device paired and its operator not having confirmed yet — an answer, not a failure."
+    },
+    {
+      "name": "release-accept-this-build",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5.0",
+        "buildNumber": 28,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "accept",
+      "reason": "The published manifest is the one this build carries: schema 1, semantic version, build and protocol at least 1, and all three platforms named."
+    },
+    {
+      "name": "release-reject-schema-not-1",
+      "kind": "release",
+      "payload": {
+        "schema": 2,
+        "versionName": "3.5.0",
+        "buildNumber": 28,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "reject",
+      "reason": "schema is const 1; a manifest of another schema is not one this client reads."
+    },
+    {
+      "name": "release-reject-version-name-not-semver",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5",
+        "buildNumber": 28,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "reject",
+      "reason": "versionName must match ^\\d+\\.\\d+\\.\\d+$, exactly three numeric components."
+    },
+    {
+      "name": "release-reject-build-number-zero",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5.0",
+        "buildNumber": 0,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "reject",
+      "reason": "buildNumber is monotonically increasing from 1, so zero is not a build this client knows (the same rule holds for protocolVersion)."
+    },
+    {
+      "name": "release-reject-unknown-platform-field",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5.0",
+        "buildNumber": 28,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24",
+          "windows": "11"
+        }
+      },
+      "expect": "reject",
+      "reason": "minimumPlatforms names exactly the three platforms of this project; a fourth is a field the client does not understand."
+    }
+  ]
+}

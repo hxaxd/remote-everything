@@ -25,9 +25,5 @@ dependencyResolutionManagement {
     }
 }
 
-plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
-}
-
-rootProject.name = "远程万物"
+rootProject.name = "RemoteEverything"
 include(":app")

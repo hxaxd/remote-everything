@@ -21,11 +21,26 @@
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:ic_launcher",
         "startWindowBackground": "$color:start_window_background",
+        // Neither the app nor an application page locks an orientation: every
+        // screen follows the system setting (ui-contract §6). "unspecified" is the
+        // platform's name for exactly that, and setPreferredOrientation is
+        // deliberately never called.
+        "orientation": "unspecified",
         "exported": true,
         "skills": [
           {
             "entities": ["entity.system.home"],
             "actions": ["action.system.home"]
+          },
+          {
+            // An invitation link opens the app straight into the add-node flow.
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [
+              {
+                "scheme": "remote-everything",
+                "host": "setup"
+              }
+            ]
           }
         ]
       }
@@ -40,19 +55,17 @@
         }
       },
       {
+        // Which network this device is on decides which remembered route is used and
+        // when those routes are re-decided (ui-contract §4). Nothing about the network
+        // itself is read, recorded or sent.
+        "name": "ohos.permission.GET_NETWORK_INFO"
+      },
+      {
         "name": "ohos.permission.ACCESS_CERT_MANAGER"
       },
       {
         "name": "ohos.permission.CAMERA",
         "reason": "$string:camera_permission_reason",
-        "usedScene": {
-          "abilities": ["EntryAbility"],
-          "when": "inuse"
-        }
-      },
-      {
-        "name": "ohos.permission.MICROPHONE",
-        "reason": "$string:microphone_permission_reason",
         "usedScene": {
           "abilities": ["EntryAbility"],
           "when": "inuse"
