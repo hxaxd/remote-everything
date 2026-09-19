@@ -27,8 +27,8 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
-            "description": "Application identifier."
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+            "description": "Application identifier: one hostname label, the first label of the host a public gateway serves the application at."
           },
           "name": {
             "type": "string",

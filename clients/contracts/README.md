@@ -2,7 +2,7 @@
 
 This directory describes the wire between a client, a gateway and a node: what a client is given, what it sends, and what it is answered with. It is the **specification of the protocol as the server speaks it today** — written from the running code, not from what any client once did.
 
-The three client implementations in this repository predate this protocol (they still parse a setup URI with a version, an installation id and a mode) and are being rewritten. Until they are, these schemas are what the next one implements: the Go side in `internal/` is the reference, and the schemas are how a reviewer checks that a client agrees with it.
+The three client implementations in this repository speak this protocol: each parses the setup URI of `setup-uri.schema.json` (no version, no installation id, no mode on the wire) and calls the endpoints in the table below. The Go side in `internal/` is the reference, and the schemas are how a reviewer checks that a client agrees with it.
 
 ## Directory Layout
 

@@ -12,21 +12,23 @@ app/                 平台壳：入口、AppModel（状态持有者 + 门面）
   AppModel           状态 + 生命周期 + web 目标解析 + 设置；轮询/配对等从它拆出控制器
   NodesController    节点列表刷新 + 状态推导 + 节点缓存（核心里无平台代码，网络环境注入）
   CatalogController  catalog 加载 + 应用开关 + control 轮询（退避、settle）
-  PairingSession     两轮配对 + 暂存 + 审批轮询 + 兜底窗口
+  PairingSession     两轮配对 + 暂存 + 审批轮询 + 恢复重试（重新 Join 走 resume，不重耗邀请）
   theme/             Theme / AppTheme / Tokens
   i18n/              LocaleHelper / Localization / Strings
   ui/                屏幕：HomeScreen、PairScreen、NodeScreen、SettingsScreen、Components
-  web/               Web 宿主与它的客户端（Android 是 Activity + WebView 回调，iOS 是 UIViewRepresentable，Harmony 是 ArkWeb）
+  web/               Web 宿主与它的客户端（Android 是 Activity + WebView 回调，iOS 是 UIViewRepresentable，Harmony 是 ArkWeb）：
+                     宿主全屏、无顶栏；返回手势打开面板（WebPanel）——屏幕方向、标识、刷新、退出；
+                     上传/下载/摄像头麦克风/定位/视频全屏/外部链接都在这里落地
 core/
   model/             Models、MessageKeys、Cadence、ErrorCode+ClientError、Digest
   setup/             SetupUri（邀请解析）
-  api/               Dto（严格解码）+ Client/Transport（连接池）+ Challenge/Pinning + Merge + CatalogOutcome
-  identity/          Pkcs12、IdentityVault（平台密钥存储与 p12 导入只在这里）
+  api/               Dto（严格解码）+ Client/Transport（连接池）+ Wire（跨字段与值判据）+ Challenge/Pinning + Merge + CatalogOutcome
+  identity/          Pkcs12、IdentityVault（平台密钥存储与 p12 导入只在这里；鸿蒙的 HUKS 密封与证书管理器是它在该端的两个面）
   pairing/           PairingService + StagedSetup（暂存文件不含邀请 token）
   pathselect/        PathSelector（纯选择器）+ NetworkEnvironment（平台网络分类）
-  store/             AtomicFile、SettingsStore、NodeCache
+  store/             AtomicFile、SettingsStore（设置 + 身份索引 + 每应用 Web 偏好）、NodeCache、WebAppPrefs（每个应用的方向与标识，键是 nodeId/appId）
   update/            UpdateChecker（release 清单 + 判据）
-  json/              Strict（wire 严格性规则；Android/iOS 各自的跨字段校验都在这）
+  json/              Strict（值与形状的严格规则）；跨字段判据在各端 core/api/Wire（iOS 的在其 Dto 内联）
 ```
 
 ## 规则

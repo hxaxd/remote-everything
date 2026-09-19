@@ -346,7 +346,44 @@
         ]
       },
       "expect": "reject",
-      "reason": "The application id must match ^[a-z0-9][a-z0-9._-]{0,63}$: lowercase first, lowercase or digit or . _ - after, at most 64 characters."
+      "reason": "The application id must match ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ — one hostname label, at most 63 characters: an uppercase letter is not a label character, and an id that could not be a label would name an application no host could carry."
+    },
+    {
+      "name": "apps-reject-id-not-a-host-label",
+      "kind": "apps",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "my_app",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "#/home",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          },
+          {
+            "id": "my.app",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "#/home",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "A public gateway serves an application at a host built under its own domain and the id is that host’s first label; a dot or an underscore cannot appear in a hostname label, so an id carrying one names an application no host could carry. The loose rule that tolerated them is gone — the server never speaks such an id."
     },
     {
       "name": "apps-reject-name-empty",
@@ -604,6 +641,20 @@
       "reason": "stop_command_failed is the one error_code the contract names, so it must not be over-rejected."
     },
     {
+      "name": "control-accept-app-not-found",
+      "kind": "control",
+      "payload": {
+        "ok": false,
+        "action": "start",
+        "computer_connected": true,
+        "enabled": false,
+        "running": false,
+        "code": "app_not_found"
+      },
+      "expect": "accept",
+      "reason": "An action on an app the node does not run is an answer, not a refusal, and it carries the flags like every control body does: enabled and running are false because there is nothing to show, not because they are absent."
+    },
+    {
       "name": "control-reject-unknown-action",
       "kind": "control",
       "payload": {
@@ -824,6 +875,56 @@
       },
       "expect": "accept",
       "reason": "A successful activation is answered with the connected variant of a catalog, never the offline one."
+    },
+    {
+      "name": "activation-reject-disconnected",
+      "kind": "activation",
+      "payload": {
+        "ok": true,
+        "computer_connected": false,
+        "code": "ready",
+        "apps": [
+          {
+            "id": "jellyfin",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "Activation is answered with a catalog only after the node answered, so the catalog variant is always the connected one; admitting a device against computer_connected=false would activate it against a node that is not there."
+    },
+    {
+      "name": "activation-reject-not-ready",
+      "kind": "activation",
+      "payload": {
+        "ok": true,
+        "computer_connected": true,
+        "code": "registry_unavailable",
+        "apps": [
+          {
+            "id": "jellyfin",
+            "name": "Jellyfin",
+            "description": "媒体库",
+            "icon": "🎬",
+            "accent": "#2563eb",
+            "launch_fragment": "",
+            "computer_connected": true,
+            "enabled": true,
+            "running": true,
+            "code": "ready"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "Only code=ready admits a device: registry_unavailable is a connected node that cannot say what it runs, and a client that treated it as success would show an empty node as usable."
     },
     {
       "name": "activation-accept-approval-pending",

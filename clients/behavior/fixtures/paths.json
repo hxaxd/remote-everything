@@ -1,35 +1,178 @@
 {
-  "description": "Which path a node is reached by: a reachable private one wins, then the fastest reachable, and nothing reachable is no path at all.",
+  "description": "Which path a node is reached by: a reachable private one wins, then the fastest reachable, and nothing reachable is no path at all. The remembered choice keeps a path that answers, but it never keeps a tunnel while a private path is there to be used.",
   "cases": [
     {
       "name": "private beats public",
       "paths": [
-        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 20, "isPrivate": false },
-        { "origin": "https://192.168.1.10:58627", "reachable": true, "latencyMs": 40, "isPrivate": true }
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": true,
+          "latencyMs": 40,
+          "isPrivate": true
+        }
       ],
       "chosen": "https://192.168.1.10:58627"
     },
     {
       "name": "fastest wins inside a class",
       "paths": [
-        { "origin": "https://slow.example.com", "reachable": true, "latencyMs": 90, "isPrivate": false },
-        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 20, "isPrivate": false }
+        {
+          "origin": "https://slow.example.com",
+          "reachable": true,
+          "latencyMs": 90,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        }
       ],
       "chosen": "https://gw.example.com"
     },
     {
       "name": "unreachable private loses to reachable public",
       "paths": [
-        { "origin": "https://192.168.1.10:58627", "reachable": false, "latencyMs": null, "isPrivate": true },
-        { "origin": "https://gw.example.com", "reachable": true, "latencyMs": 60, "isPrivate": false }
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": false,
+          "latencyMs": null,
+          "isPrivate": true
+        },
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 60,
+          "isPrivate": false
+        }
       ],
       "chosen": "https://gw.example.com"
     },
     {
       "name": "nothing reachable is no path",
       "paths": [
-        { "origin": "https://192.168.1.10:58627", "reachable": false, "latencyMs": null, "isPrivate": true },
-        { "origin": "https://gw.example.com", "reachable": null, "latencyMs": null, "isPrivate": false }
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": false,
+          "latencyMs": null,
+          "isPrivate": true
+        },
+        {
+          "origin": "https://gw.example.com",
+          "reachable": null,
+          "latencyMs": null,
+          "isPrivate": false
+        }
+      ],
+      "chosen": null
+    }
+  ],
+  "remembered": [
+    {
+      "name": "a remembered tunnel gives way to a private path that has become reachable",
+      "remembered": "https://gw.example.com",
+      "paths": [
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": true,
+          "latencyMs": 40,
+          "isPrivate": true
+        }
+      ],
+      "chosen": "https://192.168.1.10:58627"
+    },
+    {
+      "name": "a remembered private path is kept while it answers, faster tunnel or not",
+      "remembered": "https://192.168.1.10:58627",
+      "paths": [
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": true,
+          "latencyMs": 40,
+          "isPrivate": true
+        }
+      ],
+      "chosen": "https://192.168.1.10:58627"
+    },
+    {
+      "name": "a remembered path that stopped answering is replaced by the best that answers",
+      "remembered": "https://192.168.1.10:58627",
+      "paths": [
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": false,
+          "latencyMs": null,
+          "isPrivate": true
+        },
+        {
+          "origin": "https://slow.example.com",
+          "reachable": true,
+          "latencyMs": 90,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        }
+      ],
+      "chosen": "https://gw.example.com"
+    },
+    {
+      "name": "inside one class the remembered choice is the choice, so polling does not flap",
+      "remembered": "https://slow.example.com",
+      "paths": [
+        {
+          "origin": "https://slow.example.com",
+          "reachable": true,
+          "latencyMs": 90,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://gw.example.com",
+          "reachable": true,
+          "latencyMs": 20,
+          "isPrivate": false
+        }
+      ],
+      "chosen": "https://slow.example.com"
+    },
+    {
+      "name": "nothing reachable remembers nothing",
+      "remembered": "https://gw.example.com",
+      "paths": [
+        {
+          "origin": "https://gw.example.com",
+          "reachable": false,
+          "latencyMs": null,
+          "isPrivate": false
+        },
+        {
+          "origin": "https://192.168.1.10:58627",
+          "reachable": null,
+          "latencyMs": null,
+          "isPrivate": true
+        }
       ],
       "chosen": null
     }

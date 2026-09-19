@@ -1,8 +1,14 @@
 {
-  "description": "The same machine seen through a LAN gateway and a public one: one row, two paths, and the LAN path chosen while it answers.",
+  "description": "The same machine seen through a LAN gateway and a public one: one row, two paths, and the LAN path chosen while it answers. What a link is called follows the gateway's declaration when it made one, and the address a client dials when it did not.",
   "identities": [
-    { "origin": "https://192.168.1.10:58627", "isPrivate": true },
-    { "origin": "https://gw.example.com", "isPrivate": false }
+    {
+      "origin": "https://192.168.1.10:58627",
+      "isPrivate": true
+    },
+    {
+      "origin": "https://gw.example.com",
+      "isPrivate": false
+    }
   ],
   "answers": [
     {
@@ -10,14 +16,25 @@
       "ok": true,
       "reachable": true,
       "latencyMs": 4,
-      "nodes": [{ "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "客厅电脑" }]
+      "nodes": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "客厅电脑",
+          "link": "tunnel"
+        }
+      ]
     },
     {
       "origin": "https://gw.example.com",
       "ok": true,
       "reachable": true,
       "latencyMs": 42,
-      "nodes": [{ "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "客厅电脑" }]
+      "nodes": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "name": "客厅电脑"
+        }
+      ]
     }
   ],
   "expected": {
@@ -27,7 +44,8 @@
         "name": "客厅电脑",
         "pathCount": 2,
         "chosenOrigin": "https://192.168.1.10:58627",
-        "chosenIsPrivate": true
+        "chosenIsPrivate": true,
+        "chosenLink": "tunnel"
       }
     ]
   }
