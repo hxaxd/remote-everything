@@ -1,7 +1,10 @@
 package com.remoteeverything.app.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalRippleConfiguration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RippleConfiguration
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -80,6 +83,7 @@ private val AppShapes = Shapes(
     medium = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppTheme(appearance: Appearance, content: @Composable () -> Unit) {
     val dark = when (appearance) {
@@ -87,11 +91,16 @@ fun AppTheme(appearance: Appearance, content: @Composable () -> Unit) {
         Appearance.LIGHT -> false
         Appearance.DARK -> true
     }
+    val scheme = if (dark) DarkScheme else LightScheme
     CompositionLocalProvider(
         LocalSemanticColors provides if (dark) DarkSemantic else LightSemantic,
+        // The ripple is the accent, not the content colour: a content-coloured
+        // ripple is a white flash in the dark, which is the one thing a press
+        // must never be.
+        LocalRippleConfiguration provides RippleConfiguration(color = scheme.primary),
     ) {
         MaterialTheme(
-            colorScheme = if (dark) DarkScheme else LightScheme,
+            colorScheme = scheme,
             typography = AppTypography,
             shapes = AppShapes,
             content = content,

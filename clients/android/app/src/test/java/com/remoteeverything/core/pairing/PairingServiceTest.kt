@@ -1,6 +1,6 @@
 package com.remoteeverything.core.pairing
 
-import com.remoteeverything.core.api.ApiClient
+import com.remoteeverything.core.api.GatewayClient
 import com.remoteeverything.core.api.CatalogCode
 import com.remoteeverything.core.api.CatalogResponse
 import com.remoteeverything.core.api.ControlResponse
@@ -78,9 +78,13 @@ class PairingServiceTest {
         var pairResponse: PairingResponse? = null,
         var activateResponse: CatalogResponse? = null,
         var activateError: ClientError? = null,
-    ) : ApiClient {
+    ) : GatewayClient {
+        var pairCalls = 0
         override val origin: String = "https://gw.example.com"
-        override suspend fun pair(request: PairRequest): PairingResponse = pairResponse ?: error("no pair response")
+        override suspend fun pair(request: PairRequest): PairingResponse {
+            pairCalls += 1
+            return pairResponse ?: error("no pair response")
+        }
         override suspend fun activate(nodeId: String): CatalogResponse {
             activateError?.let { throw it }
             return activateResponse ?: CatalogResponse(ok = true, computer_connected = true, code = CatalogCode.READY, apps = emptyList())
@@ -193,6 +197,59 @@ class PairingServiceTest {
 
         val resumeOutcome = service.resume()
         assertTrue(resumeOutcome is PairingService.Outcome.Activated)
+        assertEquals(1, repo.currentIdentities().size)
+        assertNull(transaction.load())
+    }
+
+    @Test
+    fun `joining again after a failed activation resumes the staged pairing instead of re-pairing`() = runBlocking {
+        val vault = FakeVault()
+        val repo = FakeRepo()
+        val stagedFile = tempFolder.newFile("staged.json")
+        val transaction = SetupTransaction(stagedFile)
+        val fixedPassword = "test-password-12345"
+        val (p12, fp) = generatePkcs12(fixedPassword)
+
+        // The redeem succeeds; the activation fails because the node cannot be
+        // reached — the outcome is a Failed and the staged setup stays.
+        val client = TestApiClient(
+            pairResponse = PairingResponse(
+                ok = true,
+                device_name = "Pixel",
+                certificate_fingerprint = fp,
+                credential_format = "pkcs12",
+                credential_pkcs12 = p12,
+                pending_expires_at = "2099-01-01T00:00:00Z",
+            ),
+            activateError = ClientError(ErrorCode.COMPUTER_OFFLINE, 200),
+        )
+        val service = PairingService(
+            vault = vault,
+            transaction = transaction,
+            repository = repo,
+            generatePassword = { fixedPassword },
+            clientFactory = { _, _, _ -> client },
+        )
+        val invitation = SetupUri.Invitation(
+            node = "a".repeat(64),
+            nodeName = "Studio",
+            origin = "https://gw.example.com",
+            invitation = "invitation-token-12345".padEnd(43, 'x'),
+            serverPin = null,
+        )
+
+        val first = service.run(invitation, "Pixel")
+        assertTrue(first is PairingService.Outcome.Failed)
+        assertEquals(1, client.pairCalls)
+        assertNotNull(transaction.load())
+
+        // The operator taps Join again on the same invitation. The invitation is
+        // spent — redeeming it once more would be answered invitation_denied —
+        // so the second run finishes what was staged instead of pairing anew.
+        client.activateError = null
+        val second = service.run(invitation, "Pixel")
+        assertTrue(second is PairingService.Outcome.Activated)
+        assertEquals("the spent invitation is never redeemed twice", 1, client.pairCalls)
         assertEquals(1, repo.currentIdentities().size)
         assertNull(transaction.load())
     }

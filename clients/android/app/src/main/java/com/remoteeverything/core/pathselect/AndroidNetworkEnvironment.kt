@@ -1,4 +1,4 @@
-package com.remoteeverything.app
+package com.remoteeverything.core.pathselect
 
 import android.content.Context
 import android.net.ConnectivityManager

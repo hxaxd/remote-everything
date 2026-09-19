@@ -1,7 +1,7 @@
 package com.remoteeverything.behavior
 
 import com.remoteeverything.app.NodesController
-import com.remoteeverything.core.api.ApiClient
+import com.remoteeverything.core.api.GatewayClient
 import com.remoteeverything.core.api.CatalogOutcome
 import com.remoteeverything.core.api.CatalogResponse
 import com.remoteeverything.core.api.ControlResponse
@@ -13,8 +13,12 @@ import com.remoteeverything.core.model.Cadence
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.MessageKeys
+import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.Path
 import com.remoteeverything.core.pathselect.PathSelector
+import com.remoteeverything.core.store.WebAppPrefs
+import com.remoteeverything.core.store.WebOrientation
+import com.remoteeverything.core.store.WebUserAgent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -97,6 +101,7 @@ class BehaviorFixturesTest {
         val pathCount: Int,
         val chosenOrigin: String,
         val chosenIsPrivate: Boolean,
+        val chosenLink: String? = null,
     )
 
     @Test
@@ -125,16 +130,29 @@ class BehaviorFixturesTest {
             val chosen = controller.choosePath(node, "wifi-1")
             assertEquals(expected.chosenOrigin, chosen?.origin)
             assertEquals(expected.chosenIsPrivate, chosen?.isPrivate)
+            // What the link is called follows the gateway's declaration when it made
+            // one: a private address can still be a path that crosses the internet.
+            expected.chosenLink?.let { want ->
+                assertEquals("chosenLink", want, chosen?.link?.name?.lowercase())
+            }
         }
     }
 
     // --- paths.json ----------------------------------------------------------
 
     @Serializable
-    private class PathsFixture(val cases: List<PathCase>)
+    private class PathsFixture(val cases: List<PathCase>, val remembered: List<RememberedCase> = emptyList())
 
     @Serializable
     private class PathCase(val name: String, val paths: List<PathFixture>, val chosen: String?)
+
+    @Serializable
+    private class RememberedCase(
+        val name: String,
+        val remembered: String,
+        val paths: List<PathFixture>,
+        val chosen: String?,
+    )
 
     @Serializable
     private class PathFixture(
@@ -144,20 +162,48 @@ class BehaviorFixturesTest {
         val isPrivate: Boolean,
     )
 
+    private fun PathFixture.toPath() = Path(
+        origin = origin,
+        reachable = reachable,
+        latencyMs = latencyMs,
+        isPrivate = isPrivate,
+    )
+
     @Test
     fun `the chosen path is the same everywhere`() {
         val cases = json.decodeFromString(PathsFixture.serializer(), fixture("paths.json")).cases
         assertTrue(cases.isNotEmpty())
         for (case in cases) {
-            val paths = case.paths.map { path ->
-                Path(
-                    origin = path.origin,
-                    reachable = path.reachable,
-                    latencyMs = path.latencyMs,
-                    isPrivate = path.isPrivate,
-                )
+            val chosen = PathSelector.choose(case.paths.map { it.toPath() })
+            if (case.chosen == null) {
+                assertNull(case.name, chosen)
+            } else {
+                assertEquals(case.name, case.chosen, chosen?.origin)
             }
-            val chosen = PathSelector.choose(paths)
+        }
+    }
+
+    /**
+     * A remembered path is kept while it answers *and* while it is still the best
+     * class there is: the moment a private path answers, the phone takes it —
+     * which is what makes walking into the LAN's room switch a phone off the
+     * tunnel it happened to pair with first.
+     */
+    @Test
+    fun `a remembered path holds its place only while it is the best there is`() {
+        val cases = json.decodeFromString(PathsFixture.serializer(), fixture("paths.json")).remembered
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val paths = case.paths.map { it.toPath() }
+            // The remembered choice is established first, with only that path
+            // answering — the state an app is in when it has paired over the
+            // internet and has not yet been in the same room as the gateway.
+            val seed = paths.map { path ->
+                if (path.origin == case.remembered) path else path.copy(reachable = false)
+            }
+            val cache = PathSelector.Cache()
+            cache.resolve(Node(id = "n", name = "Desk", paths = seed), "wifi")
+            val chosen = cache.resolve(Node(id = "n", name = "Desk", paths = paths), "wifi")
             if (case.chosen == null) {
                 assertNull(case.name, chosen)
             } else {
@@ -178,7 +224,6 @@ class BehaviorFixturesTest {
         val controlPollTimeoutMs: Long,
         val approvalPollMs: Long,
         val approvalPollTimeoutMs: Long,
-        val pendingFallbackMs: Long,
         val probeTimeoutMs: Long,
         val requestTimeoutMs: Long,
     )
@@ -194,7 +239,6 @@ class BehaviorFixturesTest {
         assertEquals("controlPollTimeoutMs", fixture.controlPollTimeoutMs, Cadence.controlPollTimeoutMs)
         assertEquals("approvalPollMs", fixture.approvalPollMs, Cadence.approvalPollMs)
         assertEquals("approvalPollTimeoutMs", fixture.approvalPollTimeoutMs, Cadence.approvalPollTimeoutMs)
-        assertEquals("pendingFallbackMs", fixture.pendingFallbackMs, Cadence.pendingFallbackMs)
         assertEquals("probeTimeoutMs", fixture.probeTimeoutMs, Cadence.probeTimeoutMs)
         assertEquals("requestTimeoutMs", fixture.requestTimeoutMs, Cadence.requestTimeoutMs)
     }
@@ -251,6 +295,35 @@ class BehaviorFixturesTest {
         assertEquals("message-keys.json", fixtureKeys(), constants)
     }
 
+    // --- web-app-prefs.json --------------------------------------------------
+
+    @Serializable
+    private class WebAppPrefsFixture(
+        val appKey: String,
+        val defaults: WebAppPrefsDefaults,
+        val orientations: List<String>,
+        val userAgents: List<String>,
+    )
+
+    @Serializable
+    private class WebAppPrefsDefaults(val orientation: String, val userAgent: String)
+
+    @Test
+    fun `the per-application web choices are the vocabulary the fixture names`() {
+        val fixture = json.decodeFromString(WebAppPrefsFixture.serializer(), fixture("web-app-prefs.json"))
+        assertEquals(
+            fixture.orientations,
+            WebOrientation.entries.map { it.name.lowercase() },
+        )
+        assertEquals(
+            fixture.userAgents,
+            WebUserAgent.entries.map { it.name.lowercase() },
+        )
+        val defaults = WebAppPrefs()
+        assertEquals(fixture.defaults.orientation, defaults.orientation.name.lowercase())
+        assertEquals(fixture.defaults.userAgent, defaults.userAgent.name.lowercase())
+    }
+
     @Test
     fun `every key is a resource in both languages`() {
         val canonical = fixtureKeys().map { it.replace('.', '_') }.toSet()
@@ -268,7 +341,7 @@ class BehaviorFixturesTest {
 }
 
 /** An /nodes answer on tap, for the behaviour test to drive the production controller. */
-private class FakeClient(private val nodes: NodesResponse) : ApiClient {
+private class FakeClient(private val nodes: NodesResponse) : GatewayClient {
     override val origin: String = "fake"
     override suspend fun pair(request: PairRequest): PairingResponse = error("unused by the behaviour test")
     override suspend fun activate(nodeId: String): CatalogResponse = error("unused by the behaviour test")

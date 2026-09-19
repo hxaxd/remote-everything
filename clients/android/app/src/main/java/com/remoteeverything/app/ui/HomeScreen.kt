@@ -1,6 +1,9 @@
 package com.remoteeverything.app.ui
 
+import com.remoteeverything.app.i18n.l10n
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -39,16 +42,17 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.remoteeverything.app.AppViewModel
+import com.remoteeverything.app.AppModel
 import com.remoteeverything.app.PairingUiState
-import com.remoteeverything.app.ui.theme.LocalSemanticColors
+import com.remoteeverything.app.theme.LocalSemanticColors
 import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.NodeStatus
+import com.remoteeverything.core.model.Path
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppViewModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: (Node) -> Unit) {
+fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: (Node) -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val semantic = LocalSemanticColors.current
     // A screen wide enough for two panes shows the list and a node's
@@ -149,7 +153,7 @@ fun HomeScreen(vm: AppViewModel, onAdd: () -> Unit, onSettings: () -> Unit, onNo
 
 @Composable
 private fun NodeList(
-    vm: AppViewModel,
+    vm: AppModel,
     state: com.remoteeverything.app.AppUiState,
     selectedId: String?,
     onSelect: (Node) -> Unit,
@@ -160,6 +164,7 @@ private fun NodeList(
             NodeRow(
                 node = node,
                 status = vm.statusOf(node),
+                inUse = vm.pathFor(node),
                 selected = node.id == selectedId,
                 onClick = { onSelect(node) },
             )
@@ -169,8 +174,21 @@ private fun NodeList(
 
 private const val WideScreenDp = 840
 
+/**
+ * One machine, as a row of its own: its name, and how this phone reaches it —
+ * the same card the settings give a connection, because it is the same kind of
+ * thing. The right-hand side says what the link *is* (a local link, a link over
+ * the tunnel, or nothing answering), which is one answer even when the phone
+ * holds several ways in: the one it would actually take.
+ */
 @Composable
-private fun NodeRow(node: Node, status: NodeStatus, selected: Boolean, onClick: () -> Unit) {
+private fun NodeRow(
+    node: Node,
+    status: NodeStatus,
+    inUse: Path?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     val semantic = LocalSemanticColors.current
     val (label, color) = when (status) {
         NodeStatus.ONLINE_LAN -> l10n(MessageKeys.forNodeStatus(status)) to semantic.ok
@@ -179,33 +197,41 @@ private fun NodeRow(node: Node, status: NodeStatus, selected: Boolean, onClick: 
         NodeStatus.PENDING_APPROVAL -> l10n(MessageKeys.forNodeStatus(status)) to semantic.warn
         NodeStatus.UNKNOWN -> l10n(MessageKeys.forNodeStatus(status)) to semantic.offline
     }
-    Row(
+    Surface(
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        },
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         modifier = Modifier
             .fillMaxWidth()
-            .height(64.dp)
-            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 12.dp, vertical = 4.dp),
     ) {
-        Text(
-            node.name,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.weight(1f),
-            color = if (status == NodeStatus.OFFLINE) semantic.textTertiary else MaterialTheme.colorScheme.onSurface,
-        )
-        StatusChip(label, color)
-    }
-}
-
-@Composable
-fun StatusChip(label: String, color: Color) {
-    Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
-        color = color.copy(alpha = 0.12f),
-    ) {
-        Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = color)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .clickable(onClick = onClick)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                node.name,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+                color = if (status == NodeStatus.OFFLINE) semantic.textTertiary else MaterialTheme.colorScheme.onSurface,
+            )
+            // Which ways in this phone has, and which one it would take: a machine
+            // waited on by a person is a machine with more than one answer.
+            if (status == NodeStatus.PENDING_APPROVAL || status == NodeStatus.UNKNOWN) {
+                StatusChip(label, color)
+            } else {
+                LinkChips(paths = node.paths, inUse = if (status == NodeStatus.OFFLINE) null else inUse)
+            }
         }
     }
 }
+
+

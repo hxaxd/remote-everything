@@ -8,6 +8,7 @@
     <string name="action_back_to_nodes">返回机器列表</string>
     <string name="action_cancel">取消</string>
     <string name="action_confirm">确定</string>
+    <string name="action_copied">已复制</string>
     <string name="action_done">完成</string>
     <string name="action_retry">重试</string>
     <string name="action_start">启动</string>
@@ -47,7 +48,9 @@
     <string name="language_en">English</string>
     <string name="language_zh">中文</string>
 
-    <string name="node_lan">局域网</string>
+    <string name="node_current_lan">当前为本地连接</string>
+    <string name="node_current_tunnel">当前为隧道连接</string>
+    <string name="node_lan">本地</string>
     <string name="node_offline">不在线</string>
     <string name="node_offline_body">它可能已关机、正在休眠，或连接已断开。</string>
     <string name="node_offline_title">这台机器不在线</string>
@@ -84,15 +87,15 @@
     <string name="settings_appearance_light">浅色</string>
     <string name="settings_appearance_system">跟随系统</string>
     <string name="settings_certificate_fingerprint">证书指纹</string>
-    <string name="settings_device_name">本机</string>
+    <string name="settings_device_name">设备默认名称</string>
     <string name="settings_forget">忘记此连接</string>
-    <string name="settings_forget_confirm">忘记后，此连接下的 %1$d 台机器都将无法访问。</string>
+    <string name="settings_forget_confirm">确定要忘记这个连接吗？</string>
     <string name="settings_identities">连接</string>
     <string name="settings_language">语言</string>
     <string name="settings_language_system">跟随系统</string>
     <string name="settings_no_identities">还没有连接</string>
     <string name="settings_nodes_count">机器</string>
-    <string name="settings_protocol_version">协议版本 %1$d</string>
+    <string name="settings_protocol_version">通信协议版本</string>
     <string name="settings_title">设置</string>
     <string name="settings_updates">检查更新</string>
     <string name="settings_updates_available">有新版本 %1$s (%2$d)</string>
@@ -103,8 +106,24 @@
     <string name="settings_updates_none">已是最新</string>
     <string name="settings_updates_protocol">新版本改变了连接方式，更新后需要重新配对。</string>
     <string name="settings_updates_store_hint">从应用商店安装新版本</string>
-    <string name="settings_version">版本</string>
+    <string name="settings_version">当前版本</string>
 
     <string name="web_load_failed">加载失败</string>
     <string name="web_loading">加载中…</string>
+
+    <string name="web_choose_file">选择文件</string>
+    <string name="web_download_done">下载完成</string>
+    <string name="web_download_failed">下载失败</string>
+    <string name="web_download_open">打开</string>
+    <string name="web_download_saved">已保存到 %1$s</string>
+    <string name="web_downloads">下载</string>
+    <string name="web_exit">退出</string>
+    <string name="web_orientation">屏幕方向</string>
+    <string name="web_orientation_landscape">横屏</string>
+    <string name="web_orientation_portrait">竖屏</string>
+    <string name="web_orientation_system">跟随系统</string>
+    <string name="web_refresh">刷新</string>
+    <string name="web_user_agent">标识</string>
+    <string name="web_user_agent_desktop">桌面</string>
+    <string name="web_user_agent_mobile">移动</string>
 </resources>

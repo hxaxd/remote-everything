@@ -1,9 +1,12 @@
 package com.remoteeverything.app.ui
 
+import com.remoteeverything.app.i18n.l10n
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,9 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
-import com.remoteeverything.app.AppViewModel
+import com.remoteeverything.app.AppModel
 import com.remoteeverything.app.PairingUiState
 import com.remoteeverything.app.R
 import com.remoteeverything.core.model.ErrorCode
@@ -55,21 +56,21 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun PairScreen(vm: AppModel, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var input by rememberSaveable { mutableStateOf(vm.pendingInvitation ?: "") }
+    var input by rememberSaveable { mutableStateOf(vm.pendingInvitation.value ?: "") }
     var deviceName by rememberSaveable { mutableStateOf(android.os.Build.MODEL ?: "") }
     val state by vm.state.collectAsStateWithLifecycle()
     val parsed = remember(input) { if (input.isBlank()) null else vm.parseInvitation(input) }
 
-    LaunchedEffect(vm.pendingInvitation) {
-        val pending = vm.pendingInvitation
+    LaunchedEffect(Unit) {
+        val pending = vm.pendingInvitation.value
         if (!pending.isNullOrBlank()) {
             input = pending
-            vm.pendingInvitation = null
+            vm.consumeInvitation()
         }
     }
 
@@ -82,23 +83,26 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
         }
     }
 
-    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            input = result.contents
+    // The camera screen is this app's own ([QrScanActivity]) rather than the
+    // scanning library's stock activity: it stands up, it is drawn in this app's
+    // colours, and it refuses a code that is not an invitation instead of handing
+    // it to the field as a puzzle.
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val code = result.data?.getStringExtra(QrScanActivity.ExtraCode)
+        if (result.resultCode == android.app.Activity.RESULT_OK && !code.isNullOrBlank()) {
+            input = code
             vm.resetPairing()
         }
     }
+    val startScan = { scanLauncher.launch(QrScanActivity.intent(context)) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            scanLauncher.launch(
-                ScanOptions()
-                    .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                    .setBeepEnabled(false)
-                    .setOrientationLocked(false),
-            )
+            startScan()
         } else {
             scope.launch {
                 snackbarHostState.showSnackbar(context.getString(R.string.pair_scan_denied))
@@ -173,6 +177,15 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                 }
 
                 else -> {
+                    // A pasted invitation is a long line, and this screen is not
+                    // allowed to grow with it: the field stops at a few lines and
+                    // scrolls inside itself, and the whole column scrolls, so the
+                    // button that finishes the job is always on screen.
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                    ) {
                     // P1-1: Prominent scan button
                     Button(
                         onClick = {
@@ -180,16 +193,7 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                                 context,
                                 Manifest.permission.CAMERA,
                             ) == PackageManager.PERMISSION_GRANTED
-                            if (hasCam) {
-                                scanLauncher.launch(
-                                    ScanOptions()
-                                        .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                        .setBeepEnabled(false)
-                                        .setOrientationLocked(false),
-                                )
-                            } else {
-                                permissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
+                            if (hasCam) startScan() else permissionLauncher.launch(Manifest.permission.CAMERA)
                         },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                     ) {
@@ -212,6 +216,10 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                             }
                         },
                         minLines = 2,
+                        // An invitation URI is three hundred-odd characters: the
+                        // field shows a few lines of it and scrolls, rather than
+                        // pushing everything below it off the screen.
+                        maxLines = 3,
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -258,8 +266,10 @@ fun PairScreen(vm: AppViewModel, onBack: () -> Unit) {
                                         Text(l10n(MessageKeys.PAIR_ACTION_JOIN))
                                     }
                                 }
+                                Spacer(Modifier.height(24.dp))
                             }
                         }
+                    }
                     }
                 }
             }

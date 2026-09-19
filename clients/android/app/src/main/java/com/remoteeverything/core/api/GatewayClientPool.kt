@@ -12,13 +12,13 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class GatewayClientPool {
 
-    private val clients = ConcurrentHashMap<String, ApiClient>()
+    private val clients = ConcurrentHashMap<String, GatewayClient>()
 
     /**
      * The client for an origin whose credential the vault holds; null when the
      * credential is gone or unreadable.
      */
-    fun deviceClient(identity: Identity, vault: IdentityVault): ApiClient? {
+    fun deviceClient(identity: Identity, vault: IdentityVault): GatewayClient? {
         clients[identity.origin]?.let { return it }
         val client = GatewayClients.device(identity.origin, vault, identity.serverPin) ?: return null
         clients[identity.origin] = client
@@ -29,7 +29,7 @@ class GatewayClientPool {
      * The client for redeeming an invitation: the same origin, no credential
      * yet, because there is nothing to present until the invitation is spent.
      */
-    fun pairingClient(origin: String, pin: ServerPin?): ApiClient {
+    fun pairingClient(origin: String, pin: ServerPin?): GatewayClient {
         val key = "$origin#pairing"
         return clients.computeIfAbsent(key) {
             GatewayClients.pairing(origin, pin)

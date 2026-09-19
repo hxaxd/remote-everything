@@ -21,6 +21,7 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.ACTION_BACK_TO_NODES -> R.string.action_back_to_nodes
     MessageKeys.ACTION_CANCEL -> R.string.action_cancel
     MessageKeys.ACTION_CONFIRM -> R.string.action_confirm
+    MessageKeys.ACTION_COPIED -> R.string.action_copied
     MessageKeys.ACTION_DONE -> R.string.action_done
     MessageKeys.ACTION_RETRY -> R.string.action_retry
     MessageKeys.ACTION_START -> R.string.action_start
@@ -54,6 +55,8 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.IDENTITY_UNAUTHORIZED -> R.string.identity_unauthorized
     MessageKeys.LANGUAGE_EN -> R.string.language_en
     MessageKeys.LANGUAGE_ZH -> R.string.language_zh
+    MessageKeys.NODE_CURRENT_LAN -> R.string.node_current_lan
+    MessageKeys.NODE_CURRENT_TUNNEL -> R.string.node_current_tunnel
     MessageKeys.NODE_LAN -> R.string.node_lan
     MessageKeys.NODE_OFFLINE -> R.string.node_offline
     MessageKeys.NODE_OFFLINE_BODY -> R.string.node_offline_body
@@ -109,8 +112,23 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.SETTINGS_UPDATES_PROTOCOL -> R.string.settings_updates_protocol
     MessageKeys.SETTINGS_UPDATES_STORE_HINT -> R.string.settings_updates_store_hint
     MessageKeys.SETTINGS_VERSION -> R.string.settings_version
+    MessageKeys.WEB_CHOOSE_FILE -> R.string.web_choose_file
+    MessageKeys.WEB_DOWNLOAD_DONE -> R.string.web_download_done
+    MessageKeys.WEB_DOWNLOAD_FAILED -> R.string.web_download_failed
+    MessageKeys.WEB_DOWNLOAD_OPEN -> R.string.web_download_open
+    MessageKeys.WEB_DOWNLOAD_SAVED -> R.string.web_download_saved
+    MessageKeys.WEB_DOWNLOADS -> R.string.web_downloads
+    MessageKeys.WEB_EXIT -> R.string.web_exit
     MessageKeys.WEB_LOAD_FAILED -> R.string.web_load_failed
     MessageKeys.WEB_LOADING -> R.string.web_loading
+    MessageKeys.WEB_ORIENTATION -> R.string.web_orientation
+    MessageKeys.WEB_ORIENTATION_LANDSCAPE -> R.string.web_orientation_landscape
+    MessageKeys.WEB_ORIENTATION_PORTRAIT -> R.string.web_orientation_portrait
+    MessageKeys.WEB_ORIENTATION_SYSTEM -> R.string.web_orientation_system
+    MessageKeys.WEB_REFRESH -> R.string.web_refresh
+    MessageKeys.WEB_USER_AGENT -> R.string.web_user_agent
+    MessageKeys.WEB_USER_AGENT_DESKTOP -> R.string.web_user_agent_desktop
+    MessageKeys.WEB_USER_AGENT_MOBILE -> R.string.web_user_agent_mobile
     else -> error("no resource for message key $key")
 }
 

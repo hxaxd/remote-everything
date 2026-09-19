@@ -36,9 +36,19 @@ data class Path(
     val identityRef: String = "",
     val reachable: Boolean? = null,
     val latencyMs: Long? = null,
+    // Whether this address is on a private network. It is the *preference*: a path
+    // that does not leave the local network is the one to take.
     val isPrivate: Boolean,
     val lastCheckedAt: Long? = null,
+    // What the link is *called*, which is not the same question: a gateway may
+    // declare that it carries this node over its own tunnel even though the phone
+    // reaches the gateway at home, and a person reading "本地" while their traffic
+    // crosses the internet is being told the wrong thing (NodesFixture, LinkKind).
+    val link: LinkKind = if (isPrivate) LinkKind.LOCAL else LinkKind.TUNNEL,
 )
+
+/** The two words a link is shown in: a local one, or one over a tunnel. */
+enum class LinkKind { LOCAL, TUNNEL }
 
 enum class NodeStatus { UNKNOWN, ONLINE_LAN, ONLINE_TUNNEL, OFFLINE, PENDING_APPROVAL }
 

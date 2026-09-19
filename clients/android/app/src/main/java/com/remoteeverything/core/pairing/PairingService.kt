@@ -1,18 +1,17 @@
 package com.remoteeverything.core.pairing
 
-import com.remoteeverything.core.api.ApiClient
+import com.remoteeverything.core.api.GatewayClient
 import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.PairRequest
 import com.remoteeverything.core.api.PairingResponse
 import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.identity.Pkcs12
-import com.remoteeverything.core.model.Cadence
 import com.remoteeverything.core.model.ClientError
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.ServerPin
 import com.remoteeverything.core.setup.SetupUri
-import com.remoteeverything.core.store.SettingsRepository
+import com.remoteeverything.core.store.SettingsStore
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -29,7 +28,7 @@ class PairingService(
     private val repository: com.remoteeverything.core.store.IdentityRepository,
     private val generatePassword: () -> String = ::randomCredentialPassword,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val clientFactory: ((origin: String, pin: ServerPin?, material: Pkcs12.Material?) -> ApiClient)? = null,
+    private val clientFactory: ((origin: String, pin: ServerPin?, material: Pkcs12.Material?) -> GatewayClient)? = null,
 ) {
 
     sealed interface Outcome {
@@ -49,6 +48,20 @@ class PairingService(
     }
 
     suspend fun run(invitation: SetupUri.Invitation, deviceName: String): Outcome {
+        // A pairing whose redeem succeeded but whose activation did not is not
+        // redeemed again: the invitation is spent, a second redeem with a fresh
+        // password is answered invitation_denied, and finishing what the vault
+        // already holds is exactly what resume does. A staged setup for this
+        // origin is therefore finished, not paired over — unless its pending
+        // window has closed, in which case it is dropped and the server's own
+        // answer to a spent invitation is what the user sees.
+        val stagedBefore = transaction.load()
+        if (stagedBefore != null && stagedBefore.origin == invitation.origin) {
+            if (clock() < stagedBefore.pendingExpiresAtEpochMs) {
+                return resume() ?: Outcome.Failed(null)
+            }
+            transaction.clear()
+        }
         val password = generatePassword()
         val client = clientFactory?.invoke(invitation.origin, pinOf(invitation), null)
             ?: GatewayClients.pairing(invitation.origin, pinOf(invitation))
@@ -104,7 +117,9 @@ class PairingService(
             deviceName = deviceName,
             certificateFingerprint = fingerprint,
             serverPin = pinOf(invitation),
-            pendingExpiresAtEpochMs = parseInstant(pairing.pending_expires_at) ?: (clock() + Cadence.pendingFallbackMs),
+            pendingExpiresAtEpochMs = requireNotNull(parseInstant(pairing.pending_expires_at)) {
+                "a pairing expiry the strict decoder accepted is not parseable here"
+            },
             createdAtEpochMs = clock(),
         )
         transaction.stage(staged)
@@ -170,6 +185,15 @@ class PairingService(
     private fun abandon(staged: StagedSetup) {
         vault.delete(staged.origin)
         transaction.clear()
+    }
+
+    /**
+     * Forgetting a gateway takes the pairing still staged for it: the staged
+     * setup of another gateway's pending pairing is not this one's to drop.
+     */
+    fun discardStaged(origin: String) {
+        val staged = transaction.load() ?: return
+        if (staged.origin == origin) transaction.clear()
     }
 
     private fun pinOf(invitation: SetupUri.Invitation): ServerPin? =

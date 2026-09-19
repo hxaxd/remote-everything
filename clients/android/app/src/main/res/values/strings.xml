@@ -9,6 +9,7 @@
     <string name="action_back_to_nodes">Back to machines</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_confirm">OK</string>
+    <string name="action_copied">Copied</string>
     <string name="action_done">Done</string>
     <string name="action_retry">Retry</string>
     <string name="action_start">Start</string>
@@ -48,7 +49,9 @@
     <string name="language_en">English</string>
     <string name="language_zh">中文</string>
 
-    <string name="node_lan">LAN</string>
+    <string name="node_current_lan">Currently on the local link</string>
+    <string name="node_current_tunnel">Currently over the tunnel</string>
+    <string name="node_lan">Local</string>
     <string name="node_offline">Offline</string>
     <string name="node_offline_body">It may be off, asleep, or disconnected.</string>
     <string name="node_offline_title">This machine is offline</string>
@@ -85,15 +88,15 @@
     <string name="settings_appearance_light">Light</string>
     <string name="settings_appearance_system">System</string>
     <string name="settings_certificate_fingerprint">Certificate fingerprint</string>
-    <string name="settings_device_name">This device</string>
+    <string name="settings_device_name">Default device name</string>
     <string name="settings_forget">Forget this connection</string>
-    <string name="settings_forget_confirm">Forgetting removes access to all machines behind this connection (%1$d).</string>
+    <string name="settings_forget_confirm">Forget this connection?</string>
     <string name="settings_identities">Connections</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_system">System</string>
     <string name="settings_no_identities">No connections yet</string>
     <string name="settings_nodes_count">Machines</string>
-    <string name="settings_protocol_version">Protocol version %1$d</string>
+    <string name="settings_protocol_version">Protocol version</string>
     <string name="settings_title">Settings</string>
     <string name="settings_updates">Check for updates</string>
     <string name="settings_updates_available">Version %1$s (%2$d) is available</string>
@@ -104,8 +107,24 @@
     <string name="settings_updates_none">Up to date</string>
     <string name="settings_updates_protocol">This update changes how devices connect, so pair again after updating</string>
     <string name="settings_updates_store_hint">Install the new version from the app store</string>
-    <string name="settings_version">Version</string>
+    <string name="settings_version">Current version</string>
 
     <string name="web_load_failed">Couldn\'t load the page</string>
     <string name="web_loading">Loading…</string>
+
+    <string name="web_choose_file">Choose a file</string>
+    <string name="web_download_done">Download finished</string>
+    <string name="web_download_failed">Download failed</string>
+    <string name="web_download_open">Open</string>
+    <string name="web_download_saved">Saved to %1$s</string>
+    <string name="web_downloads">Downloads</string>
+    <string name="web_exit">Exit</string>
+    <string name="web_orientation">Orientation</string>
+    <string name="web_orientation_landscape">Landscape</string>
+    <string name="web_orientation_portrait">Portrait</string>
+    <string name="web_orientation_system">System</string>
+    <string name="web_refresh">Refresh</string>
+    <string name="web_user_agent">Identity</string>
+    <string name="web_user_agent_desktop">Desktop</string>
+    <string name="web_user_agent_mobile">Mobile</string>
 </resources>

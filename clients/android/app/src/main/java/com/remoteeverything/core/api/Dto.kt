@@ -23,6 +23,8 @@ data class NodesResponse(
 data class NodeDto(
     val id: String,
     val name: String,
+    /** How the answering gateway reaches it, when the operator or the gateway said. */
+    val link: String? = null,
 )
 
 @Serializable

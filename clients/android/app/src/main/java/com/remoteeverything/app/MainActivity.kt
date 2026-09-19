@@ -1,5 +1,6 @@
 package com.remoteeverything.app
 
+import com.remoteeverything.app.i18n.LocaleHelper
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -16,7 +17,7 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.remoteeverything.app.ui.AppNav
-import com.remoteeverything.app.ui.theme.AppTheme
+import com.remoteeverything.app.theme.AppTheme
 import com.remoteeverything.core.store.Language
 
 class MainActivity : ComponentActivity() {
@@ -25,7 +26,7 @@ class MainActivity : ComponentActivity() {
         super.attachBaseContext(LocaleHelper.wrap(newBase))
     }
 
-    private var vmRef: AppViewModel? = null
+    private var vmRef: AppModel? = null
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
@@ -36,7 +37,12 @@ class MainActivity : ComponentActivity() {
     private fun handleInvitationIntent(intent: android.content.Intent?) {
         val uri = intent?.dataString
         if (uri != null && uri.startsWith("remote-everything://setup")) {
-            vmRef?.pendingInvitation = uri
+            vmRef?.stageInvitation(uri)
+            // The intent outlives its delivery: an activity that is recreated —
+            // a language switch does exactly that — is handed the same intent
+            // again, and without this the link would open the pair screen every
+            // time. The data is consumed, so it leaves with its delivery.
+            intent?.data = null
         }
     }
 
@@ -44,7 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val vm: AppViewModel = viewModel()
+            val vm: AppModel = viewModel()
             vmRef = vm
             LaunchedEffect(Unit) {
                 handleInvitationIntent(intent)

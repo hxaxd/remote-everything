@@ -1,6 +1,6 @@
 package com.remoteeverything.app
 
-import com.remoteeverything.core.api.ApiClient
+import com.remoteeverything.core.api.GatewayClient
 import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.NodesResponse
 import com.remoteeverything.core.api.mergeNodes
@@ -25,7 +25,7 @@ import kotlinx.coroutines.coroutineScope
  * and the on-disk cache are what a cold start shows before the first probe.
  */
 class NodesController(
-    private val clientFactory: (Identity) -> ApiClient?,
+    private val clientFactory: (Identity) -> GatewayClient?,
     private val cache: NodeCacheStore? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
@@ -100,7 +100,15 @@ class NodesController(
     }
 
     /** The client that reaches one origin, for the traffic that is not a node list. */
-    fun clientFor(identity: Identity): ApiClient? = clientFactory(identity)
+    fun clientFor(identity: Identity): GatewayClient? = clientFactory(identity)
+
+    /**
+     * Forgets which path was chosen for one node: the network it was chosen on is
+     * not the network this phone is on any more (AppModel.networkChanged).
+     */
+    fun dropChoice(nodeId: String) {
+        selector.invalidate(nodeId)
+    }
 
     /** Drops one origin from memory and on-disk node cache when forgotten. */
     fun drop(origin: String) {

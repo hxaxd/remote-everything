@@ -1,5 +1,8 @@
 package com.remoteeverything.app.ui
 
+import com.remoteeverything.app.i18n.l10n
+import android.content.ClipData
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -18,6 +22,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -25,12 +33,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.remoteeverything.app.AppViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import com.remoteeverything.app.AppModel
 import com.remoteeverything.app.BuildConfig
 import com.remoteeverything.app.UpdateUiState
 import com.remoteeverything.core.model.MessageKeys
@@ -39,11 +54,15 @@ import com.remoteeverything.core.store.Language
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun SettingsScreen(vm: AppModel, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val update by vm.updateState.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    val clipboard = LocalClipboard.current
+    val copied = l10n(MessageKeys.ACTION_COPIED)
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(l10n(MessageKeys.SETTINGS_TITLE)) },
@@ -58,6 +77,23 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             )
         },
     ) { padding ->
+        // Copying is what a person does with an address or a name, and a copy with
+        // nothing to show for it is a copy nobody trusts: the screen says so,
+        // every time, on every version of the system. (A newer Android draws its
+        // own little clipboard chip as well, which is its business; a phone whose
+        // maker turned that off is exactly why this does not depend on it.)
+        val scope = rememberCoroutineScope()
+        val copy: (String) -> Unit = { value ->
+            scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(null, value))) }
+            // The confirmation is about a tap that has already happened: shown long
+            // enough to be seen, and then out of the way rather than sitting over the
+            // screen for four seconds.
+            scope.launch { snackbar.showSnackbar(message = copied, duration = SnackbarDuration.Indefinite) }
+            scope.launch {
+                delay(CopiedNoticeMs)
+                snackbar.currentSnackbarData?.dismiss()
+            }
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -104,34 +140,28 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             } else {
                 items(state.identities.size) { index ->
                     val identity = state.identities[index]
-                    val nodeCount = state.nodes.count { node -> node.paths.any { it.origin == identity.origin } }
                     var confirming by remember { mutableStateOf(false) }
-                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                        Text(identity.origin, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            identity.deviceName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            "${l10n(MessageKeys.SETTINGS_CERTIFICATE_FINGERPRINT)}: ${identity.certFingerprint}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            l10n(MessageKeys.SETTINGS_FORGET),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .padding(top = 8.dp)
-                                .clickable { confirming = true },
-                        )
-                    }
+                    // One connection is one block: the address and the name this
+                    // device was admitted under, each a tap away from the
+                    // clipboard, with the way out at the far end. Two blocks never
+                    // touch — a stray tap must not be able to forget the wrong
+                    // gateway.
+                    ConnectionRow(
+                        address = identity.origin,
+                        name = identity.deviceName,
+                        forget = l10n(MessageKeys.SETTINGS_FORGET),
+                        onCopy = copy,
+                        onForget = { confirming = true },
+                    )
                     if (confirming) {
                         AlertDialog(
                             onDismissRequest = { confirming = false },
                             title = { Text(l10n(MessageKeys.SETTINGS_FORGET)) },
-                            text = { Text(l10n(MessageKeys.SETTINGS_FORGET_CONFIRM, nodeCount)) },
+                            // Asking a question, not promising an outcome: another
+                            // connection may reach the same machines, so "they will
+                            // become unreachable" would be a claim this screen cannot
+                            // make.
+                            text = { Text(l10n(MessageKeys.SETTINGS_FORGET_CONFIRM)) },
                             confirmButton = {
                                 TextButton(onClick = {
                                     confirming = false
@@ -149,12 +179,17 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
 
             item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-            item { SectionHeader(l10n(MessageKeys.SETTINGS_UPDATES)) }
+            item { SectionHeader(l10n(MessageKeys.SETTINGS_ABOUT)) }
             item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        l10n(MessageKeys.SETTINGS_UPDATES_CURRENT, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE),
-                        style = MaterialTheme.typography.bodyLarge,
+                // Three plain rows, the way a page about the build reads: what this
+                // app is, what it speaks, and what this phone calls itself. Nothing
+                // is boxed, because none of it is a list — and the version number is
+                // the update check, without a button saying so.
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    AboutRow(
+                        label = l10n(MessageKeys.SETTINGS_VERSION),
+                        value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        onValue = { vm.checkUpdates() },
                     )
                     val message = when (val u = update) {
                         UpdateUiState.Idle -> null
@@ -162,46 +197,67 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                         UpdateUiState.UpToDate -> l10n(MessageKeys.SETTINGS_UPDATES_NONE)
                         is UpdateUiState.Available -> l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, u.versionName, u.buildNumber) + " " + l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
                         UpdateUiState.ProtocolChanged -> l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL)
-                        UpdateUiState.Unreachable -> l10n(MessageKeys.ERROR_NETWORK)
+                        UpdateUiState.Unreachable -> l10n(MessageKeys.SETTINGS_UPDATES_FAILED)
                     }
                     if (message != null) {
                         Text(
                             message,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
                         )
                     }
-                    Text(
-                        l10n(MessageKeys.SETTINGS_UPDATES_CHECK),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .padding(top = 8.dp)
-                            .clickable { vm.checkUpdates() },
+                    AboutRow(
+                        label = l10n(MessageKeys.SETTINGS_PROTOCOL_VERSION),
+                        value = "${BuildConfig.PROTOCOL_VERSION}",
                     )
-                }
-            }
-
-            item { HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp)) }
-            item { SectionHeader(l10n(MessageKeys.SETTINGS_ABOUT)) }
-            item {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    Text(
-                        l10n(MessageKeys.SETTINGS_PROTOCOL_VERSION, BuildConfig.PROTOCOL_VERSION),
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
-                    Text(
-                        "${l10n(MessageKeys.SETTINGS_DEVICE_NAME)}: ${android.os.Build.MODEL}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp),
+                    val model = android.os.Build.MODEL ?: ""
+                    AboutRow(
+                        label = l10n(MessageKeys.SETTINGS_DEVICE_NAME),
+                        value = model,
+                        onValue = { copy(model) },
                     )
                 }
             }
         }
     }
 }
+
+/**
+ * One line of "about this build": what it is on the left, what it is on the right,
+ * and — where there is something a person can do with the value — the value is what
+ * they tap. No button, because the value is the thing.
+ */
+@Composable
+private fun AboutRow(label: String, value: String, onValue: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = if (onValue != null && value.isNotEmpty()) {
+                Modifier.clickable { onValue() }
+            } else {
+                Modifier
+            },
+        )
+    }
+}
+
+/** How long the "copied" line stays: a glance, not a paragraph. */
+private const val CopiedNoticeMs = 1_200L
 
 @Composable
 private fun SectionHeader(title: String) {
@@ -210,6 +266,66 @@ private fun SectionHeader(title: String) {
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+/**
+ * One connection: what it is, what it is called, and the way to forget it —
+ * with the two things a person reads on the left, stacked and the same size,
+ * and the one thing a person must not hit by accident at the far right. The
+ * block is its own surface, so two connections never read as one list.
+ */
+@Composable
+private fun ConnectionRow(
+    address: String,
+    name: String,
+    forget: String,
+    onCopy: (String) -> Unit,
+    onForget: () -> Unit,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                CopyableLine(address, MaterialTheme.colorScheme.onSurface, onCopy)
+                CopyableLine(name, MaterialTheme.colorScheme.onSurfaceVariant, onCopy)
+            }
+            TextButton(onClick = onForget) {
+                Text(
+                    forget,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** A line of a connection that is also a thing to take away. */
+@Composable
+private fun CopyableLine(value: String, color: Color, onCopy: (String) -> Unit) {
+    Text(
+        value,
+        style = MaterialTheme.typography.bodyLarge,
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCopy(value) }
+            .padding(vertical = 2.dp),
     )
 }
 

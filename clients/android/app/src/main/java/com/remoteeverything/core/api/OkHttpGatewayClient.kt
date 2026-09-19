@@ -34,30 +34,12 @@ internal class OkHttpGatewayClient(
     override val origin: String,
     private val material: Pkcs12.Material?,
     serverPin: ServerPin?,
-) : ApiClient {
+) : GatewayClient {
 
     private val json = Json { ignoreUnknownKeys = false }
-    private val client: OkHttpClient = buildClient(serverPin)
+    private val client: OkHttpClient = gatewayOkHttpClient(origin, material, serverPin, followRedirects = false, readTimeoutSeconds = 10)
 
     private class Answer(val status: Int, val body: String, val location: String?)
-
-    private fun buildClient(serverPin: ServerPin?): OkHttpClient {
-        val trust: X509ExtendedTrustManager =
-            if (serverPin != null) PinnedTrustManager(serverPin) else systemTrustManager()
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .retryOnConnectionFailure(false)
-        if (material != null || serverPin != null) {
-            val keyManagers = material?.let { arrayOf<KeyManager>(IdentityKeyManager(credentialAlias(origin), it)) }
-            val context = SSLContext.getInstance("TLS")
-            context.init(keyManagers, arrayOf(trust), SecureRandom())
-            builder.sslSocketFactory(context.socketFactory, trust)
-        }
-        return builder.build()
-    }
 
     private suspend fun call(
         method: String,
@@ -78,6 +60,10 @@ internal class OkHttpGatewayClient(
         val call = client.newCall(request)
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { call.cancel() }
+            // The per-call budget is armed before the call is queued: set after
+            // enqueue it races the dispatcher and may never apply, and a probe
+            // meant to cost two seconds silently costs the client's ten.
+            call.timeout().timeout(readTimeout, TimeUnit.MILLISECONDS)
             call.enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
                     if (continuation.isActive) continuation.resumeWithException(NetworkError(e))
@@ -98,7 +84,6 @@ internal class OkHttpGatewayClient(
                     }
                 }
             })
-            call.timeout().timeout(readTimeout, TimeUnit.MILLISECONDS)
         }
     }
 
@@ -145,7 +130,17 @@ internal class OkHttpGatewayClient(
             throw ClientError(ErrorCode.APPROVAL_PENDING, answer.status)
         }
         return decoded(answer.status, answer.body) {
-            json.decodeFromString(CatalogResponse.serializer(), it).also { response -> Wire.validateCatalog(response) }
+            json.decodeFromString(CatalogResponse.serializer(), it).also { response ->
+                Wire.validateCatalog(response)
+                // activation.schema.json: the catalog an activation answers with is
+                // always the connected, ready one — a device is never activated
+                // against a node that is not there. The apps endpoint may answer
+                // offline; activation may not, and refusing it here is what keeps
+                // an unreachable node from being shown as usable.
+                require(response.computer_connected && response.code == CatalogCode.READY) {
+                    "an activation is not the connected, ready catalog the schema requires"
+                }
+            }
         }
     }
 
@@ -203,4 +198,34 @@ internal class OkHttpGatewayClient(
         /** A stop asks the node to stop an application; the gateway waits up to 20 s for that. */
         private const val StopReadTimeoutMs = 30_000L
     }
+}
+
+/**
+ * One TLS posture, two callers: the protocol client speaks its requests
+ * through it, and an application download rides it bare — same credential,
+ * same pin, with redirects followed and a reader's patience a file deserves
+ * rather than a probe's.
+ */
+internal fun gatewayOkHttpClient(
+    origin: String,
+    material: Pkcs12.Material?,
+    serverPin: ServerPin?,
+    followRedirects: Boolean,
+    readTimeoutSeconds: Long,
+): OkHttpClient {
+    val trust: X509ExtendedTrustManager =
+        if (serverPin != null) PinnedTrustManager(serverPin) else systemTrustManager()
+    val builder = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
+        .followRedirects(followRedirects)
+        .followSslRedirects(followRedirects)
+        .retryOnConnectionFailure(false)
+    if (material != null || serverPin != null) {
+        val keyManagers = material?.let { arrayOf<KeyManager>(IdentityKeyManager(credentialAlias(origin), it)) }
+        val context = SSLContext.getInstance("TLS")
+        context.init(keyManagers, arrayOf(trust), SecureRandom())
+        builder.sslSocketFactory(context.socketFactory, trust)
+    }
+    return builder.build()
 }

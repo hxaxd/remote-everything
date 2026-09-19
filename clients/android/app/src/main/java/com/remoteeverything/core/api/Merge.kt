@@ -1,6 +1,7 @@
 package com.remoteeverything.core.api
 
 import com.remoteeverything.core.model.Identity
+import com.remoteeverything.core.model.LinkKind
 import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.Path
 
@@ -14,10 +15,16 @@ fun mergeNodes(answers: List<Pair<Identity, NodesResponse>>): List<Node> {
     for ((identity, response) in answers) {
         val isPrivate = isPrivateOrigin(identity.origin)
         for (dto in response.nodes) {
+            // A gateway that declared how it reaches the node is believed; one that
+            // said nothing leaves the client to judge by the address it dials. Either
+            // way a path that leaves the local network reads as a tunnel, because
+            // that is what it costs the person using it.
+            val declaredTunnel = dto.link == "tunnel"
             val path = Path(
                 origin = identity.origin,
                 identityRef = identity.credentialRef,
                 isPrivate = isPrivate,
+                link = if (declaredTunnel || !isPrivate) LinkKind.TUNNEL else LinkKind.LOCAL,
             )
             val existing = byId[dto.id]
             byId[dto.id] = if (existing == null) {

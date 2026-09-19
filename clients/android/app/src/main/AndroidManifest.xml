@@ -3,9 +3,19 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- What an application's page may ask of the device: the camera and the
+         microphone for a call, the location for a map, a buzz for attention. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- A saved download is announced the way this phone announces files. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -34,9 +44,31 @@
             </intent-filter>
         </activity>
         <activity
-            android:name=".AppWebActivity"
+            android:name=".web.AppWebActivity"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="false"
+            android:theme="@style/Theme.RemoteEverything"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Reading the invitation. The camera preview is this app's own and stands
+             up, so the code is read in the same hands that wrote it. -->
+        <activity
+            android:name=".ui.QrScanActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:exported="false"
+            android:screenOrientation="portrait"
             android:theme="@style/Theme.RemoteEverything" />
+
+        <!-- The one grant a page's camera capture needs: a content URI for the
+             cache file the picture lands in. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.webfiles"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/web_file_paths" />
+        </provider>
     </application>
 </manifest>

@@ -12,7 +12,7 @@ import com.remoteeverything.core.model.ServerPin
  * traffic never comes through here — it belongs to the WebView and to the
  * origin `open` answers with.
  */
-interface ApiClient {
+interface GatewayClient {
     val origin: String
 
     /** Redeem an invitation. The one request made without a credential. */
@@ -46,15 +46,24 @@ data class PairRequest(
 /** Clients are built where a credential is: before pairing, and after it. */
 object GatewayClients {
 
-    fun pairing(origin: String, serverPin: ServerPin?): ApiClient =
+    fun pairing(origin: String, serverPin: ServerPin?): GatewayClient =
         OkHttpGatewayClient(origin, material = null, serverPin = serverPin)
 
-    fun device(origin: String, material: Pkcs12.Material, serverPin: ServerPin?): ApiClient =
+    fun device(origin: String, material: Pkcs12.Material, serverPin: ServerPin?): GatewayClient =
         OkHttpGatewayClient(origin, material = material, serverPin = serverPin)
 
     /** A client for an origin whose credential the vault still holds; null when it does not. */
-    fun device(origin: String, vault: IdentityVault, serverPin: ServerPin?): ApiClient? {
+    fun device(origin: String, vault: IdentityVault, serverPin: ServerPin?): GatewayClient? {
         val material = vault.load(origin) ?: return null
         return device(origin, material, serverPin)
     }
+
+    /**
+     * The gateway's TLS posture as a bare HTTP client — same credential, same
+     * pin — for the traffic the protocol has no request shape for: a file an
+     * application offers for download. Redirects are followed, and the read
+     * budget suits a file rather than a probe.
+     */
+    fun rawTransport(origin: String, material: Pkcs12.Material, serverPin: ServerPin?): okhttp3.OkHttpClient =
+        gatewayOkHttpClient(origin, material, serverPin, followRedirects = true, readTimeoutSeconds = 600)
 }

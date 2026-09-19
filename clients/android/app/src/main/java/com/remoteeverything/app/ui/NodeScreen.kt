@@ -1,5 +1,6 @@
 package com.remoteeverything.app.ui
 
+import com.remoteeverything.app.i18n.l10n
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -46,20 +47,22 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.remoteeverything.app.AppViewModel
-import com.remoteeverything.app.AppWebActivity
+import com.remoteeverything.app.AppModel
+import com.remoteeverything.app.web.AppWebActivity
 import com.remoteeverything.app.CatalogUiState
-import com.remoteeverything.app.ui.theme.LocalSemanticColors
+import com.remoteeverything.app.theme.LocalSemanticColors
 import com.remoteeverything.core.model.AppInfo
 import com.remoteeverything.core.model.AppState
+import com.remoteeverything.core.model.LinkKind
 import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.model.NodeStatus
+import com.remoteeverything.core.model.Path
 import com.remoteeverything.core.store.Appearance
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NodeScreen(vm: AppViewModel, nodeId: String, onBack: () -> Unit) {
+fun NodeScreen(vm: AppModel, nodeId: String, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val node = state.nodes.firstOrNull { it.id == nodeId }
     Scaffold(
@@ -68,10 +71,12 @@ fun NodeScreen(vm: AppViewModel, nodeId: String, onBack: () -> Unit) {
                 title = {
                     Column {
                         Text(node?.name ?: "", style = MaterialTheme.typography.titleMedium)
+                        // Under its own name, whose screen this is, and which way the
+                        // phone is getting there.
                         val status = node?.let { vm.statusOf(it) }
                         if (status != null) {
                             Text(
-                                statusLabel(status),
+                                currentPathHint(node?.let { vm.pathFor(it) }) ?: statusLabel(status),
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -98,7 +103,7 @@ fun NodeScreen(vm: AppViewModel, nodeId: String, onBack: () -> Unit) {
  * a back arrow above this and the wide screen puts it beside the list.
  */
 @Composable
-fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: Modifier = Modifier) {
+fun NodeContent(vm: AppModel, nodeId: String, onGone: () -> Unit, modifier: Modifier = Modifier) {
     val state by vm.state.collectAsStateWithLifecycle()
     val node = state.nodes.firstOrNull { it.id == nodeId }
     val snackbar = remember { SnackbarHostState() }
@@ -143,7 +148,10 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
                     title = l10n(MessageKeys.NODE_OFFLINE_TITLE),
                     body = l10n(MessageKeys.NODE_OFFLINE_BODY),
                     action = l10n(MessageKeys.ACTION_RETRY),
-                    onAction = { vm.watchNode(current) },
+                    // Asking again means asking now: the node list is read again and
+                    // this node's catalog with it, so the screen says it is trying
+                    // instead of staying exactly as it was.
+                    onAction = { vm.retryNode(current) },
                     modifier = Modifier.padding(padding),
                 )
 
@@ -161,7 +169,7 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
                 is CatalogUiState.Failed -> CenteredMessage(
                     title = l10n(MessageKeys.PAIR_GATEWAY_TROUBLE),
                     action = l10n(MessageKeys.ACTION_RETRY),
-                    onAction = { vm.watchNode(current) },
+                    onAction = { vm.retryNode(current) },
                     modifier = Modifier.padding(padding),
                 )
 
@@ -192,8 +200,7 @@ fun NodeContent(vm: AppViewModel, nodeId: String, onGone: () -> Unit, modifier: 
                                                             context = context,
                                                             url = target.url + app.launchFragment,
                                                             identityOrigin = identityOrigin,
-                                                            appName = app.name,
-                                                            nodeName = current.name,
+                                                            appKey = "${current.id}/${app.id}",
                                                             serverPin = target.serverPin,
                                                             dark = dark,
                                                         ),
@@ -270,52 +277,34 @@ private fun AppRow(
             StatusChip(stateLabel, stateColor)
         }
         val busy = app.code == AppState.STARTING || app.code == AppState.STOPPING
-        TextButton(
-            onClick = { onControl(app.code == AppState.STOPPED || app.code == AppState.STOPPING) },
-            enabled = !busy && app.enabled && !isOpening,
-        ) {
-            Text(
-                l10n(
-                    if (app.code == AppState.STOPPED || app.code == AppState.STOPPING) MessageKeys.ACTION_START
-                    else MessageKeys.ACTION_STOP,
-                ),
-            )
-        }
-    }
-}
-
-@Composable
-internal fun CenteredMessage(
-    title: String,
-    modifier: Modifier = Modifier,
-    body: String? = null,
-    action: String? = null,
-    onAction: (() -> Unit)? = null,
-) {
-    Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
-        if (body != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                body,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
-        if (action != null && onAction != null) {
-            Spacer(Modifier.height(24.dp))
-            Button(onClick = onAction) { Text(action) }
+        if (busy) {
+            // A request is in flight: the row shows that rather than a button
+            // that would send it a second time.
+            Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            }
+        } else {
+            TextButton(onClick = { onControl(app.code == AppState.STOPPED) }) {
+                Text(l10n(if (app.code == AppState.STOPPED) MessageKeys.ACTION_START else MessageKeys.ACTION_STOP))
+            }
         }
     }
 }
 
 @Composable
 internal fun statusLabel(status: NodeStatus): String = l10n(MessageKeys.forNodeStatus(status))
+
+/**
+ * The one-line answer to "which way am I going in": local link or tunnel, said
+ * with the same words the row uses. A machine nothing answers for has no path to
+ * describe, and its own screen already says so.
+ */
+@Composable
+internal fun currentPathHint(path: Path?): String? = when (path?.link) {
+    LinkKind.LOCAL -> l10n(MessageKeys.NODE_CURRENT_LAN)
+    LinkKind.TUNNEL -> l10n(MessageKeys.NODE_CURRENT_TUNNEL)
+    null -> null
+}
 
 /** Shows whatever the app has to say, once, wherever the screen is. */
 @Composable

@@ -30,7 +30,6 @@ object Cadence {
      * How long a staged pairing is treated as alive when the gateway's own expiry
      * could not be read: the invitation lifetime it hands out by default.
      */
-    const val pendingFallbackMs = 600_000L
 
     /** How long a path is given to answer while it is being probed. */
     const val probeTimeoutMs = 2_000L

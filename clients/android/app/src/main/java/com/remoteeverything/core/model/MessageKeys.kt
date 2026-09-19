@@ -17,6 +17,7 @@ object MessageKeys {
     const val ACTION_BACK_TO_NODES = "action.back_to_nodes"
     const val ACTION_CANCEL = "action.cancel"
     const val ACTION_CONFIRM = "action.confirm"
+    const val ACTION_COPIED = "action.copied"
     const val ACTION_DONE = "action.done"
     const val ACTION_RETRY = "action.retry"
     const val ACTION_START = "action.start"
@@ -64,6 +65,8 @@ object MessageKeys {
     const val LANGUAGE_ZH = "language.zh"
 
     // Node states and the node list
+    const val NODE_CURRENT_LAN = "node.current_lan"
+    const val NODE_CURRENT_TUNNEL = "node.current_tunnel"
     const val NODE_LAN = "node.lan"
     const val NODE_OFFLINE = "node.offline"
     const val NODE_OFFLINE_BODY = "node.offline_body"
@@ -125,8 +128,23 @@ object MessageKeys {
     const val SETTINGS_VERSION = "settings.version"
 
     // The web view
+    const val WEB_CHOOSE_FILE = "web.choose_file"
+    const val WEB_DOWNLOAD_DONE = "web.download_done"
+    const val WEB_DOWNLOAD_FAILED = "web.download_failed"
+    const val WEB_DOWNLOAD_OPEN = "web.download_open"
+    const val WEB_DOWNLOAD_SAVED = "web.download_saved"
+    const val WEB_DOWNLOADS = "web.downloads"
+    const val WEB_EXIT = "web.exit"
     const val WEB_LOAD_FAILED = "web.load_failed"
     const val WEB_LOADING = "web.loading"
+    const val WEB_ORIENTATION = "web.orientation"
+    const val WEB_ORIENTATION_LANDSCAPE = "web.orientation_landscape"
+    const val WEB_ORIENTATION_PORTRAIT = "web.orientation_portrait"
+    const val WEB_ORIENTATION_SYSTEM = "web.orientation_system"
+    const val WEB_REFRESH = "web.refresh"
+    const val WEB_USER_AGENT = "web.user_agent"
+    const val WEB_USER_AGENT_DESKTOP = "web.user_agent_desktop"
+    const val WEB_USER_AGENT_MOBILE = "web.user_agent_mobile"
 
     /** What a refusal code is called, wherever it arrived from. */
     fun forError(code: ErrorCode): String = when (code) {

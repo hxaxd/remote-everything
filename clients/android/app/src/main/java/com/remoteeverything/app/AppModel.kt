@@ -1,6 +1,9 @@
 package com.remoteeverything.app
 
+import com.remoteeverything.app.i18n.LocaleHelper
 import android.app.Application
+import android.net.Network
+import android.net.ConnectivityManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.remoteeverything.core.api.GatewayClientPool
@@ -15,13 +18,14 @@ import com.remoteeverything.core.model.NodeStatus
 import com.remoteeverything.core.model.Path
 import com.remoteeverything.core.pairing.PairingService
 import com.remoteeverything.core.pairing.SetupTransaction
+import com.remoteeverything.core.pathselect.AndroidNetworkEnvironment
 import com.remoteeverything.core.pathselect.NetworkEnvironment
 import com.remoteeverything.core.setup.SetupUri
 import com.remoteeverything.core.store.Appearance
 import com.remoteeverything.core.store.Language
 import com.remoteeverything.core.store.NodeCacheStore
 import com.remoteeverything.core.store.Settings
-import com.remoteeverything.core.store.SettingsRepository
+import com.remoteeverything.core.store.SettingsStore
 import com.remoteeverything.core.update.UpdateChecker
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -75,9 +79,9 @@ sealed interface UpdateUiState {
  * The app's single dispatcher and view model facade: coordinates the controllers,
  * holds global lifecycle, resolves web targets, and publishes consolidated UI state.
  */
-class AppViewModel(application: Application) : AndroidViewModel(application) {
+class AppModel(application: Application) : AndroidViewModel(application) {
 
-    private val repository = SettingsRepository(application)
+    private val repository = SettingsStore(application)
     private val vault: IdentityVault = AndroidKeyStoreIdentityVault()
     private val pool = GatewayClientPool()
     private val updateChecker = UpdateChecker()
@@ -108,12 +112,17 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         nodesController = nodesController,
         currentNetworkKey = ::currentNetworkKey,
         currentIdentities = { repository.currentIdentities() },
+        // What one node looks like *now*: its paths carry the reachability of the
+        // last probe, and a screen holding yesterday's answer would hold a dead
+        // path (NodesController.refresh).
+        currentNode = { id -> nodes.value.firstOrNull { node -> node.id == id } },
         onNotice = { notice.value = it },
     )
 
     private val nodes = MutableStateFlow<List<Node>>(emptyList())
     private val refreshing = MutableStateFlow(false)
     private var refreshJob: Job? = null
+    private var refreshInFlight: Job? = null
 
     val state: StateFlow<AppUiState> = combine(
         repository.settings,
@@ -131,16 +140,61 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch { refreshNodes() }
+        watchTheNetwork()
     }
 
     fun consumeNotice() {
         notice.value = null
     }
 
-    fun refreshNodes() {
-        if (refreshing.value) return
+    /**
+     * The phone changing networks is the phone asking a new question.
+     *
+     * A device that walks out of its Wi-Fi has not lost its machines: it has lost
+     * one way to them, and the other way is a tunnel it is still holding. Waiting
+     * for the next tick would leave the screen saying "offline" for a minute on a
+     * phone that is on the internet the whole time, so a change of network is
+     * answered at once: the list is read again and whatever node is on screen is
+     * asked again, which is also how the choice of path gets recomputed.
+     */
+    private fun watchTheNetwork() {
+        val manager = getApplication<Application>().getSystemService(ConnectivityManager::class.java)
+            ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) = networkChanged()
+            override fun onLost(network: Network) = networkChanged()
+            private fun networkChanged() = this@AppModel.networkChanged()
+        }
+        runCatching { manager.registerDefaultNetworkCallback(callback) }
+            .onSuccess { networkCallback = callback }
+    }
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    fun networkChanged() {
+        // The chosen path belongs to the network that is gone: it is retired here so
+        // the next look re-decides between what is left.
+        nodes.value.forEach { node -> nodesController.dropChoice(node.id) }
+        refreshNodes(force = true)
+        catalogController.recheckNow()
+    }
+
+    override fun onCleared() {
+        networkCallback?.let { callback ->
+            getApplication<Application>().getSystemService(ConnectivityManager::class.java)
+                ?.unregisterNetworkCallback(callback)
+        }
+        super.onCleared()
+    }
+
+    fun refreshNodes(force: Boolean = false) {
+        if (refreshing.value && !force) return
+        // A forced refresh preempts the refresh in flight, not the foreground
+        // loop: refreshJob is the periodic cadence, and canceling it would
+        // leave the phone without its tick until it next comes to the front.
+        if (force) refreshInFlight?.cancel()
         refreshing.value = true
-        viewModelScope.launch {
+        refreshInFlight = viewModelScope.launch {
             try {
                 nodes.value = nodesController.refresh(repository.currentIdentities(), currentNetworkKey())
             } finally {
@@ -179,7 +233,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- pairing -------------------------------------------------------------
 
-    var pendingInvitation: String? = null
+    /**
+     * An invitation link waiting for the pair screen, as a one-shot event: the
+     * deep link stages it, the navigation observes it, and the pair screen
+     * consumes it. A plain field here was what re-opened the pair screen after
+     * every recreation — language switches included — with the last link
+     * filled in.
+     */
+    private val mutablePendingInvitation = MutableStateFlow<String?>(null)
+    val pendingInvitation: StateFlow<String?> = mutablePendingInvitation
+
+    fun stageInvitation(invitation: String) {
+        mutablePendingInvitation.value = invitation
+    }
+
+    fun consumeInvitation() {
+        mutablePendingInvitation.value = null
+    }
 
     fun parseInvitation(text: String): SetupUri.Invitation? = pairingSession.parseInvitation(text)
 
@@ -195,6 +265,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- one node's applications --------------------------------------------
 
     fun watchNode(node: Node) = catalogController.watchNode(node)
+
+    /**
+     * A person asking again, from a screen that says something is unreachable: the
+     * node list is read again — the paths it carries are what a catalog is fetched
+     * through — and this node's catalog with it, now rather than at the next tick.
+     */
+    fun retryNode(node: Node) {
+        refreshNodes()
+        catalogController.watchNode(node, force = true)
+    }
 
     fun stopWatching() = catalogController.stopWatching()
 
@@ -216,6 +296,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     // --- connections ---------------------------------------------------------
 
     fun forget(identity: Identity) {
+        // The pairing still staged for this gateway is part of what is being
+        // forgotten — its resume file and its approval polling go with the
+        // identity (behavior README: forgetting leaves no half-pairing).
+        pairingSession.forget(identity.origin)
         viewModelScope.launch {
             pool.drop(identity.origin)
             nodesController.drop(identity.origin)

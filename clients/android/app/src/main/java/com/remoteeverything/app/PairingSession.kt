@@ -115,6 +115,17 @@ class PairingSession(
         approvalJob = null
     }
 
+    /**
+     * Forgetting a gateway takes the pairing still waiting on it: the polling
+     * stops and the staged setup of that gateway goes with the identity, the
+     * way an expired one would. A staged pairing of another gateway is not
+     * this forget's to drop.
+     */
+    fun forget(origin: String) {
+        stopApprovalPolling()
+        pairingService.discardStaged(origin)
+    }
+
     fun resetPairing() {
         if (_pairing.value !is PairingUiState.Working) {
             _pairing.value = PairingUiState.Idle

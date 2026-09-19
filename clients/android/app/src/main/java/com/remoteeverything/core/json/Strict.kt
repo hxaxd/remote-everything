@@ -16,11 +16,12 @@ object Strict {
     fun isHex64(value: String): Boolean =
         value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' }
 
-    /** An application id: ^[a-z0-9][a-z0-9._-]{0,63}$. */
+    /** An application id: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ — one hostname label. */
     fun isApplicationId(value: String): Boolean {
-        if (value.isEmpty() || value.length > 64) return false
+        if (value.isEmpty() || value.length > 63) return false
         if (value[0] !in 'a'..'z' && value[0] !in '0'..'9') return false
-        return value.drop(1).all { it in 'a'..'z' || it in '0'..'9' || it == '.' || it == '-' || it == '_' }
+        if (value.length > 1 && value.last() == '-') return false
+        return value.drop(1).all { it in 'a'..'z' || it in '0'..'9' || it == '-' }
     }
 
     /** Length in code points, the unit the contract counts names in. */

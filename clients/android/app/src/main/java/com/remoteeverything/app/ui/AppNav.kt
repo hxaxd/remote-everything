@@ -2,18 +2,21 @@ package com.remoteeverything.app.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.remoteeverything.app.AppViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.remoteeverything.app.AppModel
 
 @Composable
-fun AppNav(vm: AppViewModel) {
+fun AppNav(vm: AppModel) {
     val nav = rememberNavController()
-    LaunchedEffect(vm.pendingInvitation) {
-        if (!vm.pendingInvitation.isNullOrBlank()) {
+    val invitation by vm.pendingInvitation.collectAsStateWithLifecycle()
+    LaunchedEffect(invitation) {
+        if (!invitation.isNullOrBlank()) {
             nav.navigate("pair")
         }
     }
