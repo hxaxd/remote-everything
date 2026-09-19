@@ -16,7 +16,7 @@
 
 ```text
 remote-everything-lan-server init --state PATH --host HOST [--valid-days DAYS] [--applications-host HOST] [--require-approval] [--tunnel]
-remote-everything-lan-server node add --state PATH --name NAME --node-id NODE_ID [--node-address HOST:PORT] --node-bootstrap ABSOLUTE_PATH
+remote-everything-lan-server node add --state PATH --name NAME --node-id NODE_ID [--node-address HOST:PORT] [--link local|tunnel] --node-bootstrap ABSOLUTE_PATH
 remote-everything-lan-server node list --state PATH
 remote-everything-lan-server node remove --state PATH --node NODE
 remote-everything-lan-server node token renew --state PATH --node NODE --node-bootstrap ABSOLUTE_PATH
@@ -54,7 +54,7 @@ LAN 默认的邀请是操作者当面交出去的，兑换即批准，没有需�
 
 ```text
 remote-everything-gateway init --state PATH --origin HTTPS_ORIGIN
-remote-everything-gateway node add --state PATH --name NAME --node-id NODE_ID --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY
+remote-everything-gateway node add --state PATH --name NAME --node-id NODE_ID [--link local|tunnel] --node-bootstrap ABSOLUTE_OUTPUT_DIRECTORY
 remote-everything-gateway node list --state PATH
 remote-everything-gateway node remove --state PATH --node NODE
 remote-everything-gateway node token renew --state PATH --node NODE --node-bootstrap ABSOLUTE_PATH
@@ -72,6 +72,8 @@ remote-everything-gateway device --state PATH invitation cancel TOKEN_HASH
 ```
 
 `init` 是公网安装身份的唯一创建者。它创建 schema 1 的 `server.json`、稳定 `installation_id`、设备 CA、隧道 CA 与 frps token，以及三个互不相同的动态 loopback 地址（`status`、`pairing`、`frps`）；`--origin` 是 443 入口对外服务的那个地址（例如 `https://remote.example.com`），写进状态后就是这份网关发出去的每条邀请指向的地址，也是每个应用 origin 的域名部分（应用主机在这里被解析出来，所以它必须是一个域名或地址本体，不带端口以外的别的东西）。**443 入口的配置与节点无关**：Caddyfile 里的上游只有 `pairing`、`frps`、`status` 三个，加节点不动它一个字——所以加一台节点只发生在网关这一侧。**DNS 要求**：为这个域名的子域准备一条通配记录（`*.<域名>` 指向入口所在主机）——应用主机是 `<app>.<节点前缀>.<域名>`，一条通配记录按 RFC 4592 覆盖这种没有更近节点存在的多级名字；证书不用通配：入口对每个应用主机按需签发。
+
+**每条连接叫「本地」还是「隧道」，按操作者的说法来**：`node add --link local|tunnel` 是操作者的声明，写进这条节点记录（`node list` 里看得到 `link`），并随 `/nodes` 一起交给客户端，客户端就照它显示（`local` = 本地，`tunnel` = 隧道）。只有操作者知道这条链路对使用者意味着什么，所以**声明优先**。不写 `--link` 时由入口自己算：走它自己的隧道（`--tunnel` 形态、或没给 `--node-address` 而分配了隧道端口）就是 `tunnel`，直接拨操作者给的那台地址就是 `local`。客户端自己还会兜一层：即使网关说 `local`，只要客户端拨的地址不是私有地址（也就是这一跳本身要出公网），它照样按「隧道」显示——任何一跳出了本地网络，对人来说代价就是隧道。重新 `node add` 同一台节点可以改这个声明（原地更新）。
 
 `node add` 给这台节点做三件事：从网关自己的隧道服务器上分配一个 loopback 端口（`node_address`，就是隧道代理要发布的那个 `remotePort`）、给它签发**它自己的**控制令牌（写在网关状态目录的 `nodes/<node_id>`，一台一拍，一台机器泄露不牵连其他机器）、把交付目录写出来。输出里的 `node_address` 决定那台机器上 frpc 配置的两个值（`node_tunnel_port` 取它的端口，`node_host` / `node_port` 取节点自己的 `listen_address`），`tunnel_material_directory` 是材料位置，`tunnel_client_fingerprint` 记进运行记录。已有节点重新 `node add` 只做原地更新，隧道端口不动——那个端口是那台机器上正在跑的隧道代理发布的。
 

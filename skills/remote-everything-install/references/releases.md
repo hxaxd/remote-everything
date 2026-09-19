@@ -31,7 +31,7 @@ FRP 固定为 `v0.70.0`，Caddy 固定为 `v2.11.4`。均从官方发布下载�
 
 ## 本地构建与发布
 
-仓库 `Release` GitHub Actions 工作流停用期间，Windows 维护机使用 `scripts/release-local.ps1` 完成验证、跨平台 Go 构建、Android 签名、校验清单和 GitHub Release 发布。
+Release 可以走 `.github/workflows/release.yml`；CI 不可用或需要本地出包时，Windows 维护机使用 `scripts/release-local.ps1` 完成验证、跨平台 Go 构建、Android 签名、校验清单和 GitHub Release 发布。
 
 ### 签名材料
 

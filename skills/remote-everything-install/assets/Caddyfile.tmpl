@@ -93,3 +93,18 @@ https://*.*.{{PUBLIC_HOST}} {
 
 	respond 401
 }
+
+# The web client entrance for regular browsers on a dedicated high port (8443):
+# Reuses the public TLS certificate, without client_auth requirement, so ordinary browsers
+# can load the web SPA and control nodes/applications via Web Session without conflicting with
+# port 443 root paths or existing websites.
+{{PUBLIC_HOST}}:8443 {
+	log
+	tls {
+		issuer acme {
+			disable_http_challenge
+			{{ACME_PROFILE}}
+		}
+	}
+	reverse_proxy "{{STATUS_UPSTREAM}}"
+}

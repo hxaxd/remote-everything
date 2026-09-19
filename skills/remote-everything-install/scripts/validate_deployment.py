@@ -127,11 +127,15 @@ def validate_caddy_contract(text):
     # wildcards stand for exactly one label each, so covering
     # `<application>.<node prefix>.<host>` takes one wildcard per label.
     addresses = site_addresses(active)
-    if len(addresses) != 2:
+    if len(addresses) not in (2, 3):
         raise ValueError("Caddy must serve the gateway host and the application hosts")
-    site_address, application_address = addresses
+    site_address, application_address = addresses[0], addresses[1]
     if not application_address.startswith("https://*.*.") or not application_address.removeprefix("https://*.*.") == site_address:
         raise ValueError(f"Caddy must serve one host per application under {site_address}")
+    if len(addresses) == 3:
+        web_address = addresses[2]
+        if not web_address.startswith(site_address + ":") and not web_address.startswith(f"https://{site_address}:"):
+            raise ValueError(f"Caddy web client site must be on {site_address}")
     # An application host has no certificate until it is asked for, and it is only
     # issued after the gateway was asked whether it serves that host.
     if not re.search(r"^\s*on_demand\s*$", active, re.MULTILINE):
