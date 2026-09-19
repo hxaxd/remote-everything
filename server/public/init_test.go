@@ -101,7 +101,7 @@ func TestAddPublicNodeDeliversOneNode(t *testing.T) {
 	}
 	nodeID := strings.Repeat("11", 32)
 	bundleRoot := filepath.Join(t.TempDir(), "bundle")
-	added, err := addPublicNode(root, "Desk", nodeID, bundleRoot)
+	added, err := addPublicNode(root, "Desk", nodeID, "", bundleRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestAddPublicNodeDeliversOneNode(t *testing.T) {
 	}
 	// Adding one more node gives it an address of its own, and the gateway is now
 	// one that can be opened.
-	other, err := addPublicNode(root, "Laptop", strings.Repeat("22", 32), filepath.Join(t.TempDir(), "bundle"))
+	other, err := addPublicNode(root, "Laptop", strings.Repeat("22", 32), "", filepath.Join(t.TempDir(), "bundle"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestRepairPublicPortsMovesPortsAndKeepsIdentities(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index, id := range []string{strings.Repeat("11", 32), strings.Repeat("22", 32)} {
-		if _, err := addPublicNode(root, []string{"Desk", "Laptop"}[index], id, filepath.Join(t.TempDir(), "bundle")); err != nil {
+		if _, err := addPublicNode(root, []string{"Desk", "Laptop"}[index], id, "", filepath.Join(t.TempDir(), "bundle")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -246,7 +246,7 @@ func TestRemovePublicNodeForgetsTheNodeEntirely(t *testing.T) {
 	}
 	first, second := strings.Repeat("11", 32), strings.Repeat("22", 32)
 	for index, id := range []string{first, second} {
-		if _, err := addPublicNode(root, []string{"Desk", "Laptop"}[index], id, filepath.Join(t.TempDir(), "bundle")); err != nil {
+		if _, err := addPublicNode(root, []string{"Desk", "Laptop"}[index], id, "", filepath.Join(t.TempDir(), "bundle")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -296,7 +296,7 @@ func TestRenewPublicNodeTokenReplacesTheTokenAndDeliversIt(t *testing.T) {
 	}
 	nodeID := strings.Repeat("11", 32)
 	bundleRoot := filepath.Join(t.TempDir(), "bundle")
-	if _, err := addPublicNode(root, "Desk", nodeID, bundleRoot); err != nil {
+	if _, err := addPublicNode(root, "Desk", nodeID, "", bundleRoot); err != nil {
 		t.Fatal(err)
 	}
 	before, err := gatewaycore.ReadNodeToken(root, nodeID)
@@ -353,6 +353,15 @@ func TestPublicNodeCommandsTakeTheirArguments(t *testing.T) {
 	}
 	if removed := run("remove", "--state", root, "--node", "Desk"); !strings.Contains(removed, nodeID) {
 		t.Fatalf("node remove is %s", removed)
+	}
+	// Where this gateway reaches a node is its own tunnel: a pointer from the
+	// operator is not an address a public gateway would dial.
+	shell := &publicNodes{root: root}
+	if _, err := shell.State(); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := shell.PlaceNode(strings.Repeat("33", 32), "10.0.0.1:58627"); err == nil {
+		t.Fatal("a node address was accepted where every node arrives over the tunnel")
 	}
 	for _, args := range [][]string{
 		{"remove", "--state", root, "--node", "Desk", "--name", "Desk"},

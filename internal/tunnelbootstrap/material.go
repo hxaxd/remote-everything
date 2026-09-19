@@ -40,6 +40,22 @@ const (
 	TunnelMaterialDir = "frpc"
 )
 
+// NodeTunnelHost and NodeTunnelPort are where a gateway reaches a node over its
+// own tunnel: the node's tunnel agent publishes the node's control port on the
+// tunnel server's loopback, and this is the address the gateway dials and the
+// port the agent is told to publish. What a gateway records is the address, and
+// the port in it is what the node's own tunnel configuration has to publish.
+const (
+	NodeTunnelHost = "127.0.0.1"
+	NodeTunnelPort = 58628
+)
+
+// FRPSPort is the port a tunnel server prefers to serve on. Both shapes
+// reserve a listener for it — a LAN entrance on every interface of its own
+// machine, a public gateway on its loopback — and a port repair moves it back
+// here first.
+const FRPSPort = 58630
+
 var hex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // GatewayMaterial is the tunnel material a gateway owns on its own machine: the

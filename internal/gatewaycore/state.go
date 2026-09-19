@@ -43,6 +43,25 @@ type Node struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Address string `json:"address"`
+	// Link is how this gateway reaches the machine, in the words a client shows a
+	// person: "local" when the gateway dials it where it stands (no relay in
+	// between), "tunnel" when the gateway's own tunnel carries it. The operator can
+	// say otherwise — only they know what the link costs the person using it — and
+	// an entry that declares nothing leaves the client to judge by the address it
+	// dials (NodeLink*).
+	Link string `json:"link,omitempty"`
+}
+
+// The two words a link is declared with, and the two an entrance computes on its
+// own when the operator says nothing.
+const (
+	NodeLinkLocal  = "local"
+	NodeLinkTunnel = "tunnel"
+)
+
+// ValidNodeLink is the vocabulary: a declaration outside it is not a declaration.
+func ValidNodeLink(value string) bool {
+	return value == NodeLinkLocal || value == NodeLinkTunnel
 }
 
 // State is what every gateway records about itself: the identity a node binds it
@@ -55,14 +74,6 @@ type State struct {
 	Origin         string     `json:"origin"`
 	Listeners      []Listener `json:"listeners"`
 	Nodes          []Node     `json:"nodes"`
-}
-
-// ValidAppID is the shape of an application id: what a node's catalog carries,
-// what an application host names, and what picks out the application an origin
-// serves. It is one rule with one home, because a catalog, a host and a route all
-// have to agree about which ids exist.
-func ValidAppID(value string) bool {
-	return validID.MatchString(value)
 }
 
 // ValidNodeName is the shape of the label an operator gives a node. It is what a
@@ -124,7 +135,7 @@ func (state State) Validate() error {
 	seenNames := map[string]bool{}
 	seenAddresses := map[string]bool{}
 	for _, listener := range state.Listeners {
-		if !validID.MatchString(listener.Name) || seenNames[listener.Name] || !netaddr.ValidListen(listener.Address) || seenAddresses[listener.Address] {
+		if !validListenerName.MatchString(listener.Name) || seenNames[listener.Name] || !netaddr.ValidListen(listener.Address) || seenAddresses[listener.Address] {
 			return errors.New("invalid gateway state")
 		}
 		seenNames[listener.Name] = true

@@ -4,20 +4,9 @@ import (
 	"net"
 	"os"
 	"time"
-)
 
-type applicationState struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Icon              string `json:"icon"`
-	Accent            string `json:"accent"`
-	LaunchFragment    string `json:"launch_fragment"`
-	ComputerConnected bool   `json:"computer_connected"`
-	Enabled           bool   `json:"enabled"`
-	Running           bool   `json:"running"`
-	Code              string `json:"code"`
-}
+	"github.com/hxaxd/remote-everything/internal/wire"
+)
 
 func probeAddress(app AppDefinition) string {
 	address, _ := proxyAddress(app.ProxyURL)
@@ -38,10 +27,10 @@ func (node *Node) isEnabled(id string) bool {
 	return err == nil
 }
 
-func (node *Node) currentApplicationState(app AppDefinition) applicationState {
+func (node *Node) currentApplicationState(app AppDefinition) wire.ApplicationState {
 	enabled := node.isEnabled(app.ID)
 	running := probeOpen(probeAddress(app))
-	return applicationState{
+	return wire.ApplicationState{
 		ID:                app.ID,
 		Name:              app.Name,
 		Description:       app.Description,

@@ -19,14 +19,18 @@ import (
 	"github.com/hxaxd/remote-everything/internal/logline"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 var (
-	validID     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-	validToken  = regexp.MustCompile(`^[a-f0-9]{64}$`)
-	validAccent = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-	appRoute    = regexp.MustCompile(`^/__remote_everything/apps/([a-z0-9][a-z0-9._-]{0,63})/(status|start|stop)$`)
-	openRoute   = regexp.MustCompile(`^/__remote_everything/open/([a-z0-9][a-z0-9._-]{0,63})$`)
+	// validListenerName is the shape of a listener's name: the renderer, the
+	// runtime record and the operator all address a listener by it, and they
+	// name one the same way.
+	validListenerName = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	validToken        = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	validAccent       = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
+	appRoute          = regexp.MustCompile(`^/__remote_everything/apps/(` + wire.AppIDPattern + `)/(status|start|stop)$`)
+	openRoute         = regexp.MustCompile(`^/__remote_everything/open/(` + wire.AppIDPattern + `)$`)
 	// validHostLabel is one label of a hostname, which is what a domain an
 	// application host is built under is made of. Digits are labels just as names
 	// are, so an address of a machine is such a domain too.
@@ -66,35 +70,6 @@ type nodeLink struct {
 	application *httputil.ReverseProxy
 }
 
-type ControlResponse struct {
-	OK                bool               `json:"ok"`
-	ComputerConnected bool               `json:"computer_connected"`
-	Code              string             `json:"code"`
-	Apps              []ApplicationState `json:"apps"`
-}
-
-type ApplicationState struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Description       string `json:"description"`
-	Icon              string `json:"icon"`
-	Accent            string `json:"accent"`
-	LaunchFragment    string `json:"launch_fragment"`
-	ComputerConnected bool   `json:"computer_connected"`
-	Enabled           bool   `json:"enabled"`
-	Running           bool   `json:"running"`
-	Code              string `json:"code"`
-}
-
-type actionResponse struct {
-	OK                bool   `json:"ok"`
-	Action            string `json:"action"`
-	ComputerConnected bool   `json:"computer_connected"`
-	Enabled           bool   `json:"enabled"`
-	Running           bool   `json:"running"`
-	Code              string `json:"code"`
-}
-
 func Error(code string) map[string]any {
 	return map[string]any{"ok": false, "code": code}
 }
@@ -114,16 +89,26 @@ func WriteJSON(writer http.ResponseWriter, status int, value any) {
 	_, _ = writer.Write(body)
 }
 
-// stripRoutingSetCookie drops the routing cookie from a node's answer: no
-// application sets which application this browser session is looking at, and an
-// application that tried to would be writing the one thing it does not own.
-func stripRoutingSetCookie(header http.Header) {
+// gatewayOwnedCookie reports whether a cookie's name belongs to this
+// deployment rather than to an application: the routing cookie, and the web
+// client's session. Both are named once, with the headers an application
+// never sees, so that what the gateway keeps to itself is one list.
+func gatewayOwnedCookie(name string) bool {
+	name = strings.TrimSpace(name)
+	return name == proxysecurity.RoutingCookieName || name == proxysecurity.WebSessionCookieName
+}
+
+// stripGatewaySetCookies drops the cookies this deployment owns from a node's
+// answer: no application sets which application a browser session is looking
+// at, and no application writes the web client's session — an application
+// that tried to would be writing what it does not own.
+func stripGatewaySetCookies(header http.Header) {
 	values := header.Values("Set-Cookie")
 	header.Del("Set-Cookie")
 	for _, value := range values {
 		pair := strings.SplitN(value, ";", 2)[0]
 		name, _, found := strings.Cut(pair, "=")
-		if found && strings.TrimSpace(name) == proxysecurity.RoutingCookieName {
+		if found && gatewayOwnedCookie(name) {
 			continue
 		}
 		header.Add("Set-Cookie", value)
@@ -132,11 +117,11 @@ func stripRoutingSetCookie(header http.Header) {
 
 // setRoutingCookie tells the node which application a request on an application's
 // origin is for, and it does so on a request that no longer says anything else:
-// a cookie of that name the client sent is dropped first, because which
-// application a browser session is looking at is decided by the origin it is
-// talking to and never by the client. Everything else the client carries is handed
-// on exactly as it arrived — those cookies belong to the application, and this is
-// not the place that gets to rewrite them.
+// the cookies this deployment owns are dropped first, because which application
+// a browser session is looking at, and who that session is, are decided by the
+// origin and the trust, and never by the client. Everything else the client
+// carries is handed on exactly as it arrived — those cookies belong to the
+// application, and this is not the place that gets to rewrite them.
 func setRoutingCookie(request *http.Request, appID string) {
 	kept := make([]string, 0, 4)
 	for _, field := range strings.Split(request.Header.Get("Cookie"), ";") {
@@ -144,7 +129,7 @@ func setRoutingCookie(request *http.Request, appID string) {
 		if field == "" {
 			continue
 		}
-		if name, _, found := strings.Cut(field, "="); found && strings.TrimSpace(name) == proxysecurity.RoutingCookieName {
+		if name, _, found := strings.Cut(field, "="); found && gatewayOwnedCookie(name) {
 			continue
 		}
 		kept = append(kept, field)
@@ -161,7 +146,7 @@ func setRoutingCookie(request *http.Request, appID string) {
 // remembers about an application belongs to its origin.
 func AppHost(nodeID, appID, domain string) (string, error) {
 	domain = strings.ToLower(domain)
-	if !validToken.MatchString(nodeID) || !ValidAppID(appID) || !validApplicationDomain(domain) {
+	if !validToken.MatchString(nodeID) || !wire.ValidAppID(appID) || !validApplicationDomain(domain) {
 		return "", errors.New("invalid application host")
 	}
 	return appID + "." + nodeID[:appPrefixLength] + "." + domain, nil
@@ -182,7 +167,7 @@ func ParseAppHost(host, domain string) (nodePrefix, appID string, ok bool) {
 		return "", "", false
 	}
 	labels := strings.Split(host, ".")
-	if len(labels) != len(strings.Split(domain, "."))+2 || !ValidAppID(labels[0]) || !validIDPrefix(labels[1]) || strings.Join(labels[2:], ".") != domain {
+	if len(labels) != len(strings.Split(domain, "."))+2 || !wire.ValidAppID(labels[0]) || !validIDPrefix(labels[1]) || strings.Join(labels[2:], ".") != domain {
 		return "", "", false
 	}
 	return labels[1], labels[0], true
@@ -242,6 +227,9 @@ func addressingFor(origin string) AppAddressing {
 }
 
 func (addressing domainAddressing) Origin(nodeID, appID string) (string, error) {
+	if !wire.ValidAppID(appID) {
+		return "", errors.New("invalid app id")
+	}
 	host, err := AppHost(nodeID, appID, addressing.domain)
 	if err != nil {
 		return "", err
@@ -325,7 +313,7 @@ func newNodeLink(node Node, controlToken string) (*nodeLink, error) {
 		proxysecurity.StripInternalHeaders(request.Out.Header)
 	}}
 	proxy.ModifyResponse = func(response *http.Response) error {
-		stripRoutingSetCookie(response.Header)
+		stripGatewaySetCookies(response.Header)
 		return nil
 	}
 	proxy.ErrorHandler = func(writer http.ResponseWriter, _ *http.Request, _ error) {
@@ -384,7 +372,7 @@ func (gateway *Gateway) ConnectedList(nodeID string) (json.RawMessage, bool) {
 	return link.connectedList()
 }
 
-func validCatalog(value ControlResponse) bool {
+func validCatalog(value wire.Catalog) bool {
 	if !value.OK || !value.ComputerConnected || value.Code != "ready" || value.Apps == nil {
 		return false
 	}
@@ -398,7 +386,7 @@ func validCatalog(value ControlResponse) bool {
 		} else if app.Running {
 			expected = "stopping"
 		}
-		if !validID.MatchString(app.ID) || seen[app.ID] || !validCatalogMetadata(app.Name, 80, false) || !validCatalogMetadata(app.Description, 240, true) || !validCatalogMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || (app.LaunchFragment != "" && (!strings.HasPrefix(app.LaunchFragment, "#") || !validCatalogMetadata(app.LaunchFragment, 2048, false))) || !app.ComputerConnected || app.Code != expected {
+		if !wire.ValidAppID(app.ID) || seen[app.ID] || !validCatalogMetadata(app.Name, 80, false) || !validCatalogMetadata(app.Description, 240, true) || !validCatalogMetadata(app.Icon, 4, true) || !validAccent.MatchString(app.Accent) || (app.LaunchFragment != "" && (!strings.HasPrefix(app.LaunchFragment, "#") || !validCatalogMetadata(app.LaunchFragment, 2048, false))) || !app.ComputerConnected || app.Code != expected {
 			return false
 		}
 		seen[app.ID] = true
@@ -424,7 +412,7 @@ func (link *nodeLink) list() json.RawMessage {
 	if result, ok := link.connectedList(); ok {
 		return result
 	}
-	encoded, _ := json.Marshal(ControlResponse{OK: true, ComputerConnected: false, Code: "computer_offline", Apps: []ApplicationState{}})
+	encoded, _ := json.Marshal(wire.Catalog{OK: true, ComputerConnected: false, Code: "computer_offline", Apps: []wire.ApplicationState{}})
 	return encoded
 }
 
@@ -441,7 +429,7 @@ func (link *nodeLink) connectedList() (json.RawMessage, bool) {
 	if result == nil {
 		return nil, false
 	}
-	var shape ControlResponse
+	var shape wire.Catalog
 	decoder := json.NewDecoder(bytes.NewReader(result))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&shape) == nil && decoder.Decode(&struct{}{}) == io.EOF && validCatalog(shape) {
@@ -503,7 +491,7 @@ func (gateway *Gateway) ServeNode(nodeID string, writer http.ResponseWriter, req
 		}
 		result := link.invoke(action, match[1])
 		if result == nil {
-			WriteJSON(writer, http.StatusOK, actionResponse{OK: false, Action: action, ComputerConnected: false, Code: "computer_offline"})
+			WriteJSON(writer, http.StatusOK, wire.Action{OK: false, Action: action, ComputerConnected: false, Code: "computer_offline"})
 			return
 		}
 		writeRaw(writer, result)
@@ -515,8 +503,8 @@ func (gateway *Gateway) ServeNode(nodeID string, writer http.ResponseWriter, req
 	// why nothing is set here that a client would carry back to this gateway. The
 	// redirect is the whole of the answer, and it is absolute: a client resolves it
 	// against nothing.
-	if match := openRoute.FindStringSubmatch(path); match != nil && request.Method == http.MethodGet && validID.MatchString(match[1]) {
-		var shape ControlResponse
+	if match := openRoute.FindStringSubmatch(path); match != nil && request.Method == http.MethodGet {
+		var shape wire.Catalog
 		_ = json.Unmarshal(link.list(), &shape)
 		for _, app := range shape.Apps {
 			if app.ID == match[1] {
@@ -553,7 +541,7 @@ func (gateway *Gateway) ServeApplication(nodeID, appID string, writer http.Respo
 		WriteJSON(writer, http.StatusNotFound, Error("node_not_found"))
 		return
 	}
-	if !ValidAppID(appID) {
+	if !wire.ValidAppID(appID) {
 		WriteJSON(writer, http.StatusNotFound, Error("app_not_found"))
 		return
 	}

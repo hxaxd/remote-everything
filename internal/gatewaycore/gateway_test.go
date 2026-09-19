@@ -12,6 +12,7 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 // The two nodes every test gateway serves: they have identities and control
@@ -72,8 +73,8 @@ func (fixture *nodeFixture) serveHTTP(t *testing.T, index int, writer http.Respo
 		}
 		fixture.record(command["action"] + "/" + command["id"])
 		if command["action"] == "list" {
-			apps := []ApplicationState{{ID: testApps[index], Name: "Demo", Description: "", Icon: "D", Accent: "#2563eb", ComputerConnected: true, Enabled: true, Running: true, Code: "ready"}}
-			WriteJSON(writer, http.StatusOK, ControlResponse{OK: true, ComputerConnected: true, Code: "ready", Apps: apps})
+			apps := []wire.ApplicationState{{ID: testApps[index], Name: "Demo", Description: "", Icon: "D", Accent: "#2563eb", ComputerConnected: true, Enabled: true, Running: true, Code: "ready"}}
+			WriteJSON(writer, http.StatusOK, wire.Catalog{OK: true, ComputerConnected: true, Code: "ready", Apps: apps})
 			return
 		}
 		WriteJSON(writer, http.StatusOK, map[string]any{"ok": true, "action": command["action"], "computer_connected": true, "enabled": true, "running": true, "code": "ready"})

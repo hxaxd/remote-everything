@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/hxaxd/remote-everything/internal/devicecore"
+	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/secret"
 	"github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
@@ -22,8 +20,8 @@ import (
 // told to publish. What is recorded is the address, and the port in it is what
 // the node's own tunnel configuration has to publish.
 const (
-	nodeTunnelHost = "127.0.0.1"
-	nodeTunnelPort = 58628
+	nodeTunnelHost = tunnelbootstrap.NodeTunnelHost
+	nodeTunnelPort = tunnelbootstrap.NodeTunnelPort
 )
 
 type publicInitResult struct {
@@ -41,38 +39,6 @@ type publicInitResult struct {
 	TunnelIssuerDN string `json:"tunnel_issuer_dn"`
 }
 
-type publicNodeResult struct {
-	OK                      bool   `json:"ok"`
-	State                   string `json:"state"`
-	NodeID                  string `json:"node_id"`
-	NodeName                string `json:"node_name"`
-	NodeAddress             string `json:"node_address"`
-	NodeBootstrap           string `json:"node_bootstrap"`
-	TunnelMaterialDir       string `json:"tunnel_material_directory"`
-	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
-	RestartRequired         bool   `json:"restart_required"`
-}
-
-type publicNodeRemoveResult struct {
-	OK              bool     `json:"ok"`
-	State           string   `json:"state"`
-	NodeID          string   `json:"node_id"`
-	NodeName        string   `json:"node_name"`
-	NodeAddress     string   `json:"node_address"`
-	Devices         []string `json:"devices"`
-	RestartRequired bool     `json:"restart_required"`
-}
-
-type publicTokenRenewResult struct {
-	OK              bool   `json:"ok"`
-	State           string `json:"state"`
-	NodeID          string `json:"node_id"`
-	NodeName        string `json:"node_name"`
-	NodeAddress     string `json:"node_address"`
-	NodeBootstrap   string `json:"node_bootstrap"`
-	RestartRequired bool   `json:"restart_required"`
-}
-
 type publicRepairResult struct {
 	OK              bool               `json:"ok"`
 	State           string             `json:"state"`
@@ -82,16 +48,6 @@ type publicRepairResult struct {
 	FRPSListen      string             `json:"frps_listen"`
 	Nodes           []gatewaycore.Node `json:"nodes"`
 	RestartRequired bool               `json:"restart_required"`
-}
-
-type tunnelRenewResult struct {
-	OK                      bool   `json:"ok"`
-	InstallationID          string `json:"installation_id"`
-	NodeBootstrap           string `json:"node_bootstrap"`
-	TunnelCAFile            string `json:"tunnel_ca_file"`
-	TunnelMaterialDir       string `json:"tunnel_material_directory"`
-	TunnelClientFingerprint string `json:"tunnel_client_fingerprint"`
-	TunnelIssuerDN          string `json:"tunnel_issuer_dn"`
 }
 
 // allocationPreferences are the three loopback listeners a public gateway serves:
@@ -207,235 +163,116 @@ func runPublicInit(parts []string, output io.Writer) error {
 	return json.NewEncoder(output).Encode(result)
 }
 
-// addPublicNode records one more node this gateway serves and hands its machine
-// the identity bundle it binds this gateway with. Where the node is is this
-// gateway's own tunnel: the address it records is a loopback port of its tunnel
-// server, and the port in it is what that node's tunnel agent has to publish.
-func addPublicNode(root, name, nodeID, bootstrapDir string) (publicNodeResult, error) {
-	if !filepath.IsAbs(bootstrapDir) {
-		return publicNodeResult{}, errors.New("bootstrap path must be absolute")
-	}
-	nodeID = strings.ToLower(strings.TrimSpace(nodeID))
-	name = strings.TrimSpace(name)
-	if !gatewaycore.ValidNodeName(name) {
-		return publicNodeResult{}, errors.New("invalid node name")
-	}
-	paths, err := newPublicPaths(root)
+// publicNodes is this gateway's state as the node lifecycle sees it: the
+// shape's part of the work every gateway shares.
+type publicNodes struct {
+	root  string
+	state gatewaycore.State
+}
+
+// openPublicNodes opens this gateway's state for a node command.
+func openPublicNodes(root string) (entrance.NodeShape, error) {
+	return &publicNodes{root: root}, nil
+}
+
+func (nodes *publicNodes) State() (gatewaycore.State, error) {
+	paths, err := newPublicPaths(nodes.root)
 	if err != nil {
-		return publicNodeResult{}, err
+		return gatewaycore.State{}, err
 	}
 	state, err := paths.loadState()
 	if err != nil {
-		return publicNodeResult{}, err
+		return gatewaycore.State{}, err
 	}
-	material, err := tunnelbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID)
-	if err != nil {
-		return publicNodeResult{}, err
-	}
-	// A node that is already here keeps the address it was added with: the tunnel
-	// agent on its machine publishes that port, and moving it would take the node
-	// out of reach until that machine is told.
-	address := ""
-	if existing, ok := state.FindNode(nodeID); ok {
-		address = existing.Address
-	} else if address, err = state.AllocateNodeAddress(nodeTunnelHost, nodeTunnelPort); err != nil {
-		return publicNodeResult{}, err
-	}
-	added, err := gatewaycore.DeliverNode(paths.root, state, gatewaycore.Node{ID: nodeID, Name: name, Address: address}, bootstrapDir)
-	if err != nil {
-		return publicNodeResult{}, err
-	}
-	tunnel, err := tunnelbootstrap.EnsureTunnelMaterial(bootstrapDir, material)
-	if err != nil {
-		return publicNodeResult{}, err
-	}
-	if err := added.Save(paths.stateFile); err != nil {
-		return publicNodeResult{}, err
-	}
-	return publicNodeResult{
-		OK: true, State: paths.root, NodeID: nodeID, NodeName: name, NodeAddress: address,
-		NodeBootstrap: filepath.Clean(bootstrapDir), TunnelMaterialDir: tunnel.Directory,
-		TunnelClientFingerprint: tunnel.Fingerprint, RestartRequired: true,
-	}, nil
+	nodes.state = state
+	return state, nil
 }
 
-// removePublicNode takes a node out of this gateway: it stops serving it, it stops
-// reaching it, and nothing a device holds says it may reach it any more. What is
-// left on that machine — its binding, the tunnel agent publishing the port this
-// gateway dialed — is the operator's to take down, and this gateway no longer has
-// anything pointing at it.
-func removePublicNode(root, nodeValue string) (publicNodeRemoveResult, error) {
-	paths, err := newPublicPaths(root)
-	if err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	service, err := openPublicService(root)
-	if err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	node, err := gatewaycore.ResolveNode(service.state.Nodes, nodeValue)
-	if err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	reduced, err := service.state.RemoveNode(node.ID)
-	if err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	// The state goes first: a node the gateway no longer serves is unrouted at
-	// once, and what is left behind by a failure — a device's list, a token file —
-	// reaches nothing.
-	if err := reduced.Save(paths.stateFile); err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	devices, err := service.trust.ForgetNode(node.ID)
-	if err != nil {
-		return publicNodeRemoveResult{}, err
-	}
-	if err := gatewaycore.RemoveNodeToken(paths.root, node.ID); err != nil {
-		return publicNodeRemoveResult{}, fmt.Errorf("the node was removed, but its control token could not be deleted: %w", err)
-	}
-	return publicNodeRemoveResult{
-		OK: true, State: paths.root, NodeID: node.ID, NodeName: node.Name, NodeAddress: node.Address,
-		Devices: devices, RestartRequired: true,
-	}, nil
-}
-
-// renewPublicNodeToken replaces the control token of a node this gateway serves
-// and hands that machine the bundle carrying it. Which node it is, and where it is,
-// do not change: this is for the machine that was given a token and should not have
-// it any more.
-func renewPublicNodeToken(root, nodeValue, bootstrapDir string) (publicTokenRenewResult, error) {
-	if !filepath.IsAbs(bootstrapDir) {
-		return publicTokenRenewResult{}, errors.New("node bootstrap path must be absolute")
-	}
-	paths, err := newPublicPaths(root)
-	if err != nil {
-		return publicTokenRenewResult{}, err
-	}
-	state, err := paths.loadState()
-	if err != nil {
-		return publicTokenRenewResult{}, err
-	}
-	node, err := gatewaycore.ResolveNode(state.Nodes, nodeValue)
-	if err != nil {
-		return publicTokenRenewResult{}, err
-	}
-	// The state does not change — the node is the same node — so it is not written
-	// again; what changes is the token, and the bundle that carries it.
-	if _, err := gatewaycore.DeliverRotatedNode(paths.root, state, node, bootstrapDir); err != nil {
-		return publicTokenRenewResult{}, err
-	}
-	return publicTokenRenewResult{
-		OK: true, State: paths.root, NodeID: node.ID, NodeName: node.Name, NodeAddress: node.Address,
-		NodeBootstrap: filepath.Clean(bootstrapDir), RestartRequired: true,
-	}, nil
-}
-
-func runPublicNode(parts []string, output io.Writer) error {
-	if len(parts) == 0 {
-		return errors.New("missing node action")
-	}
-	if len(parts) >= 2 && parts[0] == "token" && parts[1] == "renew" {
-		return runPublicNodeTokenRenew(parts[2:], output)
-	}
-	flags := flag.NewFlagSet("node "+parts[0], flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	state := flags.String("state", "", "")
-	name := flags.String("name", "", "")
-	nodeID := flags.String("node-id", "", "")
-	node := flags.String("node", "", "")
-	bootstrapDir := flags.String("node-bootstrap", "", "")
-	if flags.Parse(parts[1:]) != nil || flags.NArg() != 0 {
-		return errors.New("invalid node arguments")
-	}
-	switch parts[0] {
-	case "add":
-		if *name == "" || *nodeID == "" || *bootstrapDir == "" {
-			return errors.New("invalid node add arguments")
-		}
-		result, err := addPublicNode(*state, *name, *nodeID, *bootstrapDir)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(output).Encode(result)
-	case "list":
-		if *name != "" || *nodeID != "" || *node != "" || *bootstrapDir != "" {
-			return errors.New("invalid node list arguments")
-		}
-		paths, err := newPublicPaths(*state)
-		if err != nil {
-			return err
-		}
-		stored, err := paths.loadState()
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(output).Encode(stored.Nodes)
-	case "remove":
-		if *node == "" || *name != "" || *nodeID != "" || *bootstrapDir != "" {
-			return errors.New("invalid node remove arguments")
-		}
-		result, err := removePublicNode(*state, *node)
-		if err != nil {
-			return err
-		}
-		return json.NewEncoder(output).Encode(result)
-	default:
-		return errors.New("unknown node action")
-	}
-}
-
-func runPublicNodeTokenRenew(parts []string, output io.Writer) error {
-	flags := flag.NewFlagSet("node token renew", flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	state := flags.String("state", "", "")
-	node := flags.String("node", "", "")
-	bootstrapDir := flags.String("node-bootstrap", "", "")
-	if flags.Parse(parts) != nil || flags.NArg() != 0 || *node == "" || *bootstrapDir == "" {
-		return errors.New("invalid node token renew arguments")
-	}
-	result, err := renewPublicNodeToken(*state, *node, *bootstrapDir)
+func (nodes *publicNodes) Save(state gatewaycore.State) error {
+	paths, err := newPublicPaths(nodes.root)
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(output).Encode(result)
+	return state.Save(paths.stateFile)
 }
 
-// renewTunnelIdentity issues a new client identity for the tunnel into the
-// handover bundle the operator already carries to the node machine. The node
-// takes no part in it: neither the identity the gateway is bound by nor the
-// tunnel CA changes, so only the tunnel agent has to be pointed at the newly
-// delivered files and restarted.
-func renewTunnelIdentity(root, nodeBootstrap string) (tunnelRenewResult, error) {
-	paths, err := newPublicPaths(root)
+func (nodes *publicNodes) Trust() (*devicecore.Trust, error) {
+	paths, err := newPublicPaths(nodes.root)
 	if err != nil {
-		return tunnelRenewResult{}, err
+		return nil, err
 	}
 	state, err := paths.loadState()
 	if err != nil {
-		return tunnelRenewResult{}, err
+		return nil, err
 	}
-	material, err := tunnelbootstrap.EnsureGatewayMaterial(paths.root, state.InstallationID)
-	if err != nil {
-		return tunnelRenewResult{}, err
-	}
-	tunnel, err := tunnelbootstrap.RenewTunnelMaterial(nodeBootstrap, material)
-	if err != nil {
-		return tunnelRenewResult{}, err
-	}
-	return tunnelRenewResult{
-		OK: true, InstallationID: state.InstallationID,
-		NodeBootstrap: filepath.Clean(nodeBootstrap), TunnelCAFile: material.CACertFile,
-		TunnelIssuerDN:    material.CACertificate.Subject.String(),
-		TunnelMaterialDir: tunnel.Directory, TunnelClientFingerprint: tunnel.Fingerprint,
-	}, nil
+	return openPublicTrust(paths.root, state, nil)
 }
 
-// repairPublicPorts moves every port this gateway owns: its listeners and the
-// tunnel port of each node, which are this gateway's to move because its own
-// tunnel server holds them. Each node's id and name stay, and so does the frpc
-// configuration's name for it, so the machines behind them only have to be told
-// the new port.
+// PlaceNode is where a node of this gateway lives: a loopback port of its own
+// tunnel, which is the whole of where a public gateway reaches anything. There
+// is no node a pointer from the operator could name instead.
+func (nodes *publicNodes) PlaceNode(nodeID, address string) (gatewaycore.State, entrance.Placement, error) {
+	if address != "" {
+		return gatewaycore.State{}, entrance.Placement{}, errors.New("a public gateway reaches its nodes over its own tunnel; node add takes no node address")
+	}
+	material, err := tunnelbootstrap.EnsureGatewayMaterial(nodes.root, nodes.state.InstallationID)
+	if err != nil {
+		return gatewaycore.State{}, entrance.Placement{}, err
+	}
+	// A node that is already here keeps the address it was added with: the
+	// tunnel agent on its machine publishes that port, and moving it would
+	// take the node out of reach until that machine is told.
+	where := ""
+	if existing, ok := nodes.state.FindNode(nodeID); ok {
+		where = existing.Address
+	} else if where, err = nodes.state.AllocateNodeAddress(nodeTunnelHost, nodeTunnelPort); err != nil {
+		return gatewaycore.State{}, entrance.Placement{}, err
+	}
+	return nodes.state, entrance.Placement{Address: where, Tunnel: &material}, nil
+}
+
+// TookNodeAway takes nothing of its own with the node: what a public gateway
+// holds for a node is the record, the devices' grants and the control token,
+// and the lifecycle takes all three.
+func (nodes *publicNodes) TookNodeAway(nodeID string) error {
+	return nil
+}
+
+// TunnelMaterial is this gateway's tunnel material, which it always has: the
+// tunnel is how it reaches everything it serves.
+func (nodes *publicNodes) TunnelMaterial() (tunnelbootstrap.GatewayMaterial, error) {
+	return tunnelbootstrap.EnsureGatewayMaterial(nodes.root, nodes.state.InstallationID)
+}
+
+// addPublicNode records one more node this gateway serves and hands its
+// machine the identity bundle it binds this gateway with.
+func addPublicNode(root, name, nodeID, link, bootstrapDir string) (entrance.NodeResult, error) {
+	return entrance.AddNode(&publicNodes{root: root}, root, name, nodeID, "", link, bootstrapDir)
+}
+
+// removePublicNode takes a node out of this gateway.
+func removePublicNode(root, nodeValue string) (entrance.NodeRemoveResult, error) {
+	return entrance.RemoveNode(&publicNodes{root: root}, root, nodeValue)
+}
+
+// renewPublicNodeToken replaces the control token of a node this gateway
+// serves and hands that machine the bundle carrying it.
+func renewPublicNodeToken(root, nodeValue, bootstrapDir string) (entrance.TokenRenewResult, error) {
+	return entrance.RenewNodeToken(&publicNodes{root: root}, root, nodeValue, bootstrapDir)
+}
+
+// renewTunnelIdentity issues a new client identity for the tunnel into the
+// handover bundle the operator already carries to the node machine.
+func renewTunnelIdentity(root, nodeBootstrap string) (entrance.TunnelRenewResult, error) {
+	return entrance.RenewTunnelIdentity(&publicNodes{root: root}, root, nodeBootstrap)
+}
+
+// runPublicNode runs the `node` command of this gateway's command line, which
+// is the lifecycle every gateway shares over what only this shape contributes.
+func runPublicNode(parts []string, output io.Writer) error {
+	return entrance.RunNode(parts, openPublicNodes, output)
+}
+
 func repairPublicPorts(root string) (publicRepairResult, error) {
 	paths, err := newPublicPaths(root)
 	if err != nil {

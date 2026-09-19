@@ -55,7 +55,7 @@ func startLANEntrance(t *testing.T, opts ...LANInitOption) *lanHarness {
 	for index, id := range entrancetest.NodeIDs {
 		address := harness.startNode(t, id)
 		bundle := filepath.Join(t.TempDir(), "bootstrap")
-		if _, err := addLANNode(root, entrancetest.NodeNames[index], id, address, bundle); err != nil {
+		if _, err := addLANNode(root, entrancetest.NodeNames[index], id, address, "", bundle); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -236,7 +236,7 @@ func openTestLANEntrance(t *testing.T) (*lanService, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "", filepath.Join(t.TempDir(), "bootstrap")); err != nil {
 		t.Fatal(err)
 	}
 	service, err := openLANService(root)

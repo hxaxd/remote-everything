@@ -7,6 +7,13 @@ import "net/http"
 
 const RoutingCookieName = "RemoteEverythingApp"
 
+// WebSessionCookieName is the cookie a gateway sets to carry its web client's
+// session. It belongs to this deployment and not to any application — the
+// session is how the gateway knows who the browser is — so it is named here
+// with the routing cookie: an application never sees it set, sent or
+// rewritten, the same as it never sees the headers below.
+const WebSessionCookieName = "remote_everything_web"
+
 // ControlPath is where a node answers its own control plane. Only the gateway that
 // serves it reaches that, with the token it holds for it, and it never travels
 // through the proxy that serves an application: one path, named once, because the

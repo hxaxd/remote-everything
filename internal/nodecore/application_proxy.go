@@ -9,11 +9,12 @@ import (
 	"strings"
 
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 func (node *Node) selectedApplication(request *http.Request) (AppDefinition, error) {
 	cookie, err := request.Cookie(proxysecurity.RoutingCookieName)
-	if err != nil || !validID.MatchString(cookie.Value) {
+	if err != nil || !wire.ValidAppID(cookie.Value) {
 		return AppDefinition{}, os.ErrNotExist
 	}
 	app, err := node.findApp(cookie.Value)
