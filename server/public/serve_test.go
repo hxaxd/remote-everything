@@ -163,6 +163,11 @@ func (harness *publicHarness) serveNode(t *testing.T, id, address string) {
 		harness.mutex.Lock()
 		harness.nodeRequests[id] = append(harness.nodeRequests[id], request.URL.Path)
 		harness.mutex.Unlock()
+		if request.URL.Path == "/cookie-policy" {
+			writer.Header().Add("Set-Cookie", "session=value; Domain=.example.com; Path=/; HttpOnly")
+			writer.Header().Add("Set-Cookie", "__Host-remote_everything_web=forged; Path=/; Secure")
+			writer.Header().Add("Set-Cookie", "remote_everything_web=forged; Path=/")
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"ok":true,"computer_connected":true,"code":"ready","apps":[{"id":"editor","name":"Editor","description":"","icon":"E","accent":"#2563eb","computer_connected":true,"enabled":true,"running":true,"code":"ready"}]}`)
 	})}

@@ -494,12 +494,12 @@ func TestWebPairingIsLimitedAndStoresNoCredential(t *testing.T) {
 	if err != nil || invite.Kind != deviceKindWeb || invite.CredentialPasswordHash != "" || invite.CredentialPKCS12 != "" {
 		t.Fatalf("the web redemption kept a credential: %+v %v", invite, err)
 	}
-	// The client id is the credential that browser keeps: it comes back as the
-	// same device whatever it presents, because the invitation was its
-	// admission and the id is what it holds instead of a credential file.
-	again, code, err := service.PairWebDevice("192.168.1.2", "not-an-invitation", clientID, "Web Phone")
-	if err != nil || again.Fingerprint != result.Fingerprint || again.Status != "pending" {
-		t.Fatalf("the browser did not come back as its device: %+v %q %v", again, code, err)
+	// An existing browser identifier cannot bypass a fresh invitation.
+	for _, denied := range []string{"not-an-invitation", invitation} {
+		_, code, err := service.PairWebDevice("192.168.1.2", denied, clientID, "Web Phone")
+		if err == nil || code != "invitation_denied" {
+			t.Fatalf("identifier bypassed invitation: %q %v", code, err)
+		}
 	}
 	// And the attempts are counted. The invitation is spent, so every attempt
 	// here is refused — until the door itself says enough.

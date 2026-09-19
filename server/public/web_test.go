@@ -6,12 +6,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/entrancetest"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/webclient"
 )
 
 func newPublicWebTestClient(t *testing.T) (*http.Client, *cookiejar.Jar) {
@@ -40,9 +42,9 @@ func TestPublicWebClient_StaticAssets(t *testing.T) {
 		wantStatus  int
 		wantContent string
 	}{
-		{"/", http.StatusOK, "<title>Remote Everything Web</title>"},
-		{"/index.html", http.StatusOK, "Remote Everything Web"},
-		{"/style.css", http.StatusOK, "--bg-main"},
+		{"/", http.StatusOK, "<title>Remote Everything</title>"},
+		{"/index.html", http.StatusOK, "id=\"view-pair\""},
+		{"/style.css", http.StatusOK, "--canvas"},
 		{"/app.js", http.StatusOK, "CryptoVault"},
 		{"/favicon.ico", http.StatusNoContent, ""},
 	}
@@ -130,6 +132,8 @@ func TestPublicWebClient_EndToEndFlow(t *testing.T) {
 		DeviceName   string   `json:"device_name"`
 		Fingerprint  string   `json:"fingerprint"`
 		SessionToken string   `json:"session_token"`
+		RevokeToken  string   `json:"revoke_token"`
+		UnlockToken  string   `json:"unlock_token"`
 		Status       string   `json:"status"`
 		Nodes        []string `json:"nodes"`
 	}
@@ -201,10 +205,131 @@ func TestPublicWebClient_EndToEndFlow(t *testing.T) {
 		t.Fatalf("/apps status = %d; want %d", appsResp.StatusCode, http.StatusOK)
 	}
 
+	// The application origin receives its own cookie via the one-use handoff.
+	openReq, _ := http.NewRequest(http.MethodGet, harness.status+"/__remote_everything/open/editor", nil)
+	openReq.Host = harness.host
+	openReq.Header.Set(webclient.SessionHeaderName, pairData.SessionToken)
+	openReq.Header.Set(proxysecurity.NodeHeader, entrancetest.NodeIDs[0])
+	opened, err := client.Do(openReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened.Body.Close()
+	if opened.StatusCode != 302 {
+		t.Fatalf("open: %d", opened.StatusCode)
+	}
+	destination, err := url.Parse(opened.Header.Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff, _ := http.NewRequest(http.MethodGet, harness.status+destination.RequestURI(), nil)
+	handoff.Host = destination.Host
+	handed, err := client.Do(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handed.Body.Close()
+	if handed.StatusCode != 303 || strings.Contains(handed.Header.Get("Location"), "_reticket") {
+		t.Fatal("handoff did not clean URL")
+	}
+	appCookie := ""
+	for _, cookie := range handed.Cookies() {
+		if cookie.Name == webclient.HostSessionCookieName {
+			appCookie = cookie.Value
+		}
+	}
+	if appCookie == "" {
+		t.Fatal("no application session")
+	}
+	checkApp := func(token string, want int) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, harness.status+"/", nil)
+		req.Host = destination.Host
+		req.AddCookie(&http.Cookie{Name: webclient.HostSessionCookieName, Value: token})
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Fatalf("app: %d, want %d", resp.StatusCode, want)
+		}
+	}
+	checkApp(appCookie, 200)
+	policyReq, _ := http.NewRequest(http.MethodGet, harness.status+"/cookie-policy", nil)
+	policyReq.Host = destination.Host
+	policyReq.AddCookie(&http.Cookie{Name: webclient.HostSessionCookieName, Value: appCookie})
+	policyResp, err := client.Do(policyReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policyResp.Body.Close()
+	if policyResp.StatusCode != 200 {
+		t.Fatalf("policy proxy: %d", policyResp.StatusCode)
+	}
+	appCookies := policyResp.Cookies()
+	if len(appCookies) != 1 || appCookies[0].Name != "session" || appCookies[0].Value != "value" || appCookies[0].Domain != "" || !appCookies[0].Secure || !appCookies[0].HttpOnly {
+		t.Fatalf("public cookie boundary: %v", policyResp.Header.Values("Set-Cookie"))
+	}
+	// An unprefixed cookie can be written at a parent domain. It must not
+	// authorize this entrance, even if its value happens to be a valid token.
+	spoofReq, _ := http.NewRequest(http.MethodGet, harness.status+"/", nil)
+	spoofReq.Host = destination.Host
+	spoofReq.AddCookie(&http.Cookie{Name: webclient.SessionCookieName, Value: appCookie})
+	spoofResp, err := client.Do(spoofReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spoofResp.Body.Close()
+	if spoofResp.StatusCode != 401 {
+		t.Fatal("unprefixed cookie authorized public access")
+	}
+
+	// Management credentials are separate; cookies cannot unlock the connection.
+	check := func(path, header, credential string, want int) []byte {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, harness.status+path, nil)
+		req.Host = harness.host
+		if header != "" {
+			req.Header.Set(header, credential)
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		if response.StatusCode != want {
+			t.Fatalf("%s status %d, want %d: %s", path, response.StatusCode, want, body)
+		}
+		return body
+	}
+	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.SessionToken, 401)
+	check("/__remote_everything_web_lock", "", "", 401)
+	check("/__remote_everything_web_lock", webclient.RevokeHeaderName, pairData.RevokeToken, 200)
+	checkApp(appCookie, 401)
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
+	body := check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 200)
+	var unlocked struct {
+		Token string `json:"session_token"`
+	}
+	if err := json.Unmarshal(body, &unlocked); err != nil {
+		t.Fatal(err)
+	}
+	if unlocked.Token == "" || unlocked.Token == pairData.SessionToken {
+		t.Fatal("unlock must replace access token")
+	}
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, unlocked.Token, 200)
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
+	pairData.SessionToken = unlocked.Token
+	checkApp(appCookie, 401)
+	checkApp(unlocked.Token, 200)
+
 	// 8. Logout
 	logoutReq, _ := http.NewRequest(http.MethodPost, harness.status+"/__remote_everything_web_logout", nil)
 	logoutReq.Host = harness.host
 	logoutReq.Header.Set("X-Remote-Everything-Web-Token", pairData.SessionToken)
+	logoutReq.Header.Set(webclient.RevokeHeaderName, pairData.RevokeToken)
 	logoutResp, err := client.Do(logoutReq)
 	if err != nil {
 		t.Fatalf("logout failed: %v", err)
@@ -213,6 +338,10 @@ func TestPublicWebClient_EndToEndFlow(t *testing.T) {
 	if logoutResp.StatusCode != http.StatusOK {
 		t.Fatalf("logout status = %d; want %d", logoutResp.StatusCode, http.StatusOK)
 	}
+
+	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 401)
+
+	checkApp(unlocked.Token, 401)
 
 	// 9. Query /nodes after logout should be 401
 	afterReq, _ := http.NewRequest(http.MethodGet, harness.status+"/__remote_everything/nodes", nil)

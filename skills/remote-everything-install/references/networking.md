@@ -32,7 +32,7 @@
 - **免域名高安全**：
   - **移动端**：原生 App（Android / iOS / HarmonyOS）直接钉扎入口自签证书的 SPKI，无需公共商业 CA 证书，防中间人窃听与伪造，不产生任何证书红脸。
   - **Web 浏览器**：普通浏览器访问 `https://<IP>:<port>/`，利用网关内置的纯前端单页面应用（SPA）与 WebCrypto 加密保险箱，通过 HttpOnly Cookie 建立经过管理员人工审批（`device approve`）的安全会话。
-  - **应用沙箱隔离**：各应用由 LAN 网关在远端分配独立端口（`https://<IP>:<app_port>/`），完全依靠浏览器原生同源策略实现存储隔离，无需子域名泛解析。
+  - **应用地址与存储**：各应用由 LAN 网关在远端分配独立端口（`https://<IP>:<app_port>/`），浏览器同源策略隔离页面、LocalStorage 与 IndexedDB，无需子域名泛解析；Cookie 不按端口隔离，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
 
 ## 3. Linux 域名公网服务器（Public 443）
 
@@ -51,7 +51,7 @@ Web浏览器 ─── HTTPS(8443) ── 8443入口 ── 网关状态端口 �
 
 ### 域名选型与 Origin 隔离策略（自由可选，非强制绑定）
 
-Public 形态的核心安全基石是**每个应用独占一个独立 Web Origin**（形如 `https://<appID>.<nodePrefix>.<domain>/`）。这确保了各受管应用的 LocalStorage、SessionStorage、Cookie 和 IndexedDB 受到浏览器同源策略的天然沙箱隔离，防止应用间相互污染或读取会话。
+Public 形态为**每个应用分配独立 Web Origin**（形如 `https://<appID>.<nodePrefix>.<domain>/`），浏览器同源策略限制跨应用的页面及 LocalStorage、SessionStorage、IndexedDB 访问。Cookie 不遵循相同的隔离边界：当前同父域布局仍允许应用脚本写父域 Cookie，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
 
 为了支撑多级子域名隔离，Remote Everything 提供完全自由、非强制绑定的域名选型路径：
 
@@ -78,4 +78,4 @@ Public 形态的核心安全基石是**每个应用独占一个独立 Web Origin
    - **实现方案**：执行 `remote-everything-lan-server init --host <公网IP> --tunnel --require-approval`。
    - **隔离与信任模型**：
      - 移动端 App 通过 SPKI 公钥强钉扎直接与云端自签证书通信，零外部 CA 依赖；
-     - Web 客户端与受管应用在云端分配独立高端口（如 `https://<IP>:8443/`、`https://<IP>:9001/`），完全依赖浏览器原生以「协议+主机+端口」为维度的同源策略达成沙箱隔离，不需任何子域名解析。
+     - Web 客户端与受管应用在云端分配独立高端口（如 `https://<IP>:8443/`、`https://<IP>:9001/`），浏览器以「协议+主机+端口」为维度隔离页面与本地存储，Cookie 不按端口隔离；不需任何子域名解析。

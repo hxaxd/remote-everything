@@ -2,199 +2,88 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Remote Everything Web</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f5f6f8">
+  <title>Remote Everything</title>
+  <link rel="icon" href="/web/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/web/style.css">
+  <script src="/web/app.js" defer></script>
 </head>
 <body>
-  <div id="app" class="app-container">
-    <!-- 顶部状态栏 -->
-    <header class="navbar">
-      <div class="nav-brand">
-        <div class="brand-logo">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-            <line x1="8" y1="21" x2="16" y2="21"></line>
-            <line x1="12" y1="17" x2="12" y2="21"></line>
-          </svg>
-        </div>
-        <span class="brand-title">Remote Everything</span>
-        <span class="brand-badge">Web</span>
+  <svg class="symbols" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-computer" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 21h8m-4-5v5"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><rect x="7" y="4" width="4" height="6" rx="1"/><rect x="14" y="14" width="4" height="6" rx="1"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 4v3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14m0-10H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  </defs></svg>
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/web/" aria-label="Remote Everything 首页"><img src="/web/icon.svg" alt="" width="36" height="36"><span>Remote<br>Everything</span></a>
+      <div id="sidebar-connected" hidden>
+        <div class="sidebar-heading"><span>我的电脑</span><span id="node-count"></span></div>
+        <nav id="node-list" aria-label="选择电脑"></nav>
       </div>
-      <div class="nav-actions" id="nav-actions" style="display: none;">
-        <div class="node-select-wrap">
-          <label for="node-selector" class="sr-only">选择节点</label>
-          <select id="node-selector" class="node-select"></select>
+      <div class="sidebar-bottom">
+        <div id="session-actions" hidden>
+          <button class="sidebar-action" id="btn-settings"><svg class="icon"><use href="#i-settings"/></svg>设置</button>
+          <button class="sidebar-action" id="btn-lock"><svg class="icon"><use href="#i-lock"/></svg>锁定</button>
         </div>
-        <button id="btn-lock" class="btn-icon" title="锁屏保密">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-        </button>
-        <button id="btn-settings" class="btn-icon" title="设置">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-        </button>
+        <div class="gateway-label"><span id="gateway-host"></span></div>
       </div>
-    </header>
-
-    <!-- 核心视图区域 -->
-    <main class="main-content">
-      <!-- 视图 1：解锁本地保险箱 -->
-      <section id="view-unlock" class="view-panel card" style="display: none;">
-        <div class="card-header">
-          <div class="card-icon-circle">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-          </div>
-          <h2>解锁本地保险箱</h2>
-          <p class="card-subtitle">您的网关凭据已使用 AES-GCM 安全加密保存在本地</p>
-        </div>
-        <form id="form-unlock" class="form-grid">
-          <div class="form-group">
-            <label for="unlock-passphrase">本地主密码</label>
-            <input type="password" id="unlock-passphrase" class="input-field" placeholder="输入初次配对时设置的主密码" autocomplete="current-password" required>
-          </div>
-          <div id="unlock-error" class="error-banner" style="display: none;"></div>
-          <div class="form-actions">
-            <button type="submit" class="btn btn-primary">解锁并进入</button>
-            <button type="button" id="btn-forget" class="btn btn-ghost">遗忘此设备</button>
-          </div>
-        </form>
-      </section>
-
-      <!-- 视图 2：配对与初始化 -->
-      <section id="view-pair" class="view-panel card" style="display: none;">
-        <div class="card-header">
-          <div class="card-icon-circle accent">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
-          </div>
-          <h2>连接到网关</h2>
-          <p class="card-subtitle">输入管理员签发的邀请码，即可在浏览器中开启安全会话</p>
-        </div>
-        <form id="form-pair" class="form-grid">
-          <div class="form-group">
-            <label for="pair-invitation">邀请码或配对链接</label>
-            <input type="text" id="pair-invitation" class="input-field monospace" placeholder="例如：re-lan://... 或 43 位邀请令牌" required>
-          </div>
-          <div class="form-group">
-            <label for="pair-devicename">设备名称</label>
-            <input type="text" id="pair-devicename" class="input-field" placeholder="例如：Chrome on Windows" required>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="pair-passphrase">设置本地主密码</label>
-              <input type="password" id="pair-passphrase" class="input-field" placeholder="至少 6 位，用于加密浏览器存储" autocomplete="new-password" required>
-            </div>
-            <div class="form-group">
-              <label for="pair-passphrase-confirm">确认主密码</label>
-              <input type="password" id="pair-passphrase-confirm" class="input-field" placeholder="再次输入主密码" autocomplete="new-password" required>
-            </div>
-          </div>
-          <div id="pair-error" class="error-banner" style="display: none;"></div>
-          <div class="form-actions">
-            <button type="submit" id="btn-start-pair" class="btn btn-primary">立即配对</button>
-          </div>
-        </form>
-      </section>
-
-      <!-- 视图 3：等待管理员审批 -->
-      <section id="view-pending" class="view-panel card" style="display: none;">
-        <div class="card-header">
-          <div class="card-icon-circle warning animate-pulse">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-          </div>
-          <h2>等待管理员审批</h2>
-          <p class="card-subtitle">设备已成功提交配对申请，需由网关管理员在后台审批通过</p>
-        </div>
-        <div class="pending-info-box">
-          <div class="info-row">
-            <span class="info-label">设备名称：</span>
-            <span id="pending-devicename" class="info-value"></span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">设备指纹：</span>
-            <div class="fingerprint-copy-box">
-              <code id="pending-fingerprint" class="monospace"></code>
-              <button type="button" id="btn-copy-fp" class="btn-copy" title="复制完整指纹">复制</button>
-            </div>
-          </div>
-          <div class="approval-guide">
-            <p>提示：管理员可在网关服务器上执行以下命令批准该设备：</p>
-            <code id="pending-cmd" class="cmd-snippet"></code>
-          </div>
-        </div>
-        <div class="polling-indicator">
-          <div class="spinner"></div>
-          <span>正在静默等待审批结果...</span>
-        </div>
-        <div class="form-actions">
-          <button type="button" id="btn-cancel-pending" class="btn btn-ghost">取消并重置</button>
+    </aside>
+    <main id="main-content">
+      <section id="view-pair" class="auth-view" hidden aria-labelledby="pair-title">
+        <div class="auth-content">
+          <h1 id="pair-title" tabindex="-1">连接你的电脑</h1>
+          <form id="form-pair">
+            <div class="field"><label for="pair-invitation">邀请链接</label><textarea id="pair-invitation" rows="2" placeholder="粘贴邀请链接" autocomplete="off" autocapitalize="off" spellcheck="false" required aria-describedby="invitation-hint"></textarea><span class="hint" id="invitation-hint">邀请链接只能使用一次。</span></div>
+            <div class="field"><label for="pair-devicename">设备名称</label><input id="pair-devicename" maxlength="80" required autocomplete="off" placeholder="例如：我的笔记本"></div>
+            <div class="password-fields"><div class="field"><label for="pair-passphrase">解锁密码</label><input type="password" id="pair-passphrase" minlength="6" placeholder="至少 6 位" autocomplete="new-password" required></div><div class="field"><label for="pair-passphrase-confirm">确认密码</label><input type="password" id="pair-passphrase-confirm" minlength="6" placeholder="再次输入" autocomplete="new-password" required></div></div>
+            <p class="hint password-hint">仅用于解锁当前浏览器保存的连接。</p>
+            <p id="pair-error" class="notice error" role="alert" hidden></p>
+            <button type="submit" id="btn-start-pair" class="button primary full">连接电脑<svg class="icon"><use href="#i-arrow"/></svg></button>
+          </form>
         </div>
       </section>
-
-      <!-- 视图 4：主控制台 (Dashboard) -->
-      <section id="view-dashboard" class="view-panel" style="display: none;">
-        <!-- 节点状态卡 -->
-        <div class="node-banner card">
-          <div class="node-info">
-            <div class="node-status-indicator" id="node-status-dot"></div>
-            <div>
-              <div class="node-name-row">
-                <h3 id="current-node-name" class="node-name">正在连接...</h3>
-                <span id="current-node-badge" class="badge">在线</span>
-              </div>
-              <p id="current-node-meta" class="node-meta"></p>
-            </div>
-          </div>
-          <div class="node-actions">
-            <button id="btn-refresh-apps" class="btn btn-secondary btn-sm">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-              刷新
-            </button>
-          </div>
-        </div>
-
-        <!-- 应用卡片列表 -->
-        <div class="section-header">
-          <h4>受管应用列表</h4>
-          <span id="app-count" class="counter">0 个应用</span>
-        </div>
-
-        <div id="apps-grid" class="apps-grid">
-          <!-- 动态渲染 -->
-        </div>
-
-        <div id="empty-apps" class="empty-state card" style="display: none;">
-          <p>该节点目前没有登记任何受管应用</p>
+      <section id="view-unlock" class="auth-view" hidden aria-labelledby="unlock-title">
+        <div class="auth-content compact">
+          <h1 id="unlock-title" tabindex="-1">解锁连接</h1>
+          <form id="form-unlock"><div class="field"><label for="unlock-passphrase">解锁密码</label><input type="password" id="unlock-passphrase" autocomplete="current-password" placeholder="输入密码" required></div><p id="unlock-error" class="notice error" role="alert" hidden></p><button type="submit" id="btn-unlock" class="button primary full">解锁连接<svg class="icon"><use href="#i-arrow"/></svg></button></form>
+          <div class="unlock-footer"><button id="btn-forget" class="text-button">忘记密码？重新配对</button></div>
         </div>
       </section>
+      <section id="view-pending" class="auth-view" hidden aria-labelledby="pending-title">
+        <div class="auth-content compact">
+          <h1 id="pending-title" tabindex="-1">等待批准</h1><p class="intro">请管理员确认下面的设备。通过后会自动进入。</p>
+          <dl class="details-list"><div><dt>设备名称</dt><dd id="pending-devicename"></dd></div><div><dt>设备指纹<button id="btn-copy-fp" class="text-button">复制</button></dt><dd><code id="pending-fingerprint"></code></dd></div></dl>
+          <p id="pending-status" class="pending-status" role="status"><span class="spinner"></span>正在等待确认…</p>
+          <p id="pending-error" class="notice error" role="alert" hidden></p>
+          <button id="btn-cancel-pending" class="button secondary full">取消连接</button>
+        </div>
+      </section>
+      <section id="view-dashboard" class="workspace" hidden aria-labelledby="current-node-name">
+        <header class="workspace-header"><div class="breadcrumb">我的电脑<svg class="icon"><use href="#i-arrow"/></svg><span id="breadcrumb-node"></span></div><button id="btn-refresh-apps" class="button quiet"><svg class="icon"><use href="#i-refresh"/></svg><span>刷新</span></button></header>
+        <div class="workspace-content">
+          <div class="computer-heading"><div class="computer-icon"><svg class="icon"><use href="#i-computer"/></svg></div><div class="computer-info"><h1 id="current-node-name" tabindex="-1">我的电脑</h1><div class="connection-line"><span id="current-node-badge" class="status" data-tone="neutral">正在连接</span><span id="current-node-meta"></span></div></div></div>
+          <div class="apps-toolbar"><div class="section-title"><h2>应用</h2><span id="app-count" class="count">—</span></div><label class="search"><svg class="icon"><use href="#i-search"/></svg><input type="search" id="app-search" placeholder="搜索应用" aria-label="搜索应用" autocomplete="off"><kbd>/</kbd></label></div>
+          <p id="dashboard-error" class="notice error" role="alert" hidden></p>
+          <div id="apps-loading" class="loading-state" role="status" hidden><span class="spinner"></span>正在读取应用…</div>
+          <div id="apps-list" class="apps-list" aria-label="应用列表"></div>
+          <div id="empty-apps" class="empty-state" hidden><h3 id="empty-title"></h3><p id="empty-description"></p><button id="btn-retry" class="button secondary" hidden>重试</button></div>
+          <footer class="workspace-footer"><span id="last-updated" role="status"></span></footer>
+        </div>
+      </section>
+      <noscript><p class="notice">请启用浏览器的 JavaScript 后使用 Remote Everything。</p></noscript>
     </main>
-
-    <!-- 设置弹窗 -->
-    <div id="modal-settings" class="modal-overlay" style="display: none;">
-      <div class="modal card">
-        <div class="modal-header">
-          <h3>会话与设备设置</h3>
-          <button id="btn-close-settings" class="btn-icon">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="setting-item">
-            <label>当前设备指纹</label>
-            <code id="settings-fingerprint" class="monospace text-break"></code>
-          </div>
-          <div class="setting-item">
-            <label>网关地址</label>
-            <span id="settings-origin" class="monospace"></span>
-          </div>
-          <div class="setting-item">
-            <label>会话有效期至</label>
-            <span id="settings-expires"></span>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button id="btn-logout" class="btn btn-danger">登出并清除本地凭据</button>
-        </div>
-      </div>
-    </div>
   </div>
-
-  <script src="/web/app.js"></script>
+  <dialog id="modal-settings" aria-labelledby="settings-title"><div class="dialog-header"><h2 id="settings-title">设置</h2><button id="btn-close-settings" class="icon-button" aria-label="关闭设置"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="dialog-body"><dl class="details-list"><div><dt>当前设备</dt><dd id="settings-device"></dd></div><div><dt>网关地址</dt><dd id="settings-origin"></dd></div><div><dt>连接有效期</dt><dd id="settings-expires"></dd></div></dl><div class="setting-row"><label for="theme-select">外观</label><select id="theme-select"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div><div class="disconnect-section"><button id="btn-logout" class="button danger">退出连接</button></div></div></dialog>
+  <dialog id="modal-confirm" aria-labelledby="confirm-title" aria-describedby="confirm-description"><div class="dialog-header"><h2 id="confirm-title"></h2></div><div class="dialog-body"><p id="confirm-description"></p></div><div class="dialog-actions"><button id="confirm-cancel" class="button secondary">取消</button><button id="confirm-accept" class="button danger"></button></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
 </body>
 </html>

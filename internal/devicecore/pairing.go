@@ -219,13 +219,9 @@ type WebPairResult struct {
 // lesser a door than an app does — the same limits, and the same delay before
 // a refusal, guard both.
 //
-// A client id of a device this gateway already holds is itself the credential
-// that browser authenticates with: the invitation was its admission, and the
-// id is what it keeps instead of a credential file. Returning that device is
-// how a browser that lost its session comes back, and it is why the
-// invitation is read only when no such device exists yet. It answers with the
-// code a refusal is written as, because the browser endpoint maps it to its
-// own statuses.
+// The client id names a browser; it is not an authorization credential.
+// Every pairing consumes a fresh invitation. Session renewal belongs to the
+// independently authenticated web unlock endpoint.
 func (service *Trust) PairWebDevice(address, invitation, clientID, deviceName string) (result WebPairResult, code string, err error) {
 	clientID = strings.ToLower(strings.TrimSpace(clientID))
 	if !validHex64.MatchString(clientID) {
@@ -249,23 +245,13 @@ func (service *Trust) PairWebDevice(address, invitation, clientID, deviceName st
 	return result, code, err
 }
 
-// pairWeb is the pairing of a browser client: it admits the device the client
-// id names, or returns the device that id already has.
+// pairWeb admits the named browser by consuming a fresh invitation.
 func (service *Trust) pairWeb(invitation, clientID, deviceName string) (WebPairResult, string, error) {
 	sum := sha256.Sum256([]byte("web:" + clientID))
 	fingerprint := hex.EncodeToString(sum[:])
 
 	service.pairLock.Lock()
 	defer service.pairLock.Unlock()
-
-	if existing, err := service.loadDeviceRecord(fingerprint); err == nil && existing.Status != "revoked" {
-		return WebPairResult{
-			Fingerprint: fingerprint,
-			DeviceName:  existing.DeviceName,
-			Status:      existing.Status,
-			Nodes:       existing.Nodes,
-		}, "", nil
-	}
 
 	invite, err := service.loadInvitation(invitation)
 	if err != nil {
@@ -303,19 +289,21 @@ func (service *Trust) pairWeb(invitation, clientID, deviceName string) (WebPairR
 		Status: status, CreatedAt: isoUTC(now), PendingExpiresAt: pendingExpiresAt,
 		ApprovalRequestedAt: approvalRequestedAt, ApprovedAt: approvedAt, ActivatedAt: activatedAt,
 	}
+	previous, previousErr := service.loadDeviceRecord(fingerprint)
 	if err := service.writeDeviceRecord(record); err != nil {
 		return WebPairResult{}, "pairing_failed", err
 	}
 
-	// A web redemption stores no credential: the browser keeps its client id
-	// and identifies itself by it from here on, and there is nothing to hand
-	// back that a browser could re-read.
 	invite.UsedAt = isoUTC(now)
 	invite.Kind = deviceKindWeb
 	invite.DeviceName = deviceName
 	invite.CertificateFingerprint = fingerprint
 	if err := service.writeInvitation(invite); err != nil {
-		_ = os.Remove(service.deviceRecordPath(fingerprint))
+		if previousErr == nil {
+			_ = service.writeDeviceRecord(previous)
+		} else {
+			_ = os.Remove(service.deviceRecordPath(fingerprint))
+		}
 		return WebPairResult{}, "pairing_failed", err
 	}
 

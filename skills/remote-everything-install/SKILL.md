@@ -5,14 +5,16 @@ description: 安装或重建 Remote Everything。用于对齐节点、移动客�
 
 读取 [releases.md](references/releases.md)、[mobile-clients.md](references/mobile-clients.md)、[runtime.md](references/runtime.md)、[node-cli.md](references/node-cli.md)、[server-cli.md](references/server-cli.md) 和 [templates.md](references/templates.md)。远程访问再读取 [networking.md](references/networking.md)；公网形态同时读取 [reverse-proxy.md](references/reverse-proxy.md)。已有部署再加一台电脑时，读取 [multi-computer.md](references/multi-computer.md)。
 
+部署前遵循[应用信任边界](../remote-everything-app/SKILL.md#应用信任边界)：只接入可信、无恶意的应用及插件。
+
 1. 确认节点平台与架构、客户端形式（移动端 Android / iOS / HarmonyOS 或普通 Web 浏览器）、是否同网、现有远程组网、Linux 公网服务器、是否有域名及 443 端口控制权、SSH 所有者。
 2. 拓扑与域名选择决策（自由可选、非强制绑定）：
    - **同网或已有远程组网**（如 Tailscale / 自建 VPN）：选择标准直连 LAN。
    - **异地访问 + Linux 公网服务器（Public 443 形态，支持任意域名策略）**：
      - **自有域名（Custom Domain）**：有独立域名且可配置一条 `*.yourdomain.com` 泛解析 A/AAAA 记录指向服务器。
-     - **IP 泛解析域名（Wildcard IP DNS，可选且推荐的零门槛免配置方案）**：有公网 IP 但无域名或不想配置 DNS 解析，直接使用中划线格式的 IP 泛解析域名作为 Origin（首选 `47-97-117-46.nip.io`，备选 `47-97-117-46.sslip.io`；`*.sslip.io` 在部分链路会被按 SNI 重置，选型前先按 networking.md 的实测方法验通）。完全免买域名、零 DNS 配置、即开即用，配合 Caddy `on_demand_tls` + TLS-ALPN-01 验证（自动绕过 80 端口 HTTP 拦截）由公共 CA 按需自动签发证书，完美达成应用级子域名 Web Origin 严密隔离。
+     - **IP 泛解析域名（Wildcard IP DNS，可选且推荐的零门槛免配置方案）**：有公网 IP 但无域名或不想配置 DNS 解析，直接使用中划线格式的 IP 泛解析域名作为 Origin（首选 `47-97-117-46.nip.io`，备选 `47-97-117-46.sslip.io`；`*.sslip.io` 在部分链路会被按 SNI 重置，选型前先按 networking.md 的实测方法验通）。完全免买域名、零 DNS 配置、即开即用，配合 Caddy `on_demand_tls` + TLS-ALPN-01 验证（自动绕过 80 端口 HTTP 拦截）由公共 CA 按需自动签发证书，为每个应用提供独立 Web Origin；Cookie 边界仍受上述应用信任前提约束。
      - *服务端口分流规则*：443 端口由 Caddy 专供移动端 App mTLS 与节点隧道，未出示客户端证书的公网请求直接 401 或转发既有网站；同时在 8443 高端口默认提供免客户端证书的 Web 客户端直达服务，彻底释放 443 根路径，不侵占云端既有网站/演示站业务。
-   - **无域名公网/异地穿透场景（不依赖任何外部 DNS 服务的纯 IP 方案）**：**选择带隧道的 LAN 形态（`remote-everything-lan-server init --host <PUBLIC_IP> --tunnel --require-approval`）**。由 LAN 网关在云端直接提供服务并内置 FRPS 穿透，节点经 FRPC 接入；移动端通过自签证书 + SPKI 强钉扎直连免受公共 CA 束缚；Web 浏览器直接访问内置 Web 客户端，各应用在云端独立端口沙箱隔离，完全不产生域名、公网证书或 Caddy 运维成本。
+   - **无域名公网/异地穿透场景（不依赖任何外部 DNS 服务的纯 IP 方案）**：**选择带隧道的 LAN 形态（`remote-everything-lan-server init --host <PUBLIC_IP> --tunnel --require-approval`）**。由 LAN 网关在云端直接提供服务并内置 FRPS 穿透，节点经 FRPC 接入；移动端通过自签证书 + SPKI 强钉扎直连免受公共 CA 束缚；Web 浏览器直接访问内置 Web 客户端，各应用在云端使用独立端口，页面与本地存储按同源策略隔离，Cookie 不按端口隔离，完全不产生域名、公网证书或 Caddy 运维成本。
    - **无公网 IP 也无域名且无法直连**：推荐免费虚拟组网 Tailscale 并指导用户建立，互通后按 LAN 部署。
 3. 从同一 GitHub Release 下载对应节点与服务端二进制并核验 `SHA256SUMS`，放入 `.runtime/bin/`；按 `mobile-clients.md` 取得同版本客户端。若使用通用 Web 客户端，网关已内置完整静态 SPA（基于 WebCrypto 本地保险箱，零外部 CDN 依赖），浏览器打开 Web 客户端地址（public 默认为 `https://<public_host>:8443/`，LAN 为 `https://<host>:<port>/`）即可直接使用，无需预先安装任何本地应用。当前没有官方分发渠道时，Android 交付已签名 APK，iOS 与 HarmonyOS 分别由用户在 Xcode 与 DevEco Studio 中完成本地签名构建；不得代签，也不把客户端安装包写入节点运行目录。
 4. 两种形态都是「网关自己生成身份 → 每台节点一份 bundle 送到那台机器 → 节点 `binding add --bootstrap` 导入」，没有入口能自己写节点状态。顺序都是：先 `init` 网关自己，再让每台机器 `node init` 拿到自己的 `node_id` 与 `listen_address`，然后在网关上为每台机器执行一次 `node add` 拿到它的交付目录，最后把交付目录送到那台机器执行 `binding add`。LAN 支持可选 `--require-approval`（人工审批模式）与 `--tunnel`（开辟隧道穿透）；LAN 的 `node add` 若指定 `--node-address` 则由操作者说明直连局域网地址，若省略 `--node-address`（或开启 `--tunnel`）则由网关分配隧道端口并输出 `frpc/` 隧道证书材料；public 的 `node add --name <名字> --node-id <该机器的 node_id> --node-bootstrap <该机器专属目录>` 始终分配隧道端口并单独签发控制令牌。两种形态都要核对两端 `installation_id` 相同，再销毁传输副本。节点登记时可以声明的还有**这条连接叫什么**：`node add --link local|tunnel`，写进记录、随 `/nodes` 交给客户端显示；不写就由入口自己算（走隧道=`tunnel`，直接拨操作者给的地址=`local`），客户端另有一层兜底：只要它拨的地址不是私有地址，就按隧道显示（详见 references/server-cli.md）。

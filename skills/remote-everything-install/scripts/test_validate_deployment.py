@@ -46,6 +46,8 @@ class DeploymentContractTests(unittest.TestCase):
         for key, value in render_values.items():
             caddy = caddy.replace("{{" + key + "}}", value)
         validator.validate_caddy_contract(caddy)
+        with self.assertRaises(ValueError):
+            validator.validate_caddy_contract(caddy.replace("header_up -X-Remote-Everything-Client-Fingerprint", ""))
         pair = caddy.index("@pair path")
         tunnel = caddy.index("@tunnel expression")
         device = caddy.index("\t@device expression")

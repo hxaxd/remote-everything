@@ -95,7 +95,7 @@ func WriteJSON(writer http.ResponseWriter, status int, value any) {
 // never sees, so that what the gateway keeps to itself is one list.
 func gatewayOwnedCookie(name string) bool {
 	name = strings.TrimSpace(name)
-	return name == proxysecurity.RoutingCookieName || name == proxysecurity.WebSessionCookieName
+	return name == proxysecurity.RoutingCookieName || name == proxysecurity.WebSessionCookieName || name == proxysecurity.HostWebSessionCookieName
 }
 
 // stripGatewaySetCookies drops the cookies this deployment owns from a node's
@@ -268,6 +268,19 @@ func New(state State, gatewayRoot string) (*Gateway, error) {
 		gateway.links[node.ID] = link
 	}
 	return gateway, nil
+}
+
+// SetApplicationResponsePolicy installs an entrance-specific response policy.
+// Call before serving requests. The shared gateway-cookie filter always runs first,
+// including for redirects and protocol upgrades.
+func (gateway *Gateway) SetApplicationResponsePolicy(policy func(http.Header)) {
+	for _, link := range gateway.links {
+		link.application.ModifyResponse = func(response *http.Response) error {
+			stripGatewaySetCookies(response.Header)
+			policy(response.Header)
+			return nil
+		}
+	}
 }
 
 // SetAppAddressing tells a gateway where its applications are served, for a shape

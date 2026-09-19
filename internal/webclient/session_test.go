@@ -16,7 +16,7 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	}
 
 	fp := strings.Repeat("1", 64)
-	session, err := mgr.IssueSession(fp, "Test Chrome", time.Hour)
+	session, err := mgr.Pair(fp, "Test Chrome", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,12 +41,12 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	}
 
 	// Ticket
-	ticket, err := mgr2.IssueTicket(fp)
+	ticket, err := mgr2.IssueTicket(session.Token)
 	if err != nil {
 		t.Fatal(err)
 	}
 	redeemedFp, ok := mgr2.RedeemTicket(ticket)
-	if !ok || redeemedFp != fp {
+	if !ok || redeemedFp.Fingerprint != fp {
 		t.Fatalf("expected redeemed ticket fp=%q, got=%q, ok=%v", fp, redeemedFp, ok)
 	}
 	// Ticket must be single use
@@ -55,7 +55,7 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	}
 
 	// Revoke
-	if err := mgr2.RevokeSession(session.Token); err != nil {
+	if err := mgr2.Revoke(session.RevokeToken, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := mgr2.ValidateSession(session.Token); ok {
@@ -63,7 +63,7 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	}
 
 	// Re-issue and RevokeFingerprint
-	s2, err := mgr2.IssueSession(fp, "Test Firefox", time.Hour)
+	s2, err := mgr2.Pair(fp, "Test Firefox", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestWebHandler_StaticAndSessionMiddleware(t *testing.T) {
 	reqCss := httptest.NewRequest("GET", "/web/style.css", nil)
 	recCss := httptest.NewRecorder()
 	handler.ServeHTTP(recCss, reqCss)
-	if recCss.Code != http.StatusOK || !strings.Contains(recCss.Body.String(), "--bg-main") {
+	if recCss.Code != http.StatusOK || !strings.Contains(recCss.Body.String(), "--canvas") {
 		t.Fatalf("expected 200 OK for css, got: %d", recCss.Code)
 	}
 
@@ -112,7 +112,7 @@ func TestWebHandler_StaticAndSessionMiddleware(t *testing.T) {
 
 	// 4. Test WithWebSession Middleware
 	fp := strings.Repeat("2", 64)
-	session, err := mgr.IssueSession(fp, "Test Browser", time.Hour)
+	session, err := mgr.Pair(fp, "Test Browser", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

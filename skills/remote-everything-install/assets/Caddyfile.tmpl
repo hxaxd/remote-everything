@@ -38,11 +38,23 @@
 		reverse_proxy "{{FRPS_UPSTREAM}}"
 	}
 
-	# Everything a device this entrance issued a credential to sends is the
-	# gateway's, whether it is the control surface it asks for or the application
-	# traffic it carries: both leave here for the same upstream, and the fingerprint
-	# of the certificate this entrance verified travels with it. The one request
-	# that can arrive without one is the pairing endpoint above.
+	@web_client path /web /web/* /__remote_everything_web_*
+	handle @web_client {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up -X-Remote-Everything-Client-Fingerprint
+		}
+	}
+	@web_session {
+		header Cookie *remote_everything_web=*
+		path /__remote_everything*
+	}
+	handle @web_session {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up -X-Remote-Everything-Client-Fingerprint
+		}
+	}
+
+	# Certificate clients carry the identity verified at this entrance.
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
@@ -62,11 +74,9 @@
 # Caddy's wildcards stand for exactly one label each.
 #
 # One certificate is issued per application host, on demand, and only after the
-# gateway was asked whether that host is one it serves: a request for anything else
-# is answered 401, as it is on the gateway's own host, and the gateway is told which
-# device is asking the same way — the fingerprint of the certificate this entrance
-# verified travels with it, and everything without one of those certificates stops
-# here.
+# gateway was asked whether that host is one it serves. Browser sessions and
+# single-use handoff tickets are verified by the gateway; certificate clients
+# carry the fingerprint verified by this entrance.
 https://*.*.{{PUBLIC_HOST}} {
 	log
 	@compressible not path /__remote_everything*
@@ -84,6 +94,18 @@ https://*.*.{{PUBLIC_HOST}} {
 		}
 	}
 
+	@web_ticket query _reticket=*
+	handle @web_ticket {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up -X-Remote-Everything-Client-Fingerprint
+		}
+	}
+	@web_session header Cookie *remote_everything_web=*
+	handle @web_session {
+		reverse_proxy "{{STATUS_UPSTREAM}}" {
+			header_up -X-Remote-Everything-Client-Fingerprint
+		}
+	}
 	@device expression `{tls_client_issuer} == "{{DEVICE_ISSUER_DN}}"`
 	handle @device {
 		reverse_proxy "{{STATUS_UPSTREAM}}" {
@@ -106,5 +128,7 @@ https://*.*.{{PUBLIC_HOST}} {
 			{{ACME_PROFILE}}
 		}
 	}
-	reverse_proxy "{{STATUS_UPSTREAM}}"
+	reverse_proxy "{{STATUS_UPSTREAM}}" {
+		header_up -X-Remote-Everything-Client-Fingerprint
+	}
 }

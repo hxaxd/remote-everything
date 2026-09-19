@@ -139,6 +139,7 @@ func openPublicTrust(root string, state gatewaycore.State, revoked func(fingerpr
 	if err != nil {
 		return nil, err
 	}
+	gateway.SetApplicationResponsePolicy(restrictPublicApplicationCookies)
 	return devicecore.Open(devicecore.Config{
 		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
 		// This gateway's invitations travel over a network nobody watches, so its
@@ -172,5 +173,6 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
+	webHandler.UseHostCookiePrefix()
 	return &publicService{state: state, trust: trust, webHandler: webHandler}, nil
 }

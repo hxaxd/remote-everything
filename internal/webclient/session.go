@@ -1,6 +1,9 @@
 package webclient
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,214 +18,267 @@ import (
 )
 
 const (
-	// SessionCookieName is the cookie carrying the web client session token.
-	// Its name is the deployment's own, named once in proxysecurity with the
-	// other names an application never sees, because a session is how the
-	// gateway knows who the browser is and not something an application owns.
-	SessionCookieName = proxysecurity.WebSessionCookieName
-	// SessionHeaderName is the alternative HTTP header carrying the web client session token.
-	SessionHeaderName = "X-Remote-Everything-Web-Token"
-	// TicketQueryParam is the URL query parameter carrying the one-time authorization ticket.
-	TicketQueryParam = "_reticket"
-	// DefaultSessionTTL is the default lifetime for a web client session.
-	DefaultSessionTTL = 30 * 24 * time.Hour
-	// DefaultTicketTTL is the lifetime for a one-time application origin ticket.
-	DefaultTicketTTL = 1 * time.Minute
-	sessionsFileName = "web-sessions.json"
+	SessionCookieName     = proxysecurity.WebSessionCookieName
+	HostSessionCookieName = proxysecurity.HostWebSessionCookieName
+	SessionHeaderName     = "X-Remote-Everything-Web-Token"
+	RevokeHeaderName      = "X-Remote-Everything-Web-Revoke"
+	UnlockHeaderName      = "X-Remote-Everything-Web-Unlock"
+	TicketQueryParam      = "_reticket"
+	DefaultSessionTTL     = 30 * 24 * time.Hour
+	DefaultTicketTTL      = time.Minute
+	sessionsFileName      = "web-sessions.json"
 )
 
 var validHex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
+var ErrUnauthorized = errors.New("unauthorized")
 
-// Session describes an active browser web client session.
+// Session is one browser connection. All of its application origins share its
+// current access token. Unlock replaces that token; lock removes it.
+// Only hashes of the independent unlock and revocation credentials are stored.
 type Session struct {
 	Token       string `json:"token"`
 	Fingerprint string `json:"fingerprint"`
 	DeviceName  string `json:"device_name"`
 	CreatedAt   string `json:"created_at"`
 	ExpiresAt   string `json:"expires_at"`
+	UnlockHash  string `json:"unlock_hash"`
+	RevokeHash  string `json:"revoke_hash"`
 }
-
+type Credentials struct {
+	Session
+	UnlockToken string
+	RevokeToken string
+}
 type ticketRecord struct {
-	fingerprint string
-	expiresAt   time.Time
+	token     string
+	expiresAt time.Time
 }
-
 type sessionStore struct {
 	Sessions []Session `json:"sessions"`
 }
-
-// SessionManager manages web client sessions and short-lived tickets for application access.
 type SessionManager struct {
-	root     string
-	mu       sync.RWMutex
-	sessions map[string]Session // token -> Session
-	tickets  map[string]ticketRecord
+	root        string
+	mu          sync.Mutex
+	connections map[string]Session // revocation hash -> browser connection
+	tickets     map[string]ticketRecord
+	active      map[string]map[*int]context.CancelFunc
 }
 
-// NewSessionManager opens or initializes the web session manager for a gateway state root.
-// Sessions that ran out are left out of the manager, and the store is rewritten without
-// them: a store that only ever grows is one no sweep ever saved.
+func credentialHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+func live(s Session) bool {
+	expires, err := time.Parse(time.RFC3339Nano, s.ExpiresAt)
+	return err == nil && time.Now().Before(expires)
+}
 func NewSessionManager(root string) (*SessionManager, error) {
 	if root == "" || !filepath.IsAbs(root) {
 		return nil, errors.New("state root must be absolute")
 	}
-	manager := &SessionManager{
-		root:     filepath.Clean(root),
-		sessions: make(map[string]Session),
-		tickets:  make(map[string]ticketRecord),
-	}
-	filePath := filepath.Join(manager.root, sessionsFileName)
+	m := &SessionManager{root: filepath.Clean(root), connections: map[string]Session{}, tickets: map[string]ticketRecord{}, active: map[string]map[*int]context.CancelFunc{}}
 	var store sessionStore
-	pruned := false
-	if err := jsonfile.Read(filePath, &store); err == nil {
-		now := time.Now().UTC()
-		for _, s := range store.Sessions {
-			if exp, err := time.Parse(time.RFC3339, s.ExpiresAt); err == nil && now.Before(exp) {
-				manager.sessions[s.Token] = s
-			} else {
-				pruned = true
-			}
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := jsonfile.Read(filepath.Join(root, sessionsFileName), &store); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	if pruned {
-		if err := manager.saveLocked(); err != nil {
+	for _, s := range store.Sessions {
+		if live(s) && validHex64.MatchString(s.Fingerprint) && validHex64.MatchString(s.UnlockHash) && validHex64.MatchString(s.RevokeHash) && (s.Token == "" || validHex64.MatchString(s.Token)) {
+			m.connections[s.RevokeHash] = s
+		}
+	}
+	if len(store.Sessions) != len(m.connections) {
+		if err := m.saveLocked(); err != nil {
 			return nil, err
 		}
 	}
-	return manager, nil
+	return m, nil
 }
-
 func (m *SessionManager) saveLocked() error {
-	list := make([]Session, 0, len(m.sessions))
-	now := time.Now().UTC()
-	for _, s := range m.sessions {
-		if exp, err := time.Parse(time.RFC3339, s.ExpiresAt); err == nil && now.Before(exp) {
+	list := make([]Session, 0, len(m.connections))
+	for _, s := range m.connections {
+		if live(s) {
 			list = append(list, s)
 		}
 	}
-	return jsonfile.Write(filepath.Join(m.root, sessionsFileName), sessionStore{Sessions: list}, 0o600)
+	return jsonfile.Write(filepath.Join(m.root, sessionsFileName), sessionStore{Sessions: list}, 0600)
 }
 
-// IssueSession mints a new web session token bound to a device fingerprint.
-func (m *SessionManager) IssueSession(fingerprint, deviceName string, ttl time.Duration) (Session, error) {
-	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
-	if !validHex64.MatchString(fingerprint) {
-		return Session{}, errors.New("invalid device fingerprint")
+// Pair creates credentials with one fixed lifetime. Handoffs and unlocks cannot
+// extend it. Pairing the same browser again also retires its previous connection.
+func (m *SessionManager) Pair(fp, name string, ttl time.Duration) (Credentials, error) {
+	fp = strings.ToLower(strings.TrimSpace(fp))
+	if !validHex64.MatchString(fp) {
+		return Credentials{}, errors.New("invalid device fingerprint")
 	}
 	if ttl <= 0 {
 		ttl = DefaultSessionTTL
 	}
 	token, err := secret.Hex(32)
 	if err != nil {
-		return Session{}, err
+		return Credentials{}, err
+	}
+	unlock, err := secret.Hex(32)
+	if err != nil {
+		return Credentials{}, err
+	}
+	revoke, err := secret.Hex(32)
+	if err != nil {
+		return Credentials{}, err
 	}
 	now := time.Now().UTC()
-	session := Session{
-		Token:       token,
-		Fingerprint: fingerprint,
-		DeviceName:  strings.TrimSpace(deviceName),
-		CreatedAt:   now.Format(time.RFC3339),
-		ExpiresAt:   now.Add(ttl).Format(time.RFC3339),
-	}
-
+	s := Session{Token: token, Fingerprint: fp, DeviceName: strings.TrimSpace(name), CreatedAt: now.Format(time.RFC3339Nano), ExpiresAt: now.Add(ttl).Format(time.RFC3339Nano), UnlockHash: credentialHash(unlock), RevokeHash: credentialHash(revoke)}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.sessions[token] = session
-	if err := m.saveLocked(); err != nil {
-		delete(m.sessions, token)
-		return Session{}, err
+	for key, old := range m.connections {
+		if old.Fingerprint == fp {
+			m.cancelLocked(old.Token)
+			delete(m.connections, key)
+		}
 	}
-	return session, nil
+	m.connections[s.RevokeHash] = s
+	if err := m.saveLocked(); err != nil {
+		delete(m.connections, s.RevokeHash)
+		return Credentials{}, err
+	}
+	return Credentials{Session: s, UnlockToken: unlock, RevokeToken: revoke}, nil
 }
-
-// ValidateSession checks whether a session token is valid and not expired.
-func (m *SessionManager) ValidateSession(token string) (Session, bool) {
-	token = strings.TrimSpace(token)
+func (m *SessionManager) validateLocked(token string) (Session, bool) {
 	if token == "" {
 		return Session{}, false
 	}
-	m.mu.RLock()
-	session, exists := m.sessions[token]
-	m.mu.RUnlock()
-	if !exists {
-		return Session{}, false
-	}
-	exp, err := time.Parse(time.RFC3339, session.ExpiresAt)
-	if err != nil || !time.Now().UTC().Before(exp) {
-		m.mu.Lock()
-		delete(m.sessions, token)
-		_ = m.saveLocked()
-		m.mu.Unlock()
-		return Session{}, false
-	}
-	return session, true
-}
-
-// RevokeSession removes an active session token.
-func (m *SessionManager) RevokeSession(token string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.sessions[token]; !exists {
-		return nil
-	}
-	delete(m.sessions, token)
-	return m.saveLocked()
-}
-
-// RevokeFingerprint invalidates all sessions for a given device fingerprint.
-func (m *SessionManager) RevokeFingerprint(fingerprint string) error {
-	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	changed := false
-	for token, s := range m.sessions {
-		if s.Fingerprint == fingerprint {
-			delete(m.sessions, token)
-			changed = true
+	for _, s := range m.connections {
+		if s.Token == token && live(s) {
+			return s, true
 		}
 	}
-	if changed {
-		return m.saveLocked()
-	}
-	return nil
+	return Session{}, false
+}
+func (m *SessionManager) ValidateSession(token string) (Session, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.validateLocked(strings.TrimSpace(token))
 }
 
-// IssueTicket creates a short-lived single-use ticket for cross-origin/cross-port app handoff.
-func (m *SessionManager) IssueTicket(fingerprint string) (string, error) {
-	fingerprint = strings.ToLower(strings.TrimSpace(fingerprint))
-	if !validHex64.MatchString(fingerprint) {
-		return "", errors.New("invalid device fingerprint")
+// Acquire registers cancellation atomically with authorization. A lock cannot
+// miss a request between validation and registration, including upgraded streams.
+func (m *SessionManager) Acquire(parent context.Context, token string) (Session, context.Context, func(), bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.validateLocked(token)
+	if !ok {
+		return Session{}, nil, nil, false
 	}
-	ticketStr, err := secret.Hex(16)
+	expiry, _ := time.Parse(time.RFC3339Nano, s.ExpiresAt)
+	ctx, cancel := context.WithDeadline(parent, expiry)
+	id := new(int)
+	if m.active[token] == nil {
+		m.active[token] = map[*int]context.CancelFunc{}
+	}
+	m.active[token][id] = cancel
+	done := func() {
+		cancel()
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		delete(m.active[token], id)
+		if len(m.active[token]) == 0 {
+			delete(m.active, token)
+		}
+	}
+	return s, ctx, done, true
+}
+func (m *SessionManager) cancelLocked(token string) {
+	for _, cancel := range m.active[token] {
+		cancel()
+	}
+	delete(m.active, token)
+	for ticket, rec := range m.tickets {
+		if rec.token == token {
+			delete(m.tickets, ticket)
+		}
+	}
+}
+
+// Revoke accepts a deny-only credential. It can never mint or authorize access.
+// Keeping it outside the encrypted vault allows revocation even after a reload
+// or when the user has forgotten the vault password. Repeated calls are safe.
+func (m *SessionManager) Revoke(revokeToken string, logout bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := credentialHash(revokeToken)
+	if s, ok := m.connections[key]; ok {
+		m.cancelLocked(s.Token)
+		if logout {
+			delete(m.connections, key)
+		} else {
+			s.Token = ""
+			m.connections[key] = s
+		}
+	}
+	return m.saveLocked()
+}
+func (m *SessionManager) Unlock(unlockToken string) (Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	hash := credentialHash(unlockToken)
+	for key, s := range m.connections {
+		if s.UnlockHash != hash || !live(s) {
+			continue
+		}
+		token, err := secret.Hex(32)
+		if err != nil {
+			return Session{}, err
+		}
+		m.cancelLocked(s.Token)
+		s.Token = token
+		m.connections[key] = s
+		if err := m.saveLocked(); err != nil {
+			s.Token = ""
+			m.connections[key] = s
+			return Session{}, err
+		}
+		return s, nil
+	}
+	return Session{}, ErrUnauthorized
+}
+func (m *SessionManager) RevokeFingerprint(fp string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, s := range m.connections {
+		if s.Fingerprint == strings.ToLower(strings.TrimSpace(fp)) {
+			m.cancelLocked(s.Token)
+			delete(m.connections, key)
+		}
+	}
+	return m.saveLocked()
+}
+func (m *SessionManager) IssueTicket(token string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.validateLocked(token); !ok {
+		return "", ErrUnauthorized
+	}
+	ticket, err := secret.Hex(16)
 	if err != nil {
 		return "", err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tickets[ticketStr] = ticketRecord{
-		fingerprint: fingerprint,
-		expiresAt:   time.Now().UTC().Add(DefaultTicketTTL),
+	now := time.Now()
+	for key, rec := range m.tickets {
+		if !now.Before(rec.expiresAt) {
+			delete(m.tickets, key)
+		}
 	}
-	return ticketStr, nil
+	m.tickets[ticket] = ticketRecord{token: token, expiresAt: now.Add(DefaultTicketTTL)}
+	return ticket, nil
 }
 
-// RedeemTicket redeems and consumes a single-use ticket, returning the associated fingerprint.
-func (m *SessionManager) RedeemTicket(ticketStr string) (string, bool) {
-	ticketStr = strings.TrimSpace(ticketStr)
-	if ticketStr == "" {
-		return "", false
-	}
+// RedeemTicket hands off the same access session, never creates a new lifetime.
+func (m *SessionManager) RedeemTicket(ticket string) (Session, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	rec, exists := m.tickets[ticketStr]
-	if !exists {
-		return "", false
+	rec, ok := m.tickets[ticket]
+	delete(m.tickets, ticket)
+	if !ok || !time.Now().Before(rec.expiresAt) {
+		return Session{}, false
 	}
-	delete(m.tickets, ticketStr)
-	if !time.Now().UTC().Before(rec.expiresAt) {
-		return "", false
-	}
-	return rec.fingerprint, true
+	return m.validateLocked(rec.token)
 }

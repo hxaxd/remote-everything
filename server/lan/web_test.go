@@ -55,9 +55,9 @@ func TestLANWebClient_StaticAssets(t *testing.T) {
 		wantStatus  int
 		wantContent string
 	}{
-		{"/", http.StatusOK, "<title>Remote Everything Web</title>"},
-		{"/index.html", http.StatusOK, "Remote Everything Web"},
-		{"/style.css", http.StatusOK, "--bg-main"},
+		{"/", http.StatusOK, "<title>Remote Everything</title>"},
+		{"/index.html", http.StatusOK, "id=\"view-pair\""},
+		{"/style.css", http.StatusOK, "--canvas"},
 		{"/app.js", http.StatusOK, "CryptoVault"},
 		{"/favicon.ico", http.StatusNoContent, ""},
 	}
@@ -137,6 +137,8 @@ func TestLANWebClient_EndToEndFlow(t *testing.T) {
 		DeviceName   string   `json:"device_name"`
 		Fingerprint  string   `json:"fingerprint"`
 		SessionToken string   `json:"session_token"`
+		RevokeToken  string   `json:"revoke_token"`
+		UnlockToken  string   `json:"unlock_token"`
 		Status       string   `json:"status"`
 		Nodes        []string `json:"nodes"`
 	}
@@ -240,14 +242,76 @@ func TestLANWebClient_EndToEndFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("visiting application origin failed: %v", err)
 	}
+	if appResp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("handoff: %d", appResp.StatusCode)
+	}
+	cleanLocation := appResp.Header.Get("Location")
+	appResp.Body.Close()
+	cleanURL, _ := url.Parse(location)
+	cleanPath, _ := url.Parse(cleanLocation)
+	cleanURL = cleanURL.ResolveReference(cleanPath)
+	if cleanURL.Query().Has(webclient.TicketQueryParam) {
+		t.Fatal("handoff credential left in URL")
+	}
+	appResp, err = client.Get(cleanURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer appResp.Body.Close()
 	if appResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(appResp.Body)
 		t.Fatalf("application origin returned status %d (body: %s); want %d", appResp.StatusCode, string(body), http.StatusOK)
 	}
 
+	// Management credentials are separate; cookies cannot unlock the connection.
+	check := func(path, header, credential string, want int) []byte {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, harness.origin+path, nil)
+		req.Host = ""
+		if header != "" {
+			req.Header.Set(header, credential)
+		}
+		response, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		if response.StatusCode != want {
+			t.Fatalf("%s status %d, want %d: %s", path, response.StatusCode, want, body)
+		}
+		return body
+	}
+	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.SessionToken, 401)
+	check("/__remote_everything_web_lock", "", "", 401)
+	check("/__remote_everything_web_lock", webclient.RevokeHeaderName, pairData.RevokeToken, 200)
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
+	body := check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 200)
+	var unlocked struct {
+		Token string `json:"session_token"`
+	}
+	if err := json.Unmarshal(body, &unlocked); err != nil {
+		t.Fatal(err)
+	}
+	if unlocked.Token == "" || unlocked.Token == pairData.SessionToken {
+		t.Fatal("unlock must replace access token")
+	}
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, unlocked.Token, 200)
+	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
+	pairData.SessionToken = unlocked.Token
+	oldApp, err := client.Get(cleanURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldApp.Body.Close()
+	// LAN cookies are shared across ports, so the fresh gateway cookie works here.
+	if oldApp.StatusCode != 200 {
+		t.Fatalf("unlocked LAN app: %d", oldApp.StatusCode)
+	}
+
 	// 8. Logout
 	logoutReq, _ := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_logout", nil)
+	logoutReq.Header.Set(webclient.RevokeHeaderName, pairData.RevokeToken)
 	logoutResp, err := client.Do(logoutReq)
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +321,16 @@ func TestLANWebClient_EndToEndFlow(t *testing.T) {
 		t.Fatalf("logout status = %d; want %d", logoutResp.StatusCode, http.StatusOK)
 	}
 
+	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 401)
+
+	oldApp, err = client.Get(cleanURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldApp.Body.Close()
+	if oldApp.StatusCode != 401 {
+		t.Fatalf("logged-out app: %d", oldApp.StatusCode)
+	}
 	// Subsequent /nodes call without session should fail with 401
 	afterResp, err := client.Get(harness.origin + "/__remote_everything/nodes")
 	if err != nil {

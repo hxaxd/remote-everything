@@ -119,12 +119,14 @@ def validate_caddy_contract(text):
     for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given", "on_demand_tls"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
-    if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
-        raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
-    # Every application of every node is served under a host of its own, which is
-    # what keeps one application's browser storage out of another's: the gateway's
-    # own host is one site, and every application host under it is another. Caddy's
-    # wildcards stand for exactly one label each, so covering
+    for proxy in re.findall(r"reverse_proxy[^\n]*\{\n(.*?)^\s*\}", active, re.MULTILINE | re.DOTALL):
+        if "header_up X-Remote-Everything-Client-Fingerprint" in proxy and "header_up -X-Remote-Everything-Client-Fingerprint" in proxy:
+            raise ValueError("Caddy fingerprint overwrite must not be combined with deletion in the same proxy")
+    for web_route in re.findall(r"handle @web_\w+\s*\{\n(.*?)^\s*\}", active, re.MULTILINE | re.DOTALL):
+        if "header_up -X-Remote-Everything-Client-Fingerprint" not in web_route:
+            raise ValueError("Caddy web routes must discard client-supplied fingerprints")
+    # Each application has its own host and origin; cookie scope is governed
+    # separately. Caddy's wildcards stand for exactly one label each, so covering
     # `<application>.<node prefix>.<host>` takes one wildcard per label.
     addresses = site_addresses(active)
     if len(addresses) not in (2, 3):
