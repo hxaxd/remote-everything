@@ -45,7 +45,7 @@ func TestClientIPIsTheClientRatherThanTheRelay(t *testing.T) {
 		if testCase.forwarded != "" {
 			request.Header.Set("X-Forwarded-For", testCase.forwarded)
 		}
-		if got := clientIP(request); got != testCase.expected {
+		if got := ClientAddress(request); got != testCase.expected {
 			t.Errorf("%s: counted against %q, want %q", name, got, testCase.expected)
 		}
 	}

@@ -118,6 +118,7 @@ func (service *Trust) activateDevice(request *http.Request) (any, string, error)
 				if err := service.writeDeviceRecord(replaced); err != nil {
 					return nil, "activation_failed", err
 				}
+				service.revokeDevice(replaced.CertificateFingerprint)
 			}
 		}
 		record.Status = "approved"
@@ -147,6 +148,10 @@ func rawRequestPath(request *http.Request) string {
 type nodeEntry struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	// Link is what this gateway knows about how it reaches the machine, in the two
+	// words a person reads: local, or over a tunnel. A client shows it as given and
+	// falls back to judging by the address it dials when a gateway says nothing.
+	Link string `json:"link,omitempty"`
 }
 
 type nodeListResponse struct {
@@ -161,7 +166,7 @@ func (service *Trust) nodeList(record deviceRecord) nodeListResponse {
 	nodes := []nodeEntry{}
 	for _, node := range service.node.Nodes() {
 		if slices.Contains(record.Nodes, node.ID) {
-			nodes = append(nodes, nodeEntry{ID: node.ID, Name: node.Name})
+			nodes = append(nodes, nodeEntry{ID: node.ID, Name: node.Name, Link: node.Link})
 		}
 	}
 	return nodeListResponse{OK: true, Nodes: nodes}
@@ -182,7 +187,7 @@ func (service *Trust) statusHTTPHandler(writer http.ResponseWriter, request *htt
 		return
 	}
 	if path == "/__remote_everything_activate" && request.Method == http.MethodPost {
-		if !service.statusLimiter.allow(clientIP(request)) {
+		if !service.statusLimiter.allow(ClientAddress(request)) {
 			gatewaycore.WriteJSON(writer, http.StatusTooManyRequests, gatewaycore.Error("rate_limited"))
 			return
 		}

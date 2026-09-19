@@ -60,16 +60,8 @@ func (service *publicService) entranceHandler() http.Handler {
 		// The entrance asks its own question in its own name, on the address rather
 		// than on a host — it is a question about a host — and everything else this
 		// gateway answers is answered for the host it was asked for.
-		if rawPath(request) == devicecore.TLSAskPath || host == domain {
-			if service.webHandler != nil && service.webHandler.IsWebClientRequest(request) {
-				service.webHandler.ServeHTTP(writer, request)
-				return
-			}
-			var coreHandler http.Handler = service.trust
-			if service.webHandler != nil {
-				coreHandler = service.webHandler.WithWebSession(coreHandler)
-			}
-			coreHandler.ServeHTTP(writer, request)
+		if rawPath(request) == devicecore.TLSAskPath {
+			service.trust.ServeHTTP(writer, request)
 			return
 		}
 		if prefix, appID, ok := gatewaycore.ParseAppHost(host, domain); ok {
@@ -81,6 +73,18 @@ func (service *publicService) entranceHandler() http.Handler {
 				appHandler.ServeHTTP(writer, request)
 				return
 			}
+		}
+		if host == domain {
+			if service.webHandler != nil && service.webHandler.IsWebClientRequest(request) {
+				service.webHandler.ServeHTTP(writer, request)
+				return
+			}
+			var coreHandler http.Handler = service.trust
+			if service.webHandler != nil {
+				coreHandler = service.webHandler.WithWebSession(coreHandler)
+			}
+			coreHandler.ServeHTTP(writer, request)
+			return
 		}
 		gatewaycore.WriteJSON(writer, http.StatusNotFound, gatewaycore.Error("not_found"))
 	})
@@ -127,6 +131,23 @@ func (service *publicService) listen(name string) string {
 	return address
 }
 
+// openPublicTrust opens the device trust of this gateway over a gateway that
+// reaches the nodes its state records. It is what serving and the commands
+// that edit what devices hold both go through.
+func openPublicTrust(root string, state gatewaycore.State, revoked func(fingerprint string) error) (*devicecore.Trust, error) {
+	gateway, err := gatewaycore.New(state, root)
+	if err != nil {
+		return nil, err
+	}
+	return devicecore.Open(devicecore.Config{
+		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
+		// This gateway's invitations travel over a network nobody watches, so its
+		// operator confirms the device that redeemed one, and an authority signs
+		// the entrance in front of it rather than the gateway signing itself.
+		Node: gateway, Revoked: revoked, Log: logline.Log, Audit: logline.Audit,
+	})
+}
+
 func openPublicService(root string) (*publicService, error) {
 	paths, err := newPublicPaths(root)
 	if err != nil {
@@ -136,21 +157,14 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
-	gateway, err := gatewaycore.New(state, paths.root)
-	if err != nil {
-		return nil, err
-	}
-	trust, err := devicecore.Open(devicecore.Config{
-		Root: paths.root, InstallationID: state.InstallationID, Origin: state.Origin,
-		// This gateway's invitations travel over a network nobody watches, so its
-		// operator confirms the device that redeemed one, and an authority signs
-		// the entrance in front of it rather than the gateway signing itself.
-		Node: gateway, Log: logline.Log, Audit: logline.Audit,
-	})
-	if err != nil {
-		return nil, err
-	}
 	sessionMgr, err := webclient.NewSessionManager(paths.root)
+	if err != nil {
+		return nil, err
+	}
+	// A device revoked at the trust ends, at the same moment, in the sessions
+	// this gateway keeps for it: what the trust refuses, nothing held for the
+	// device goes on admitting.
+	trust, err := openPublicTrust(paths.root, state, sessionMgr.RevokeFingerprint)
 	if err != nil {
 		return nil, err
 	}

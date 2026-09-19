@@ -471,3 +471,93 @@ func TestPairRateLimitBlocksExcessRequests(t *testing.T) {
 		t.Fatalf("rate limiter failed to block excess request: %d", code)
 	}
 }
+
+// A browser pairs at no lesser a door than an app does: the same limits count
+// its attempts, a refusal costs it the same delay, and what it leaves behind is
+// a record that says what it is — a web device, holding no certificate and no
+// credential for anyone to re-read.
+func TestWebPairingIsLimitedAndStoresNoCredential(t *testing.T) {
+	fixture := newGatewayFixture(t, false)
+	service := fixture.trust
+	invitation := fixture.invite(t, 0)
+	clientID := strings.Repeat("ab", 32)
+
+	result, code, err := service.PairWebDevice("192.168.1.2", invitation, strings.ToUpper(clientID), "Web Phone")
+	if err != nil || code != "" || result.Status != "pending" || result.Fingerprint == "" {
+		t.Fatalf("web pairing failed: %+v %q %v", result, code, err)
+	}
+	record, err := service.loadDeviceRecord(result.Fingerprint)
+	if err != nil || record.Kind != deviceKindWeb || record.CertificateExpiresAt != "" {
+		t.Fatalf("the web device is not recorded as one: %+v %v", record, err)
+	}
+	invite, err := service.loadInvitation(invitation)
+	if err != nil || invite.Kind != deviceKindWeb || invite.CredentialPasswordHash != "" || invite.CredentialPKCS12 != "" {
+		t.Fatalf("the web redemption kept a credential: %+v %v", invite, err)
+	}
+	// The client id is the credential that browser keeps: it comes back as the
+	// same device whatever it presents, because the invitation was its
+	// admission and the id is what it holds instead of a credential file.
+	again, code, err := service.PairWebDevice("192.168.1.2", "not-an-invitation", clientID, "Web Phone")
+	if err != nil || again.Fingerprint != result.Fingerprint || again.Status != "pending" {
+		t.Fatalf("the browser did not come back as its device: %+v %q %v", again, code, err)
+	}
+	// And the attempts are counted. The invitation is spent, so every attempt
+	// here is refused — until the door itself says enough.
+	var last string
+	for range pairRateMaxPerIP {
+		_, last, _ = service.PairWebDevice("192.168.1.3", invitation, strings.Repeat("cd", 32), "Web Phone")
+	}
+	if last == "rate_limited" {
+		t.Fatal("the web door closed too early")
+	}
+	if _, last, _ = service.PairWebDevice("192.168.1.3", invitation, strings.Repeat("cd", 32), "Web Phone"); last != "rate_limited" {
+		t.Fatalf("the web door admitted one attempt past its limit: %q", last)
+	}
+}
+
+// Revoking a device ends, in the same breath, what the gateway keeps for it at
+// its edges. The trust refuses the device on its own; this is the rest.
+func TestRevokingADeviceEndsWhatIsKeptForIt(t *testing.T) {
+	fixture := newGatewayFixture(t, false)
+	ended := []string{}
+	fixture.trust.revoked = func(fingerprint string) error {
+		ended = append(ended, fingerprint)
+		return nil
+	}
+	service := fixture.trust
+
+	// The credential a renewal replaced is ended when its replacement activates.
+	paired := fixture.pair(t, 0)
+	fixture.admit(t, paired.CertificateFingerprint, 0)
+	renew := func(t *testing.T, fingerprint string) string {
+		t.Helper()
+		var renewal bytes.Buffer
+		if err := service.issueRenewalInvitation(10*time.Minute, fixture.nodeAt(0), "Test PC", "", fingerprint, &renewal); err != nil {
+			t.Fatal(err)
+		}
+		var invitation invitationResult
+		if err := json.Unmarshal(renewal.Bytes(), &invitation); err != nil {
+			t.Fatal(err)
+		}
+		return invitation.Invitation
+	}
+	replacement := pairInvitation(t, service, renew(t, paired.CertificateFingerprint), `{"device_name":"Replacement Phone","credential_password":"credential-password-456"}`)
+	var replaced pairResponse
+	if replacement.Code != http.StatusOK || json.Unmarshal(replacement.Body.Bytes(), &replaced) != nil {
+		t.Fatalf("renewal pairing failed: %d %s", replacement.Code, replacement.Body.String())
+	}
+	fixture.admit(t, replaced.CertificateFingerprint, 0)
+	if len(ended) != 1 || ended[0] != paired.CertificateFingerprint {
+		t.Fatalf("the replaced credential's edges were not cut: %v", ended)
+	}
+
+	// And so is a credential revoked outright.
+	other := fixture.pair(t, 1)
+	fixture.admit(t, other.CertificateFingerprint, 1)
+	if err := fixture.trust.deviceRevoke(other.CertificateFingerprint, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ended) != 2 || ended[1] != other.CertificateFingerprint {
+		t.Fatalf("a revoked credential left edges uncut: %v", ended)
+	}
+}

@@ -124,6 +124,11 @@ func TestNodesListIsWhatTheDeviceHolds(t *testing.T) {
 	if body := listed(); !body.OK || len(body.Nodes) != 1 || body.Nodes[0].ID != testNodeIDs[0] || body.Nodes[0].Name != testNodeNames[0] {
 		t.Fatalf("a device holds %+v", body)
 	}
+	// And the answer says how this gateway reaches it, in the two words a person
+	// reads: the fixture's node is dialled where it stands.
+	if body := listed(); body.Nodes[0].Link != gatewaycore.NodeLinkLocal {
+		t.Fatalf("the node was declared %q", body.Nodes[0].Link)
+	}
 	if result := nodeRequest(fixture.trust, http.MethodGet, "/__remote_everything/nodes", "", ""); result.Code != http.StatusUnauthorized {
 		t.Fatalf("a device that was never admitted listed nodes: %d", result.Code)
 	}

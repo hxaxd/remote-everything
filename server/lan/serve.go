@@ -16,6 +16,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/logline"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/webclient"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 // applicationHost is where this entrance's applications listen when nobody said:
@@ -42,16 +43,42 @@ type lanService struct {
 	applicationsMu sync.Mutex
 }
 
+// openLANTrust opens the device trust of this entrance over the gateway it is
+// given — the same gateway that serves, because which node a device may reach
+// and which node a request reaches are one decision. It is what serving and
+// the commands that edit what devices hold both go through.
+func openLANTrust(root string, state lanState, gateway *gatewaycore.Gateway, revoked func(fingerprint string) error) (*devicecore.Trust, error) {
+	certificate, err := loadLANCertificate(root, state)
+	if err != nil {
+		return nil, err
+	}
+	return devicecore.Open(devicecore.Config{
+		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
+		// If RequireApproval is false, this entrance hands its invitations over in person,
+		// so redeeming one is the whole of the admission. If RequireApproval is true,
+		// an operator must manually approve the device after redemption.
+		Certificate: certificate, ApproveOnRedemption: !state.RequireApproval, Node: gateway,
+		Revoked: revoked, Log: logline.Log, Audit: logline.Audit,
+	})
+}
+
 func openLANService(root string) (*lanService, error) {
 	state, err := loadLANState(root)
 	if err != nil {
 		return nil, err
 	}
-	certificate, err := loadLANCertificate(root, state)
+	gateway, err := gatewaycore.New(state.State, root)
 	if err != nil {
 		return nil, err
 	}
-	gateway, err := gatewaycore.New(state.State, root)
+	sessionMgr, err := webclient.NewSessionManager(root)
+	if err != nil {
+		return nil, err
+	}
+	// A device revoked at the trust ends, at the same moment, in the sessions
+	// this entrance keeps for it: what the trust refuses, nothing held for the
+	// device goes on admitting.
+	trust, err := openLANTrust(root, state, gateway, sessionMgr.RevokeFingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -62,23 +89,8 @@ func openLANService(root string) (*lanService, error) {
 	// This entrance serves its applications on ports of its own rather than as
 	// hosts under its origin, which is an address rather than a domain.
 	gateway.SetAppAddressing(service)
-	trust, err := devicecore.Open(devicecore.Config{
-		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
-		// If RequireApproval is false, this entrance hands its invitations over in person,
-		// so redeeming one is the whole of the admission. If RequireApproval is true,
-		// an operator must manually approve the device after redemption.
-		Certificate: certificate, ApproveOnRedemption: !state.RequireApproval, Node: gateway,
-		Log: logline.Log, Audit: logline.Audit,
-	})
-	if err != nil {
-		return nil, err
-	}
 	service.trust = trust
 
-	sessionMgr, err := webclient.NewSessionManager(root)
-	if err != nil {
-		return nil, err
-	}
 	webHandler, err := webclient.NewHandler(trust, sessionMgr)
 	if err != nil {
 		return nil, err
@@ -204,7 +216,7 @@ func (service *lanService) applicationSurface(application lanApplication, addres
 // answers: an origin is handed to a client so that the client loads it, and one
 // that answers nothing would be a page that never loads.
 func (service *lanService) Origin(nodeID, appID string) (string, error) {
-	if !validSHA256.MatchString(nodeID) || !gatewaycore.ValidAppID(appID) {
+	if !validSHA256.MatchString(nodeID) || !wire.ValidAppID(appID) {
 		return "", errors.New("invalid application")
 	}
 	if _, ok := service.state.FindNode(nodeID); !ok {

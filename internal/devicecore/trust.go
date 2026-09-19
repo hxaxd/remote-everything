@@ -101,6 +101,12 @@ type Config struct {
 	// Node is the gateway, seen as the nodes it serves: which of them a device may
 	// reach is what this trust decides, and an invitation is for one of them.
 	Node Node
+	// Revoked is told when a device stops being admitted for good — revoked by
+	// its operator, or replaced by the renewal that took its place. The trust
+	// refuses the device from that moment on its own; this is where a gateway
+	// ends what it keeps for the device at its edges, so nothing held for a
+	// revoked device outlives the record that says it is gone. It may be nil.
+	Revoked func(fingerprint string) error
 	// Log writes one operational line; Audit writes the device audit trail.
 	// Callers must never pass tokens, passwords, private keys or PKCS#12
 	// material as values.
@@ -121,6 +127,7 @@ type Trust struct {
 	issuerKeyFile       string
 	issuerCertFile      string
 	node                Node
+	revoked             func(fingerprint string) error
 	log                 func(component, level, message string, keyValues ...string)
 	audit               func(message string, keyValues ...string)
 	pairLock            sync.Mutex
@@ -148,6 +155,7 @@ func Open(config Config) (*Trust, error) {
 		issuerKeyFile:       filepath.Join(root, issuerKeyName),
 		issuerCertFile:      filepath.Join(root, issuerCertName),
 		node:                config.Node,
+		revoked:             config.Revoked,
 		log:                 config.Log,
 		audit:               config.Audit,
 		pairFailureDelay:    350 * time.Millisecond,
@@ -159,6 +167,9 @@ func Open(config Config) (*Trust, error) {
 	}
 	if trust.audit == nil {
 		trust.audit = func(string, ...string) {}
+	}
+	if trust.revoked == nil {
+		trust.revoked = func(string) error { return nil }
 	}
 	for _, directory := range []string{trust.devicesDir, trust.invitesDir} {
 		if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -176,10 +187,15 @@ func Open(config Config) (*Trust, error) {
 	return trust, nil
 }
 
-// StatusHandler serves the surface that fronts the node: activation, the
-// admission check, and then the node itself.
-func (service *Trust) StatusHandler() http.Handler {
-	return http.HandlerFunc(service.statusHTTPHandler)
+// revokeDevice is where the edges of a revoked device are cut. The trust
+// itself refuses the device from the moment its record says so, whatever an
+// old session or a cached answer may claim; what a gateway keeps for the
+// device beyond this trust is ended here, so nothing of it outlives the
+// record that says it is gone.
+func (service *Trust) revokeDevice(fingerprint string) {
+	if err := service.revoked(fingerprint); err != nil {
+		service.log("gateway", "warn", "state kept for a revoked device could not be cleared", "fingerprint", fingerprint, "code", err.Error())
+	}
 }
 
 // PairHandler serves the pairing endpoint an invitation is redeemed at.

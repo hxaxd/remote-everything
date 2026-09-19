@@ -21,6 +21,7 @@ const (
 	webPairPath     = "/__remote_everything_web_pair"
 	webActivatePath = "/__remote_everything_web_activate"
 	webLogoutPath   = "/__remote_everything_web_logout"
+	webPairMaxBody  = 8 * 1024
 )
 
 type webPairPayload struct {
@@ -123,25 +124,39 @@ func (h *Handler) handlePair(writer http.ResponseWriter, request *http.Request) 
 	}
 	invitation := strings.TrimSpace(request.Header.Get("Authorization"))
 	if strings.HasPrefix(invitation, "Invitation ") {
-		invitation = strings.TrimPrefix(invitation, "Invitation ")
+		invitation = strings.TrimSpace(strings.TrimPrefix(invitation, "Invitation "))
 	}
 	if invitation == "" {
 		invitation = strings.TrimSpace(request.URL.Query().Get("invitation"))
 	}
-	if invitation == "" {
-		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, gatewaycore.Error("invitation_denied"))
+	if request.ContentLength <= 0 || request.ContentLength > webPairMaxBody {
+		gatewaycore.WriteJSON(writer, http.StatusBadRequest, gatewaycore.Error("invalid_body"))
 		return
 	}
-
+	decoder := json.NewDecoder(io.LimitReader(request.Body, webPairMaxBody))
+	decoder.DisallowUnknownFields()
 	var payload webPairPayload
-	if err := json.NewDecoder(io.LimitReader(request.Body, 8192)).Decode(&payload); err != nil {
+	if decoder.Decode(&payload) != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		gatewaycore.WriteJSON(writer, http.StatusBadRequest, gatewaycore.Error("invalid_json"))
 		return
 	}
-
-	result, err := h.trust.PairWebDevice(invitation, payload.ClientID, payload.DeviceName)
+	// The pairing itself is the trust's: the address the request came from goes
+	// with it, and the limits, the delay before a refusal and the admission all
+	// belong to the same door as every other pairing.
+	result, code, err := h.trust.PairWebDevice(devicecore.ClientAddress(request), invitation, payload.ClientID, payload.DeviceName)
 	if err != nil {
-		gatewaycore.WriteJSON(writer, http.StatusUnauthorized, gatewaycore.Error(err.Error()))
+		status := http.StatusBadRequest
+		switch code {
+		case "invitation_denied":
+			status = http.StatusUnauthorized
+		case "rate_limited":
+			status = http.StatusTooManyRequests
+		case "server_busy":
+			status = http.StatusServiceUnavailable
+		case "pairing_failed":
+			status = http.StatusInternalServerError
+		}
+		gatewaycore.WriteJSON(writer, status, gatewaycore.Error(code))
 		return
 	}
 

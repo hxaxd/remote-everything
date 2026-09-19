@@ -10,12 +10,16 @@ import (
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
 	"github.com/hxaxd/remote-everything/internal/secret"
 )
 
 const (
 	// SessionCookieName is the cookie carrying the web client session token.
-	SessionCookieName = "remote_everything_web"
+	// Its name is the deployment's own, named once in proxysecurity with the
+	// other names an application never sees, because a session is how the
+	// gateway knows who the browser is and not something an application owns.
+	SessionCookieName = proxysecurity.WebSessionCookieName
 	// SessionHeaderName is the alternative HTTP header carrying the web client session token.
 	SessionHeaderName = "X-Remote-Everything-Web-Token"
 	// TicketQueryParam is the URL query parameter carrying the one-time authorization ticket.
@@ -56,6 +60,8 @@ type SessionManager struct {
 }
 
 // NewSessionManager opens or initializes the web session manager for a gateway state root.
+// Sessions that ran out are left out of the manager, and the store is rewritten without
+// them: a store that only ever grows is one no sweep ever saved.
 func NewSessionManager(root string) (*SessionManager, error) {
 	if root == "" || !filepath.IsAbs(root) {
 		return nil, errors.New("state root must be absolute")
@@ -67,15 +73,23 @@ func NewSessionManager(root string) (*SessionManager, error) {
 	}
 	filePath := filepath.Join(manager.root, sessionsFileName)
 	var store sessionStore
+	pruned := false
 	if err := jsonfile.Read(filePath, &store); err == nil {
 		now := time.Now().UTC()
 		for _, s := range store.Sessions {
 			if exp, err := time.Parse(time.RFC3339, s.ExpiresAt); err == nil && now.Before(exp) {
 				manager.sessions[s.Token] = s
+			} else {
+				pruned = true
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
+	}
+	if pruned {
+		if err := manager.saveLocked(); err != nil {
+			return nil, err
+		}
 	}
 	return manager, nil
 }
