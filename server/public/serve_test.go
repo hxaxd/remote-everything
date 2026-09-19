@@ -116,7 +116,7 @@ func startPublicEntrance(t *testing.T) *publicHarness {
 	// request for that node arrives. A test answers on that same address, so the
 	// entrance is opened and reached exactly as the deployment opens and reaches it.
 	for index, id := range entrancetest.NodeIDs {
-		added, err := addPublicNode(root, entrancetest.NodeNames[index], id, filepath.Join(t.TempDir(), "bootstrap"))
+		added, err := addPublicNode(root, entrancetest.NodeNames[index], id, "", filepath.Join(t.TempDir(), "bootstrap"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -288,7 +288,7 @@ func TestPublicNodesAreBehindTheirOwnTunnelPorts(t *testing.T) {
 	}
 	// Adding a node this gateway already serves keeps the port its tunnel agent
 	// publishes: moving it would take that machine out of reach.
-	again, err := addPublicNode(harness.root, entrancetest.NodeNames[0], entrancetest.NodeIDs[0], filepath.Join(t.TempDir(), "bootstrap"))
+	again, err := addPublicNode(harness.root, entrancetest.NodeNames[0], entrancetest.NodeIDs[0], "", filepath.Join(t.TempDir(), "bootstrap"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestPublicNodesAreBehindTheirOwnTunnelPorts(t *testing.T) {
 	}
 	// And a node is added to a gateway that serves nothing yet, which is where one
 	// is added in the first place.
-	if _, err := addPublicNode(harness.root, entrancetest.NodeNames[1], entrancetest.NodeIDs[1], filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+	if _, err := addPublicNode(harness.root, entrancetest.NodeNames[1], entrancetest.NodeIDs[1], "", filepath.Join(t.TempDir(), "bootstrap")); err != nil {
 		t.Fatal(err)
 	}
 	var listed bytes.Buffer

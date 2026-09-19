@@ -18,7 +18,7 @@ description: 管理 Remote Everything 节点应用。用于发现、登记、更
 
 ## 更新
 
-读取当前启用状态；已启用应用依次执行 `stop → app set → start → status`。相同定义的 `changed:false` 视为成功。
+读取当前启用状态；已启用应用依次执行 `stop → app set → start → status`。相同定义的 `changed:false` 视为成功。**应用自己的二进制在外部被换过（重装包、升级全局 CLI）之后也必须走这一条**：注册不会因此重启它，不 stop+start 就还在跑旧进程。
 
 ## 移除
 

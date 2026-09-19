@@ -25,4 +25,4 @@
 | [reverse-proxy.md](remote-everything-install/references/reverse-proxy.md) | Caddy / 443 |
 | [multi-computer.md](remote-everything-install/references/multi-computer.md) | 多机 |
 
-应用补充：[patterns.md](remote-everything-app/references/patterns.md)，以及 `apps/<id>/`。
+应用补充：[patterns.md](remote-everything-app/references/patterns.md)，以及 `apps/<id>/`。排障补充：[troubleshooting.md](remote-everything-inspect/references/troubleshooting.md)（「连不上」「节点离线」的分类、取证据方法与隧道恢复顺序）。

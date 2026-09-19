@@ -54,4 +54,8 @@ pwsh ./scripts/release-local.ps1 -Mode Publish -CreateTag  # 创建标签、推�
 
 ### 覆盖
 
-脚本执行：契约+版本校验、Skills 测试、Go 检查与测试、Gitleaks 全历史扫描、Android 构建签名、三平台双架构 Go 交叉构建、资产清单校验、Git 标签与 Release 发布。Windows 不能跑 macOS/iOS 检查，脚本仅在 macOS+Xcode 环境下执行原生 iOS 测试；HarmonyOS 完整构建仍需 DevEco Studio。
+脚本执行：契约+版本校验、Skills 测试、Go 检查与测试、Gitleaks 全历史扫描、Android 构建签名、三平台双架构 Go 交叉构建、资产清单校验、Git 标签与 Release 发布。Windows 不能跑 macOS/iOS 检查，脚本仅在 macOS+Xcode 环境下执行原生 iOS 测试；HarmonyOS 侧脚本编译应用与测试两个 target 并做源码审计，插桩套件需要真机或模拟器，不在脚本里跑（见 [mobile-clients.md](mobile-clients.md)）。
+
+### 版本与通信协议版本
+
+`clients/release.json` 一处定义 `versionName` / `buildNumber` / `protocolVersion`，三端与资产名都从它取，`clients/validate_versions.py` 校验一致。**通信协议版本是客户端更新闸门的比较值，不是产品版本号**：只有线上协议本身发生破坏性变化时才 +1，不带 semver 语义；未正式发布前保持 1。

@@ -4,6 +4,11 @@ import com.remoteeverything.core.api.GatewayClient
 import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.NodesResponse
 import com.remoteeverything.core.api.mergeNodes
+import com.remoteeverything.core.diag.LinkAttempt
+import com.remoteeverything.core.diag.LinkAttemptsKept
+import com.remoteeverything.core.diag.LinkFailure
+import com.remoteeverything.core.diag.LinkTrouble
+import com.remoteeverything.core.diag.classifyFailure
 import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.Node
@@ -15,6 +20,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * The node list as a device sees it: every gateway it paired with is asked what
@@ -28,12 +36,30 @@ class NodesController(
     private val clientFactory: (Identity) -> GatewayClient?,
     private val cache: NodeCacheStore? = null,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** Whether this phone has any network to send on at all, asked when a probe fails. */
+    private val offline: () -> Boolean = { false },
 ) {
 
     private val selector = PathSelector.Cache()
 
+    private val lock = Any()
+
     /** Per gateway, the last answer that arrived; also what is written to the cache. */
     private val lastGoodAnswers = mutableMapOf<String, NodesResponse>()
+
+    /** Per gateway, when it last answered — what "last answer" means in a report. */
+    private val lastAnswerAt = mutableMapOf<String, Long>()
+
+    /**
+     * Per gateway, why it is not answering now. A gateway that answers has no
+     * entry: the presence of one is what a screen shows a reason for, and what
+     * makes the copy-the-report action appear on that connection.
+     */
+    private val troubleState = MutableStateFlow<Map<String, LinkTrouble>>(emptyMap())
+    val trouble: StateFlow<Map<String, LinkTrouble>> = troubleState
+
+    /** Per gateway, the last few failed probes, newest first. */
+    private val failedProbes = mutableMapOf<String, MutableList<LinkAttempt>>()
 
     /** The cache, read once: it is the fallback for a cold start, then the wire takes over. */
     private var coldCache: Map<String, NodesResponse>? = null
@@ -47,7 +73,7 @@ class NodesController(
         val answers = identities.map { identity ->
             val probe = probes[identity.origin]
             val response = probe?.response
-                ?: lastGoodAnswers[identity.origin]
+                ?: lastGoodAnswerFor(identity.origin)
                 ?: cached(identity.origin)
                 ?: NodesResponse(ok = true, nodes = emptyList())
             identity to response
@@ -57,9 +83,13 @@ class NodesController(
         }
     }
 
-    private fun cached(origin: String): NodesResponse? {
+    private fun lastGoodAnswerFor(origin: String): NodesResponse? = synchronized(lock) {
+        lastGoodAnswers[origin]
+    }
+
+    private fun cached(origin: String): NodesResponse? = synchronized(lock) {
         val cold = coldCache ?: cache?.load().also { coldCache = it } ?: emptyMap()
-        return cold[origin]
+        cold[origin]
     }
 
     private suspend fun probe(identity: Identity): Probe {
@@ -67,12 +97,72 @@ class NodesController(
         val started = clock()
         return try {
             val response = client.nodes()
-            lastGoodAnswers[identity.origin] = response
-            cache?.save(lastGoodAnswers)
+            recordAnswer(identity.origin, response)
             Probe(identity.origin, response, clock() - started)
         } catch (e: Exception) {
+            recordFailure(identity.origin, classifyFailure(e, offline()))
             Probe(identity.origin, response = null, latencyMs = null)
         }
+    }
+
+    /**
+     * A gateway that answers again has nothing to report: the run of failures ends
+     * here, and with it the reason it was failing — the screen that offered to copy
+     * a report stops offering, which is the point of keeping this at all.
+     */
+    private fun recordAnswer(origin: String, response: NodesResponse) {
+        val snapshot: Map<String, NodesResponse>
+        synchronized(lock) {
+            lastGoodAnswers[origin] = response
+            lastAnswerAt[origin] = clock()
+            failedProbes.remove(origin)
+            snapshot = HashMap(lastGoodAnswers)
+        }
+        troubleState.update { current ->
+            if (current.containsKey(origin)) current - origin else current
+        }
+        cache?.save(snapshot)
+    }
+
+    /**
+     * One more failure on the same run: counted, dated from where the run began,
+     * and described by the latest failure rather than the first — a phone that
+     * walked out of its Wi-Fi is still failing, but it is failing differently.
+     */
+    private fun recordFailure(origin: String, failure: LinkFailure) {
+        val now = clock()
+        val lastGood: Long?
+        synchronized(lock) {
+            val log = failedProbes.getOrPut(origin) { mutableListOf() }
+            log.add(0, LinkAttempt(now, failure.kind))
+            while (log.size > LinkAttemptsKept) log.removeAt(log.lastIndex)
+            lastGood = lastAnswerAt[origin]
+        }
+        troubleState.update { current ->
+            val previous = current[origin]
+            current + (
+                origin to LinkTrouble(
+                    kind = failure.kind,
+                    at = now,
+                    since = previous?.since ?: now,
+                    attempts = (previous?.attempts ?: 0) + 1,
+                    code = failure.code,
+                    httpStatus = failure.httpStatus,
+                    detail = failure.detail,
+                    lastGoodAt = lastGood,
+                )
+            )
+        }
+    }
+
+    /** The failed probes of one gateway, newest first: the run a report shows. */
+    fun failedProbesFor(origin: String): List<LinkAttempt> = synchronized(lock) {
+        failedProbes[origin]?.toList().orEmpty()
+    }
+
+    /** When this gateway last answered, as far as this run of the app remembers. */
+    fun lastAnswerFor(origin: String): Long? = synchronized(lock) {
+        lastAnswerAt[origin]
     }
 
     private fun annotated(path: Path, probe: Probe?): Path = path.copy(
@@ -112,7 +202,16 @@ class NodesController(
 
     /** Drops one origin from memory and on-disk node cache when forgotten. */
     fun drop(origin: String) {
-        lastGoodAnswers.remove(origin)
-        cache?.save(lastGoodAnswers)
+        val snapshot: Map<String, NodesResponse>
+        synchronized(lock) {
+            lastGoodAnswers.remove(origin)
+            lastAnswerAt.remove(origin)
+            failedProbes.remove(origin)
+            snapshot = HashMap(lastGoodAnswers)
+        }
+        troubleState.update { current ->
+            if (current.containsKey(origin)) current - origin else current
+        }
+        cache?.save(snapshot)
     }
 }

@@ -26,6 +26,24 @@
     <string name="device_category_phone">手机</string>
     <string name="device_category_tablet">平板</string>
 
+    <string name="diag_attempts">最近尝试</string>
+    <string name="diag_cause">原因</string>
+    <string name="diag_cause_bad_answer">网关的应答无法识别</string>
+    <string name="diag_cause_no_network">手机当前没有网络</string>
+    <string name="diag_cause_refused">网关拒绝了这个设备</string>
+    <string name="diag_cause_unknown">未知原因</string>
+    <string name="diag_cause_unreachable">连不上网关</string>
+    <string name="diag_client">客户端</string>
+    <string name="diag_connection">连接</string>
+    <string name="diag_device_name">设备名</string>
+    <string name="diag_failures">连续失败 %1$s 次</string>
+    <string name="diag_last_answer">最后应答 %1$s</string>
+    <string name="diag_machines">机器</string>
+    <string name="diag_network">网络</string>
+    <string name="diag_since">从 %1$s 起</string>
+    <string name="diag_state">状态</string>
+    <string name="diag_system">系统</string>
+    <string name="diag_title">连接诊断</string>
     <string name="empty_body">扫描或粘贴邀请来添加机器。</string>
     <string name="empty_title">还没有机器</string>
 
@@ -87,6 +105,7 @@
     <string name="settings_appearance_light">浅色</string>
     <string name="settings_appearance_system">跟随系统</string>
     <string name="settings_certificate_fingerprint">证书指纹</string>
+    <string name="settings_copy_error">复制错误信息</string>
     <string name="settings_device_name">设备默认名称</string>
     <string name="settings_forget">忘记此连接</string>
     <string name="settings_forget_confirm">确定要忘记这个连接吗？</string>

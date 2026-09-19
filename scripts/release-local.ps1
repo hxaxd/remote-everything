@@ -104,7 +104,7 @@ function Validate-Harmony {
         return
     }
 
-    Step 'Run HarmonyOS unit tests and unsigned type-checked build'
+    Step 'HarmonyOS type-checked builds: the app and the test module'
     $bin = Split-Path $hvigor -Parent
     $hvigorHome = Split-Path $bin -Parent
     $tools = Split-Path $hvigorHome -Parent
@@ -118,17 +118,12 @@ function Validate-Harmony {
         Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue
         Push-Location (Join-Path $Root 'clients\harmony')
         try {
-            Run { & $hvigor test --mode module -p product=default -p module=entry@default -p isLocalTest=true -p unitTestMode=true --no-daemon } 'HarmonyOS unit-test task failed'
-            $result = Join-Path $Root 'clients\harmony\entry\.test\default\intermediates\test\coverage_data\test_result.txt'
-            if (-not (Test-Path $result -PathType Leaf)) { throw 'HarmonyOS unit-test result file was not produced.' }
-            $summary = Get-Content $result -Raw
-            $match = [regex]::Match($summary, 'Tests run:\s*(\d+),\s*Failure:\s*(\d+),\s*Error:\s*(\d+),\s*Pass:\s*(\d+),\s*Ignore:\s*(\d+)')
-            if (-not $match.Success) { throw 'HarmonyOS unit-test summary could not be parsed.' }
-            $run, $failure, $errors, $pass, $ignored = $match.Groups[1..5].Value | ForEach-Object { [int]$_ }
-            if ($run -le 0 -or $failure -ne 0 -or $errors -ne 0 -or $ignored -ne 0 -or $pass -ne $run) {
-                throw "HarmonyOS tests did not fully pass: run=$run failure=$failure error=$errors pass=$pass ignore=$ignored"
-            }
             Run { & $hvigor assembleHap --mode module -p product=default -p module=entry@default --no-daemon --type-check } 'HarmonyOS type-checked build failed'
+            # The suites live in entry/src/ohosTest, and that module is compiled here
+            # too: a test module that stopped building is a client that stopped
+            # building, and it is the one breakage no source gate can see — an import
+            # that no longer resolves. Running them is a different thing; see below.
+            Run { & $hvigor assembleHap --mode module -p product=default -p module=entry@ohosTest --no-daemon --type-check } 'HarmonyOS test module failed to compile'
         } finally { Pop-Location }
     } finally {
         $env:DEVECO_SDK_HOME = $oldSdk
@@ -136,6 +131,14 @@ function Validate-Harmony {
         if ($null -eq $oldNodeHome) { Remove-Item Env:NODE_HOME -ErrorAction SilentlyContinue }
         else { $env:NODE_HOME = $oldNodeHome }
     }
+    # Why the suites are not run here: entry/src/ohosTest is instrumented — it installs
+    # a test HAP and runs under the platform's test runner, so it needs a device or an
+    # emulator. hvigor's own `test` task is the host-side mode and wants entry/src/test,
+    # a directory this repository does not have (its harness fails to resolve
+    # ../../../src/test/List.test before a single test runs). The source gate —
+    # audit_source.py, which fails when the shipped fixtures drift from
+    # clients/behavior — runs in Validate-Repository.
+    Write-Warning 'HarmonyOS suites (entry/src/ohosTest) not run: they need a device or emulator. Compiled and source-audited above.'
 }
 
 function Validate-Repository {

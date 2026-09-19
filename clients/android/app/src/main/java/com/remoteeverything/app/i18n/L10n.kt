@@ -3,6 +3,7 @@ package com.remoteeverything.app.i18n
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import android.content.Context
 import com.remoteeverything.app.R
 import com.remoteeverything.core.model.MessageKeys
 
@@ -37,6 +38,24 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.DEVICE_CATEGORY_DEFAULT -> R.string.device_category_default
     MessageKeys.DEVICE_CATEGORY_PHONE -> R.string.device_category_phone
     MessageKeys.DEVICE_CATEGORY_TABLET -> R.string.device_category_tablet
+    MessageKeys.DIAG_ATTEMPTS -> R.string.diag_attempts
+    MessageKeys.DIAG_CAUSE -> R.string.diag_cause
+    MessageKeys.DIAG_CAUSE_BAD_ANSWER -> R.string.diag_cause_bad_answer
+    MessageKeys.DIAG_CAUSE_NO_NETWORK -> R.string.diag_cause_no_network
+    MessageKeys.DIAG_CAUSE_REFUSED -> R.string.diag_cause_refused
+    MessageKeys.DIAG_CAUSE_UNREACHABLE -> R.string.diag_cause_unreachable
+    MessageKeys.DIAG_CAUSE_UNKNOWN -> R.string.diag_cause_unknown
+    MessageKeys.DIAG_CLIENT -> R.string.diag_client
+    MessageKeys.DIAG_CONNECTION -> R.string.diag_connection
+    MessageKeys.DIAG_DEVICE_NAME -> R.string.diag_device_name
+    MessageKeys.DIAG_FAILURES -> R.string.diag_failures
+    MessageKeys.DIAG_LAST_ANSWER -> R.string.diag_last_answer
+    MessageKeys.DIAG_MACHINES -> R.string.diag_machines
+    MessageKeys.DIAG_NETWORK -> R.string.diag_network
+    MessageKeys.DIAG_SINCE -> R.string.diag_since
+    MessageKeys.DIAG_STATE -> R.string.diag_state
+    MessageKeys.DIAG_SYSTEM -> R.string.diag_system
+    MessageKeys.DIAG_TITLE -> R.string.diag_title
     MessageKeys.EMPTY_BODY -> R.string.empty_body
     MessageKeys.EMPTY_TITLE -> R.string.empty_title
     MessageKeys.ERROR_APP_GONE -> R.string.error_app_gone
@@ -92,6 +111,7 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.SETTINGS_APPEARANCE_LIGHT -> R.string.settings_appearance_light
     MessageKeys.SETTINGS_APPEARANCE_SYSTEM -> R.string.settings_appearance_system
     MessageKeys.SETTINGS_CERTIFICATE_FINGERPRINT -> R.string.settings_certificate_fingerprint
+    MessageKeys.SETTINGS_COPY_ERROR -> R.string.settings_copy_error
     MessageKeys.SETTINGS_DEVICE_NAME -> R.string.settings_device_name
     MessageKeys.SETTINGS_FORGET -> R.string.settings_forget
     MessageKeys.SETTINGS_FORGET_CONFIRM -> R.string.settings_forget_confirm
@@ -139,3 +159,12 @@ fun l10n(key: String): String = stringResource(messageKey(key))
 /** The key's sentence with arguments, in the device's language. */
 @Composable
 fun l10n(key: String, vararg args: Any): String = stringResource(messageKey(key), *args)
+
+/**
+ * The same sentence, outside a composition: what the view model needs to write
+ * text a person will paste somewhere (a report), where there is no recomposition
+ * to hang a string on. The context must be one whose locale is the app's choice —
+ * `LocaleHelper.wrap`.
+ */
+fun l10n(context: Context, key: String, vararg args: Any): String =
+    context.getString(messageKey(key), *args)

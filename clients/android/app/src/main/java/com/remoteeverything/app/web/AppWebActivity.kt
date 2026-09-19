@@ -84,6 +84,10 @@ class AppWebActivity : ComponentActivity() {
     private var downloads: WebDownloadBridge? = null
     /** This application's panel choices, as they stand right now. */
     private var prefs: WebAppPrefs = WebAppPrefs()
+    /** The main view is destroyed and stays untouched until a new one is built. */
+    private var webDestroyed: Boolean = false
+    /** The failure screen, kept so a refusal that repeats does not pile views up. */
+    private var errorView: View? = null
 
     private val dark: Boolean get() = intent.getBooleanExtra(ExtraDark, false)
 
@@ -238,7 +242,7 @@ class AppWebActivity : ComponentActivity() {
             WebUserAgent.MOBILE -> mobile
             WebUserAgent.DESKTOP -> desktopUserAgent(mobile)
         }
-        if (::web.isInitialized) {
+        if (::web.isInitialized && !webDestroyed) {
             web.settings.userAgentString = agent
             if (reload) reloadPage()
         }
@@ -252,7 +256,7 @@ class AppWebActivity : ComponentActivity() {
      * is the same page, read again, now.
      */
     private fun reloadPage() {
-        if (!::web.isInitialized) return
+        if (!::web.isInitialized || webDestroyed) return
         progressBar?.visibility = View.VISIBLE
         web.loadUrl(web.url ?: appUrl)
     }
@@ -277,6 +281,7 @@ class AppWebActivity : ComponentActivity() {
     private fun createWebView() {
         val view = newWebView()
         web = view
+        webDestroyed = false
         container.addView(view, matchParent())
     }
 
@@ -416,12 +421,16 @@ class AppWebActivity : ComponentActivity() {
         }
     }
 
-    private fun hideVideoFullscreen() {
+    private fun hideVideoFullscreen(notify: Boolean = true) {
         val view = customView ?: return
         container.removeView(view)
         customView = null
-        customViewCallback?.onCustomViewHidden()
+        val callback = customViewCallback
         customViewCallback = null
+        // The callback speaks for the page that asked for the video. A teardown
+        // that follows a dead or dying page tells it nothing: there is no page
+        // left to hand the screen back to.
+        if (notify) callback?.onCustomViewHidden()
     }
 
     private fun closePopup(window: WebView?) {
@@ -430,6 +439,19 @@ class AppWebActivity : ComponentActivity() {
             window.destroy()
             popup = null
         }
+    }
+
+    /**
+     * The main view goes out of the tree first and is destroyed second —
+     * destroy() is only legal on a view that no view system holds — and the
+     * flag is what keeps it from being destroyed twice: the field survives the
+     * view (it cannot be unset), so the flag is the truth about the view.
+     */
+    private fun destroyMainWeb() {
+        if (webDestroyed || !::web.isInitialized) return
+        container.removeView(web)
+        web.destroy()
+        webDestroyed = true
     }
 
     // --- what the page may ask the system for ------------------------------------
@@ -550,14 +572,35 @@ class AppWebActivity : ComponentActivity() {
         }
 
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            crashCount += 1
-            container.removeView(view)
-            view.destroy()
-            if (crashCount <= 2) {
-                createWebView()
-                web.loadUrl(appUrl)
-            } else {
-                showFailure(getString(R.string.web_load_failed))
+            // One render process may carry several of this screen's WebViews, and
+            // the system reports each affected one in turn, asking about the view
+            // it names and nothing else (WebViewClient.onRenderProcessGone). A
+            // reported view can never be used again: it leaves the tree and is
+            // destroyed, with the fullscreen video it may own going with it. What
+            // is rebuilt is the main page alone, and only for a while — a crash
+            // that keeps coming back becomes an error screen — because a popup is
+            // the page's afterthought, and the person opens it again.
+            when {
+                view === popup -> {
+                    hideVideoFullscreen(notify = false)
+                    closePopup(view)
+                }
+                ::web.isInitialized && view === web -> {
+                    crashCount += 1
+                    hideVideoFullscreen(notify = false)
+                    destroyMainWeb()
+                    if (crashCount <= 2) {
+                        // The panel goes back on top, the order the screen was
+                        // built in: a web added after it would lie over the panel
+                        // and the back gesture would never reach it again.
+                        panel?.let { container.removeView(it.root) }
+                        createWebView()
+                        panel?.let { container.addView(it.root, matchParent()) }
+                        web.loadUrl(appUrl)
+                    } else {
+                        showFailure(getString(R.string.web_load_failed))
+                    }
+                }
             }
             return true
         }
@@ -579,36 +622,43 @@ class AppWebActivity : ComponentActivity() {
 
     private fun showFailure(message: String) {
         progressBar?.visibility = View.GONE
+        // The page is over, whatever it was showing: the popup and the fullscreen
+        // video go with the main view, each destroyed once, out of the tree
+        // before destroy() is called on it.
+        hideVideoFullscreen(notify = false)
+        closePopup(popup)
+        destroyMainWeb()
         panel?.let { container.removeView(it.root) }
-        if (::web.isInitialized) container.removeView(web)
-        val errorView = WebErrorView.create(
-            context = this,
-            message = message,
-            dark = dark,
-            onRetry = {
-                container.removeAllViews()
-                val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-                    isIndeterminate = true
-                    visibility = View.VISIBLE
-                }
-                progressBar = pBar
-                container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
-                createWebView()
-                panel?.let { container.addView(it.root, matchParent()) }
-                web.loadUrl(appUrl)
-            },
-            onClose = { finish() }
-        )
-        container.addView(errorView)
+        if (errorView == null) {
+            val view = WebErrorView.create(
+                context = this,
+                message = message,
+                dark = dark,
+                onRetry = {
+                    container.removeAllViews()
+                    errorView = null
+                    crashCount = 0
+                    val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        isIndeterminate = true
+                        visibility = View.VISIBLE
+                    }
+                    progressBar = pBar
+                    container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
+                    createWebView()
+                    panel?.let { container.addView(it.root, matchParent()) }
+                    web.loadUrl(appUrl)
+                },
+                onClose = { finish() }
+            )
+            errorView = view
+            container.addView(view)
+        }
     }
 
     override fun onDestroy() {
+        hideVideoFullscreen(notify = false)
         closePopup(popup)
-        hideVideoFullscreen()
-        if (::web.isInitialized) {
-            container.removeView(web)
-            web.destroy()
-        }
+        destroyMainWeb()
         super.onDestroy()
     }
 

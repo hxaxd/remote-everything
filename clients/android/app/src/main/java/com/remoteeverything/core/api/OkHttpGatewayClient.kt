@@ -7,6 +7,7 @@ import com.remoteeverything.core.model.ClientError
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.NetworkError
 import com.remoteeverything.core.model.ServerPin
+import com.remoteeverything.core.model.UnreadableAnswer
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -91,7 +92,7 @@ internal class OkHttpGatewayClient(
         val error = try {
             json.decodeFromString(ErrorResponse.serializer(), body)
         } catch (e: Exception) {
-            throw NetworkError(IOException("the gateway answered $status"))
+            throw UnreadableAnswer("HTTP $status without a refusal this client can read")
         }
         Wire.validateError(error)
         throw ClientError(error.code, status)
@@ -104,7 +105,7 @@ internal class OkHttpGatewayClient(
         } catch (e: Exception) {
             // A body this client cannot read is a body it does not understand, and
             // the protocol says an implementation rejects that rather than guessing.
-            throw NetworkError(IOException("the gateway answered a body this client does not understand"))
+            throw UnreadableAnswer("the gateway answered a body this client does not understand")
         }
     }
 

@@ -27,6 +27,24 @@
     <string name="device_category_phone">Phone</string>
     <string name="device_category_tablet">Tablet</string>
 
+    <string name="diag_attempts">Recent attempts</string>
+    <string name="diag_cause">Cause</string>
+    <string name="diag_cause_bad_answer">the gateway\'s answer could not be read</string>
+    <string name="diag_cause_no_network">this phone has no network</string>
+    <string name="diag_cause_refused">the gateway refused this device</string>
+    <string name="diag_cause_unknown">unknown cause</string>
+    <string name="diag_cause_unreachable">the gateway does not answer</string>
+    <string name="diag_client">Client</string>
+    <string name="diag_connection">Connection</string>
+    <string name="diag_device_name">Device name</string>
+    <string name="diag_failures">%1$s failures in a row</string>
+    <string name="diag_last_answer">last answer %1$s</string>
+    <string name="diag_machines">Machines</string>
+    <string name="diag_network">Network</string>
+    <string name="diag_since">since %1$s</string>
+    <string name="diag_state">State</string>
+    <string name="diag_system">System</string>
+    <string name="diag_title">Connection diagnostics</string>
     <string name="empty_body">Scan or paste an invitation to add a machine.</string>
     <string name="empty_title">No machines yet</string>
 
@@ -88,6 +106,7 @@
     <string name="settings_appearance_light">Light</string>
     <string name="settings_appearance_system">System</string>
     <string name="settings_certificate_fingerprint">Certificate fingerprint</string>
+    <string name="settings_copy_error">Copy error info</string>
     <string name="settings_device_name">Default device name</string>
     <string name="settings_forget">Forget this connection</string>
     <string name="settings_forget_confirm">Forget this connection?</string>

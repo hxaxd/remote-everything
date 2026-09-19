@@ -95,3 +95,11 @@ class ClientError(val code: ErrorCode, val httpStatus: Int? = null) : Exception(
 
 /** A failure below the protocol: DNS, TLS, timeout — no code travels here. */
 class NetworkError(cause: Throwable) : Exception("network failure", cause)
+
+/**
+ * The gateway answered, and the answer could not be read: a refusal with no code
+ * in it, or a body this client does not understand. Kept apart from NetworkError
+ * because it says something different about where the problem is — that one is
+ * the road, this one is the far end.
+ */
+class UnreadableAnswer(what: String) : Exception(what)

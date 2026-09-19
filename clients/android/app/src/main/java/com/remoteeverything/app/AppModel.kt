@@ -1,18 +1,25 @@
 package com.remoteeverything.app
 
 import com.remoteeverything.app.i18n.LocaleHelper
+import com.remoteeverything.app.i18n.l10n
 import android.app.Application
 import android.net.Network
 import android.net.ConnectivityManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.remoteeverything.core.api.GatewayClientPool
+import com.remoteeverything.core.diag.LinkReportInput
+import com.remoteeverything.core.diag.LinkTrouble
+import com.remoteeverything.core.diag.buildLinkReport
 import com.remoteeverything.core.identity.AndroidKeyStoreIdentityVault
 import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.model.AppInfo
 import com.remoteeverything.core.model.Cadence
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.Identity
+import com.remoteeverything.core.model.LinkKind
+import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.NodeStatus
 import com.remoteeverything.core.model.Path
@@ -64,6 +71,8 @@ data class AppUiState(
     val pairing: PairingUiState = PairingUiState.Idle,
     val catalog: CatalogUiState = CatalogUiState.Loading,
     val notice: Int? = null,
+    /** Per connection origin, why it is not answering — empty for one that answers. */
+    val trouble: Map<String, LinkTrouble> = emptyMap(),
 )
 
 sealed interface UpdateUiState {
@@ -89,6 +98,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     private val nodesController = NodesController(
         clientFactory = { identity -> pool.deviceClient(identity, vault) },
         cache = NodeCacheStore(File(application.filesDir, "nodes/cache.json")),
+        // A phone with nothing to send on fails every connection the same way, and
+        // saying so is more use than naming the first exception that came out.
+        offline = { networkEnv.offline() },
     )
 
     private val pairingSession = PairingSession(
@@ -129,8 +141,15 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         repository.identities,
         nodes,
         refreshing,
-    ) { settings, identities, nodeList, isRefreshing ->
-        AppUiState(settings = settings, identities = identities, nodes = nodeList, refreshing = isRefreshing)
+        nodesController.trouble,
+    ) { settings, identities, nodeList, isRefreshing, trouble ->
+        AppUiState(
+            settings = settings,
+            identities = identities,
+            nodes = nodeList,
+            refreshing = isRefreshing,
+            trouble = trouble,
+        )
     }.combine(pairingSession.pairing) { current, pairingState -> current.copy(pairing = pairingState) }
         .combine(catalogController.catalog) { current, catalogState -> current.copy(catalog = catalogState) }
         .combine(notice) { current, message -> current.copy(notice = message) }
@@ -294,6 +313,58 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- connections ---------------------------------------------------------
+
+    /**
+     * The report a person copies out of a connection that will not answer.
+     *
+     * It is built here rather than on the screen because most of it is not on the
+     * screen: what the last few probes failed with, when this connection last
+     * answered, and which road each machine was reachable by. The strings come from
+     * the app's own locale (`LocaleHelper.wrap`), so the report reads the way the
+     * rest of the app does.
+     */
+    fun troubleReport(identity: Identity): String {
+        val trouble = nodesController.trouble.value[identity.origin] ?: return ""
+        val context = LocaleHelper.wrap(getApplication())
+        val say: (String, String?) -> String = { key, arg ->
+            if (arg == null) l10n(context, key) else l10n(context, key, arg)
+        }
+        val machines = nodes.value
+            .filter { node -> node.paths.any { it.origin == identity.origin } }
+            .map { node ->
+                val roads = node.paths
+                    .filter { it.origin == identity.origin }
+                    .joinToString(" ") { path ->
+                        val label = say(
+                            if (path.link == LinkKind.LOCAL) MessageKeys.NODE_LAN else MessageKeys.NODE_TUNNEL,
+                            null,
+                        )
+                        val mark = if (path.reachable == true) "✓" else "✗"
+                        val latency = path.latencyMs?.takeIf { path.reachable == true }?.let { " ${it}ms" }.orEmpty()
+                        "$label $mark$latency"
+                    }
+                "${node.name} $roads"
+            }
+        return buildLinkReport(
+            LinkReportInput(
+                appName = say(MessageKeys.APP_NAME, null),
+                client = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                protocol = "${BuildConfig.PROTOCOL_VERSION}",
+                system = "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · ${Build.MODEL}",
+                origin = identity.origin,
+                deviceName = identity.deviceName,
+                network = networkEnv.describe(),
+                machines = machines,
+                trouble = trouble,
+                attempts = nodesController.failedProbesFor(identity.origin),
+                time = ::formatStamp,
+            ),
+            say,
+        )
+    }
+
+    private fun formatStamp(at: Long): String =
+        java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(at))
 
     fun forget(identity: Identity) {
         // The pairing still staged for this gateway is part of what is being
