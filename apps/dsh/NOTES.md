@@ -9,6 +9,3 @@
 5. **端口分配**：从节点现状选择未被其他登记应用占用的端口，同时填入启动参数 `--port` 与 `proxy_url`。LAN 入口给应用分配的对外端口是**首次打开时定下来**的（公网形态按名字推导，稳定），所以 adapter 里不要假设它等于 `--port`。
 6. **停止方式**：`stop_command` 留空，由 `remote-everything-control` 自动接管并回收整棵进程树。
 7. **验证**：从移动客户端或入口（携带 `RemoteEverythingApp=dsh`）打开 DSH 首页与会话列表，确认静态资源、API 与 WebSocket 正常工作；与现有登记应用逐一复验共存。若 DSH 在响应里写绝对地址（登录后如果页面自己跳到公网域名，即是这种），那属于响应侧，可在 `onResponse` 处理，目前未发现。
-4. **端口分配**：从节点现状选择未被其他登记应用占用的端口，同时填入启动参数 `--port` 与 `proxy_url`。
-5. **停止方式**：`stop_command` 留空，由 `remote-everything-control` 自动接管并回收整棵进程树。
-6. **验证**：从移动客户端或入口（携带 `RemoteEverythingApp=dsh`）打开 DSH 首页与会话列表，确认静态资源、API 与 WebSocket 正常工作；与现有登记应用逐一复验共存。
