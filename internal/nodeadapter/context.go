@@ -2,6 +2,7 @@ package nodeadapter
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 )
 
@@ -40,11 +41,33 @@ func (j *jsReq) SetQuery(key, val string) {
 }
 
 func (j *jsReq) SetHeader(key, val string) {
+	// Host is not an ordinary header in Go: it lives on the request itself, and an
+	// adapter that means to change which name an application hears has to change
+	// that. (The node itself preserves the entrance's Host across this hop, which
+	// is what an application comparing Origin against Host needs — and what an
+	// application with a host allow-list rejects. This is how one app asks for the
+	// name it knows instead.)
+	if strings.EqualFold(key, "Host") {
+		j.r.Host = val
+		return
+	}
 	j.r.Header.Set(key, val)
 }
 
 func (j *jsReq) DelHeader(key string) {
 	j.r.Header.Del(key)
+}
+
+func (j *jsReq) GetHeader(key string) string {
+	return j.r.Header.Get(key)
+}
+
+func (j *jsReq) GetQuery(key string) string {
+	return j.r.URL.Query().Get(key)
+}
+
+func (j *jsReq) GetPath() string {
+	return j.r.URL.Path
 }
 
 // jsResp wraps *http.Response for OnResponse, exposing only header/status mutation.
@@ -58,6 +81,10 @@ func (j *jsResp) SetHeader(key, val string) {
 
 func (j *jsResp) DelHeader(key string) {
 	j.r.Header.Del(key)
+}
+
+func (j *jsResp) GetHeader(key string) string {
+	return j.r.Header.Get(key)
 }
 
 func (j *jsResp) SetStatus(code int) {
