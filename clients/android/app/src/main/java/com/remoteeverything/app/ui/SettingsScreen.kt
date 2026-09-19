@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -143,7 +144,10 @@ fun SettingsScreen(vm: AppModel, onBack: () -> Unit) {
                     )
                 }
             } else {
-                items(state.identities.size) { index ->
+                items(
+                    count = state.identities.size,
+                    key = { state.identities[it].origin },
+                ) { index ->
                     val identity = state.identities[index]
                     var confirming by remember { mutableStateOf(false) }
                     // One connection is one block: the address and the name this
@@ -199,27 +203,12 @@ fun SettingsScreen(vm: AppModel, onBack: () -> Unit) {
                 // is boxed, because none of it is a list — and the version number is
                 // the update check, without a button saying so.
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    AboutRow(
+                    VersionRow(
                         label = l10n(MessageKeys.SETTINGS_VERSION),
-                        value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
-                        onValue = { vm.checkUpdates() },
+                        currentVersion = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                        update = update,
+                        onCheck = { vm.checkUpdates() },
                     )
-                    val message = when (val u = update) {
-                        UpdateUiState.Idle -> null
-                        UpdateUiState.Checking -> l10n(MessageKeys.SETTINGS_UPDATES_CHECKING)
-                        UpdateUiState.UpToDate -> l10n(MessageKeys.SETTINGS_UPDATES_NONE)
-                        is UpdateUiState.Available -> l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, u.versionName, u.buildNumber) + " " + l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
-                        UpdateUiState.ProtocolChanged -> l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL)
-                        UpdateUiState.Unreachable -> l10n(MessageKeys.SETTINGS_UPDATES_FAILED)
-                    }
-                    if (message != null) {
-                        Text(
-                            message,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
-                        )
-                    }
                     AboutRow(
                         label = l10n(MessageKeys.SETTINGS_PROTOCOL_VERSION),
                         value = "${BuildConfig.PROTOCOL_VERSION}",
@@ -237,34 +226,111 @@ fun SettingsScreen(vm: AppModel, onBack: () -> Unit) {
 }
 
 /**
+ * The version line of "about this build", which is also the update check.
+ *
+ * Short outcomes ("checking…", "up to date") live on the same line between the
+ * label and the version without shifting the rows beneath it. An available update
+ * highlights the new version on the right, and detailed store instructions only
+ * appear below when there is an update to act on.
+ */
+@Composable
+private fun VersionRow(
+    label: String,
+    currentVersion: String,
+    update: UpdateUiState,
+    onCheck: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onCheck)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            val (valueText, valueColor) = when (update) {
+                UpdateUiState.Idle -> currentVersion to MaterialTheme.colorScheme.onSurfaceVariant
+                UpdateUiState.Checking -> "${l10n(MessageKeys.SETTINGS_UPDATES_CHECKING)} · $currentVersion" to MaterialTheme.colorScheme.onSurfaceVariant
+                UpdateUiState.UpToDate -> "${l10n(MessageKeys.SETTINGS_UPDATES_NONE)} · $currentVersion" to MaterialTheme.colorScheme.onSurfaceVariant
+                is UpdateUiState.Available -> l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, update.versionName, update.buildNumber) to MaterialTheme.colorScheme.primary
+                UpdateUiState.ProtocolChanged -> currentVersion to MaterialTheme.colorScheme.error
+                UpdateUiState.Unreachable -> currentVersion to MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                text = valueText,
+                style = MaterialTheme.typography.labelMedium,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        val detail: String?
+        val detailColor: Color
+        when (update) {
+            is UpdateUiState.Available -> {
+                detail = l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
+                detailColor = MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            UpdateUiState.ProtocolChanged -> {
+                detail = l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL) + " " + l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
+                detailColor = MaterialTheme.colorScheme.error
+            }
+            UpdateUiState.Unreachable -> {
+                detail = l10n(MessageKeys.SETTINGS_UPDATES_FAILED)
+                detailColor = MaterialTheme.colorScheme.error
+            }
+            else -> {
+                detail = null
+                detailColor = Color.Unspecified
+            }
+        }
+        if (detail != null) {
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = detailColor,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+/**
  * One line of "about this build": what it is on the left, what it is on the right,
- * and — where there is something a person can do with the value — the value is what
- * they tap. No button, because the value is the thing.
+ * and — where there is something a person can do with the value — the whole row is
+ * what they tap. No button, because the value is the thing.
  */
 @Composable
 private fun AboutRow(label: String, value: String, onValue: (() -> Unit)? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onValue != null && value.isNotEmpty()) Modifier.clickable { onValue() } else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.weight(1f),
         )
+        Spacer(modifier = Modifier.width(16.dp))
         Text(
             value,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = if (onValue != null && value.isNotEmpty()) {
-                Modifier.clickable { onValue() }
-            } else {
-                Modifier
-            },
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f),
         )
     }
 }

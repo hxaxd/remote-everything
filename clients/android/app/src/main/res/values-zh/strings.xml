@@ -3,9 +3,9 @@
     <!-- 与 values/strings.xml 键名一一对应；键即 clients/behavior/fixtures/message-keys.json 的契约。 -->
     <string name="app_name">远程万物</string>
 
-    <string name="action_add_node">添加机器</string>
+    <string name="action_add_node">添加节点</string>
     <string name="action_back">返回</string>
-    <string name="action_back_to_nodes">返回机器列表</string>
+    <string name="action_back_to_nodes">返回节点列表</string>
     <string name="action_cancel">取消</string>
     <string name="action_confirm">确定</string>
     <string name="action_copied">已复制</string>
@@ -19,7 +19,7 @@
     <string name="app_starting">启动中</string>
     <string name="app_stopped">已停止</string>
     <string name="app_stopping">停止中</string>
-    <string name="apps_empty_body">这台机器上还没有可打开的应用。</string>
+    <string name="apps_empty_body">这个节点上还没有可打开的应用。</string>
     <string name="apps_empty_title">没有应用</string>
 
     <string name="device_category_default">设备</string>
@@ -38,14 +38,14 @@
     <string name="diag_device_name">设备名</string>
     <string name="diag_failures">连续失败 %1$s 次</string>
     <string name="diag_last_answer">最后应答 %1$s</string>
-    <string name="diag_machines">机器</string>
+    <string name="diag_machines">节点</string>
     <string name="diag_network">网络</string>
     <string name="diag_since">从 %1$s 起</string>
     <string name="diag_state">状态</string>
     <string name="diag_system">系统</string>
     <string name="diag_title">连接诊断</string>
-    <string name="empty_body">扫描或粘贴邀请来添加机器。</string>
-    <string name="empty_title">还没有机器</string>
+    <string name="empty_body">扫描或粘贴邀请来添加节点。</string>
+    <string name="empty_title">还没有节点</string>
 
     <string name="error_app_gone">此应用已不可用</string>
     <string name="error_busy">服务繁忙，请稍后再试。</string>
@@ -53,7 +53,7 @@
     <string name="error_control_failed">操作未完成，请再试一次。</string>
     <string name="error_credential_lost">此连接的凭据已失效，请重新配对。</string>
     <string name="error_network">无法连接，请检查网络后重试。</string>
-    <string name="error_node_gone">无法访问这台机器</string>
+    <string name="error_node_gone">无法访问这个节点</string>
     <string name="error_node_gone_body">访问权限可能已被操作者移除。</string>
     <string name="error_not_found">未找到</string>
     <string name="error_stop_failed">停止失败，应用可能仍在运行。</string>
@@ -61,7 +61,7 @@
     <string name="identity_needs_pairing">请重新配对这台设备</string>
     <string name="identity_needs_pairing_title">需要重新配对</string>
     <string name="identity_needs_pairing_body">此连接的凭据已不在本机，请重新配对。</string>
-    <string name="identity_unauthorized">无权访问这台机器</string>
+    <string name="identity_unauthorized">无权访问这个节点</string>
 
     <string name="language_en">English</string>
     <string name="language_zh">中文</string>
@@ -71,16 +71,16 @@
     <string name="node_lan">本地</string>
     <string name="node_offline">不在线</string>
     <string name="node_offline_body">它可能已关机、正在休眠，或连接已断开。</string>
-    <string name="node_offline_title">这台机器不在线</string>
+    <string name="node_offline_title">这个节点不在线</string>
     <string name="node_pending">待批准</string>
     <string name="node_tunnel">隧道</string>
     <string name="node_unknown">未知</string>
-    <string name="nodes_select_hint">选择一台机器</string>
-    <string name="nodes_title">机器</string>
+    <string name="nodes_select_hint">选择一个节点</string>
+    <string name="nodes_title">节点</string>
 
     <string name="pair_action_join">加入</string>
     <string name="pair_bad_invitation">这不是有效的邀请链接</string>
-    <string name="pair_confirm_body">通过 %1$s 加入机器「%2$s」</string>
+    <string name="pair_confirm_body">通过 %1$s 加入节点「%2$s」</string>
     <string name="pair_denied">邀请无效或已被使用</string>
     <string name="pair_device_name">设备名</string>
     <string name="pair_device_name_hint">其他设备能看到的名字</string>
@@ -90,12 +90,12 @@
     <string name="pair_gateway_trouble">网关暂时不可用，请联系操作者。</string>
     <string name="pair_input_hint">粘贴邀请链接</string>
     <string name="pair_network">无法连接，请检查网络后重试。</string>
-    <string name="pair_node_label">机器</string>
+    <string name="pair_node_label">节点</string>
     <string name="pair_scan">扫码</string>
     <string name="pair_scan_body">将摄像头对准邀请二维码。</string>
     <string name="pair_scan_denied">扫码需要相机权限，也可以直接粘贴链接。</string>
     <string name="pair_scan_failed">未识别到邀请二维码</string>
-    <string name="pair_title">添加机器</string>
+    <string name="pair_title">添加节点</string>
     <string name="pair_waiting_approval">正在等待操作者批准这台设备</string>
     <string name="pair_working">配对中…</string>
 
@@ -113,7 +113,7 @@
     <string name="settings_language">语言</string>
     <string name="settings_language_system">跟随系统</string>
     <string name="settings_no_identities">还没有连接</string>
-    <string name="settings_nodes_count">机器</string>
+    <string name="settings_nodes_count">节点</string>
     <string name="settings_protocol_version">通信协议版本</string>
     <string name="settings_title">设置</string>
     <string name="settings_updates">检查更新</string>
