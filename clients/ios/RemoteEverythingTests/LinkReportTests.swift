@@ -26,7 +26,10 @@ final class LinkReportTests: XCTestCase {
             machines: machines,
             trouble: trouble,
             attempts: attempts,
-            time: { at in "T\(Int(at.timeIntervalSince1970 * 1000))" }
+            // Rounded, not truncated: a Date keeps an interval against 2001, so the
+            // milliseconds this test builds cross two conversions, and 50 ms comes
+            // back a hair under itself.
+            time: { at in "T\(Int((at.timeIntervalSince1970 * 1000).rounded()))" }
         )
     }
 
