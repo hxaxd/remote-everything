@@ -40,10 +40,15 @@ func removeRoutingCookie(request *http.Request) {
 	}
 }
 
+// gatewayMessage answers a request that reached the node without an application
+// to serve it. The page is deliberately bare: a client that addresses a node
+// directly is not the way in — the gateway decides which application a request
+// is for and says so on the request it forwards — so this is a fallback, and it
+// looks like one rather than like an interface of its own.
 func gatewayMessage(writer http.ResponseWriter, status int, title, detail string) {
 	title = html.EscapeString(title)
 	detail = html.EscapeString(detail)
-	body := "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"color-scheme\" content=\"dark\"><title>" + title + "</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:#020617;color:#f8fafc;font:16px system-ui}main{max-width:520px;padding:30px;border:1px solid #1e293b;border-radius:22px;background:#0f172a}h1{font-size:28px}p{color:#94a3b8;line-height:1.7}</style><main><h1>" + title + "</h1><p>" + detail + "</p></main></html>"
+	body := "<!doctype html><html lang=\"zh-CN\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><meta name=\"color-scheme\" content=\"dark light\"><title>" + title + "</title><body><p>" + title + "</p><p>" + detail + "</p></body></html>"
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(status)
