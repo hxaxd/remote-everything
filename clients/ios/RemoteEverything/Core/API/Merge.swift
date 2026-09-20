@@ -31,8 +31,8 @@ enum Merge {
                     // that said nothing leaves the client to judge by the address it
                     // dials. Either way a path that leaves the local network reads as a
                     // tunnel, because that is what it costs the person using it.
-                    link: (summary.link == "tunnel" || !isPrivate) ? .tunnel : .local,
-                    lastCheckedAt: answer.checkedAt
+                    lastCheckedAt: answer.checkedAt,
+                    link: (entry.link == "tunnel" || !isPrivate) ? .tunnel : .local
                 )
                 if var existing = byID[entry.id] {
                     existing.paths.append(path)

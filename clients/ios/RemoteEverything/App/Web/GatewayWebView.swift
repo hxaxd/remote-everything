@@ -154,7 +154,8 @@ struct GatewayWebView: UIViewRepresentable {
         private var blobSinks: [String: BlobSink] = [:]
 
         private struct BlobSink {
-            let mime: String
+            /// The type the page declared, replaced when the data URL says what it is.
+            var mime: String
             var data: Data
         }
 

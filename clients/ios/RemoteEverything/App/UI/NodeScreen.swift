@@ -46,56 +46,71 @@ struct NodeScreen: View {
 
     @ViewBuilder
     private func page(_ theme: Theme, node: Node?) -> some View {
-        guard let node else {
-            MessagePage(
-                title: l10n(MessageKeys.ERROR_NODE_GONE),
-                message: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
-                actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
-                action: {
-                    model.selectedNodeID = nil
-                    model.path.removeAll()
-                    Task { await model.refreshNodes() }
+        if let node {
+            switch model.catalogs[nodeID] {
+            case .none, .some(.loading):
+                VStack {
+                    ProgressView()
                 }
-            )
-        }
-        switch model.catalogs[nodeID] {
-        case .none, .some(.loading):
-            VStack {
-                ProgressView()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .some(.ready(let apps)):
-            if apps.isEmpty {
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .some(.ready(let apps)):
+                if apps.isEmpty {
+                    MessagePage(
+                        title: l10n(MessageKeys.APPS_EMPTY_TITLE),
+                        message: l10n(MessageKeys.APPS_EMPTY_BODY),
+                        actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                        action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                    )
+                } else {
+                    List {
+                        ForEach(apps) { app in
+                            ApplicationRow(
+                                app: app,
+                                onOpen: { open(app) },
+                                onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
+                                onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
+                            )
+                            .listRowBackground(theme.bgElevated)
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .refreshable { await model.loadCatalog(nodeID: nodeID) }
+                }
+            case .some(.offline):
                 MessagePage(
-                    title: l10n(MessageKeys.APPS_EMPTY_TITLE),
-                    message: l10n(MessageKeys.APPS_EMPTY_BODY),
+                    title: l10n(MessageKeys.NODE_OFFLINE_TITLE),
+                    message: l10n(MessageKeys.NODE_OFFLINE_BODY),
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
                     action: { Task { await model.loadCatalog(nodeID: nodeID) } }
                 )
-            } else {
-                List {
-                    ForEach(apps) { app in
-                        ApplicationRow(
-                            app: app,
-                            onOpen: { open(app) },
-                            onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
-                            onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
-                        )
-                        .listRowBackground(theme.bgElevated)
+            case .some(.unauthorized):
+                MessagePage(
+                    title: l10n(MessageKeys.ERROR_NODE_GONE),
+                    message: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                    actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
+                    action: {
+                        model.selectedNodeID = nil
+                        model.path.removeAll()
+                        Task { await model.refreshNodes() }
                     }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .refreshable { await model.loadCatalog(nodeID: nodeID) }
+                )
+            case .some(.unreachable):
+                MessagePage(
+                    title: ErrorText.network,
+                    message: !node.paths.isEmpty ? pathNames(node) : nil,
+                    actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                )
+            case .some(.refused(let error)):
+                MessagePage(
+                    title: ErrorText.text(for: error.code),
+                    message: nil,
+                    actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                )
             }
-        case .some(.offline):
-            MessagePage(
-                title: l10n(MessageKeys.NODE_OFFLINE_TITLE),
-                message: l10n(MessageKeys.NODE_OFFLINE_BODY),
-                actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                action: { Task { await model.loadCatalog(nodeID: nodeID) } }
-            )
-        case .some(.unauthorized):
+        } else {
             MessagePage(
                 title: l10n(MessageKeys.ERROR_NODE_GONE),
                 message: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
@@ -105,20 +120,6 @@ struct NodeScreen: View {
                     model.path.removeAll()
                     Task { await model.refreshNodes() }
                 }
-            )
-        case .some(.unreachable):
-            MessagePage(
-                title: ErrorText.network,
-                message: !node.paths.isEmpty ? pathNames(node) : nil,
-                actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                action: { Task { await model.loadCatalog(nodeID: nodeID) } }
-            )
-        case .some(.refused(let error)):
-            MessagePage(
-                title: ErrorText.text(for: error.code),
-                message: nil,
-                actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                action: { Task { await model.loadCatalog(nodeID: nodeID) } }
             )
         }
     }
