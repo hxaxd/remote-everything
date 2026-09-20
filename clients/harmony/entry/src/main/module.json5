@@ -21,11 +21,6 @@
         "label": "$string:EntryAbility_label",
         "startWindowIcon": "$media:ic_launcher_flat",
         "startWindowBackground": "$color:start_window_background",
-        // The app declares no orientation: "unspecified" lets the system decide,
-        // and an application's own panel is the one thing that may hold the screen
-        // (ui-contract §6, revised) — the web host asks for it while that
-        // application is open and gives it back on the way out. Nothing else
-        // calls setPreferredOrientation.
         "orientation": "unspecified",
         "exported": true,
         "skills": [
@@ -34,7 +29,6 @@
             "actions": ["action.system.home"]
           },
           {
-            // An invitation link opens the app straight into the add-node flow.
             "actions": ["ohos.want.action.viewData"],
             "uris": [
               {
@@ -56,9 +50,6 @@
         }
       },
       {
-        // Which network this device is on decides which remembered route is used and
-        // when those routes are re-decided (ui-contract §4). Nothing about the network
-        // itself is read, recorded or sent.
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
       {
@@ -73,9 +64,6 @@
         }
       },
       {
-        // What an application's page may ask of the device: the microphone for a
-        // call, the location for a map. Each is granted only to a page the gateway
-        // serves, and only after the platform's own question.
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:microphone_permission_reason",
         "usedScene": {
