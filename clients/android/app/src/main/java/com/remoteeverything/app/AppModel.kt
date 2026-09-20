@@ -49,7 +49,7 @@ sealed interface PairingUiState {
     data class Working(val nodeName: String) : PairingUiState
     data class Pending(val nodeName: String) : PairingUiState
     data class Success(val nodeName: String) : PairingUiState
-    data class Failed(val code: ErrorCode?) : PairingUiState
+    data class Failed(val code: ErrorCode?, val key: String? = null) : PairingUiState
 }
 
 sealed interface CatalogUiState {
@@ -226,6 +226,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun startForegroundRefresh() {
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
+            // Fresh on arrival, then on the cadence: the person who just came back
+            // did not wait a minute to see what changed while they were away.
+            refreshNodes()
             while (true) {
                 delay(Cadence.nodeRefreshMs)
                 refreshNodes()

@@ -57,6 +57,13 @@ class MainActivity : ComponentActivity() {
             }
             LifecycleStartEffect(Unit) {
                 vm.startForegroundRefresh()
+                // A device still waiting for its operator is asked about again the
+                // moment the app is back, the way the other clients answer a
+                // relaunch — a 10-minute window that ran out overnight is not a
+                // pairing that stopped being waiting.
+                if (vm.state.value.pairing is PairingUiState.Pending) {
+                    vm.resumePendingPairing()
+                }
                 onStopOrDispose { vm.stopForegroundRefresh() }
             }
             val state by vm.state.collectAsStateWithLifecycle()

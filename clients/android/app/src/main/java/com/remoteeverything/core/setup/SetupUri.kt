@@ -30,9 +30,17 @@ object SetupUri {
     private val c0OrDel = Regex("[\\u0000-\\u001F\\u007F]")
 
     private val knownKeys = setOf("node", "node_name", "origin", "invitation", "fingerprint", "public_key_pin")
+    private val uriChars = Regex("[^A-Za-z0-9\\-._~!$&'()*+,;=:@/?%#\\[\\]]")
 
     fun parse(text: String): Invitation {
         val trimmed = text.trim()
+        // A URI is ASCII, and a specific ASCII at that: a bare space, a control
+        // character, or a non-ASCII character (a Chinese name not percent-encoded)
+        // is not a link this client reads — the same refusal the strict side gives,
+        // ahead of what the platform parser happens to tolerate.
+        if (uriChars.containsMatchIn(trimmed)) {
+            throw Rejected("not a URI")
+        }
         val uri = try {
             URI(trimmed)
         } catch (e: Exception) {
@@ -135,15 +143,30 @@ object SetupUri {
         if (authority.isEmpty()) return false
         if (authority.contains('/') || authority.contains('?') || authority.contains('#')) return false
         if (authority.contains('@')) return false
-        val colon = authority.lastIndexOf(':')
         val host: String
         val portStr: String?
-        if (colon >= 0) {
-            host = authority.substring(0, colon)
-            portStr = authority.substring(colon + 1)
+        val open = authority.indexOf('[')
+        if (open >= 0) {
+            // An IPv6 literal: the host is inside the brackets, and a port, when
+            // one is given, follows the closing bracket — `[::1]` has no port.
+            val close = authority.indexOf(']', open)
+            if (close < 0) return false
+            host = authority.substring(open + 1, close)
+            val after = authority.substring(close + 1)
+            portStr = when {
+                after.isEmpty() -> null
+                after.startsWith(":") -> after.substring(1)
+                else -> return false
+            }
         } else {
-            host = authority
-            portStr = null
+            val colon = authority.lastIndexOf(':')
+            if (colon >= 0) {
+                host = authority.substring(0, colon)
+                portStr = authority.substring(colon + 1)
+            } else {
+                host = authority
+                portStr = null
+            }
         }
         if (host.isEmpty()) return false
         if (portStr != null) {

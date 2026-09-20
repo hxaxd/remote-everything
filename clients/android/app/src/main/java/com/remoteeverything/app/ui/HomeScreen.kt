@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -31,7 +32,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -59,23 +62,27 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
     // applications side by side; anything narrower keeps one pane and a back arrow.
     val wide = LocalConfiguration.current.screenWidthDp >= WideScreenDp
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
+    // A wide screen's right pane shows one thing at a time: a node's applications,
+    // settings, or pairing. Those two are destinations of their own on a phone.
+    var pane by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // A screen that turns narrow must not swallow the pane: what was beside the
+    // list becomes the screen the phone is on.
+    LaunchedEffect(wide) {
+        if (!wide && pane != null) {
+            if (pane == PaneSettings) onSettings() else onAdd()
+            pane = null
+        }
+    }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(l10n(MessageKeys.APP_NAME)) },
-                actions = {
-                    IconButton(onClick = { vm.refreshNodes() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = l10n(MessageKeys.SETTINGS_UPDATES_CHECK))
-                    }
-                    IconButton(onClick = onAdd) {
-                        Icon(Icons.Default.Add, contentDescription = l10n(MessageKeys.ACTION_ADD_NODE))
-                    }
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = l10n(MessageKeys.SETTINGS_TITLE))
-                    }
-                },
-            )
+            // A wide screen gives every pane its own bar, so the list keeps its
+            // actions while the pane beside it is settings or pairing. The phone
+            // keeps the one bar it has always had.
+            if (!wide) {
+                HomeBar(vm = vm, onAdd = onAdd, onSettings = onSettings)
+            }
         },
     ) { padding ->
         PullToRefreshBox(
@@ -119,22 +126,58 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                     }
                 } else if (wide) {
                     Row(modifier = Modifier.fillMaxSize()) {
-                        NodeList(
-                            vm = vm,
-                            state = state,
-                            selectedId = selected,
-                            onSelect = { node -> selected = node.id },
-                            modifier = Modifier.weight(0.42f),
-                        )
+                        Column(modifier = Modifier.weight(0.42f)) {
+                            HomeBar(
+                                vm = vm,
+                                onAdd = { pane = PaneAdd },
+                                onSettings = { pane = PaneSettings },
+                                embedded = true,
+                            )
+                            NodeList(
+                                vm = vm,
+                                state = state,
+                                selectedId = selected,
+                                onSelect = { node ->
+                                    pane = null
+                                    selected = node.id
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                         VerticalDivider()
                         Box(modifier = Modifier.weight(0.58f)) {
-                            val nodeId = selected
-                            if (nodeId == null) {
-                                CenteredMessage(
-                                    title = l10n(MessageKeys.NODES_SELECT_HINT),
-                                )
-                            } else {
-                                NodeContent(vm = vm, nodeId = nodeId, onGone = { selected = null })
+                            when (pane) {
+                                // Settings and pairing are destinations of their own on
+                                // a phone; beside the list they are the pane, so the
+                                // list stays in view. Only an application takes the
+                                // whole screen.
+                                PaneSettings -> SettingsScreen(vm = vm, onBack = { pane = null }, embedded = true)
+                                PaneAdd -> PairScreen(vm = vm, onBack = { pane = null }, embedded = true)
+                                else -> {
+                                    val nodeId = selected
+                                    if (nodeId == null) {
+                                        CenteredMessage(
+                                            title = l10n(MessageKeys.NODES_SELECT_HINT),
+                                        )
+                                    } else {
+                                        // The pane is titled the way the phone's own
+                                        // applications screen is: a bar over the list
+                                        // beside it, both the same height.
+                                        Column(modifier = Modifier.fillMaxSize()) {
+                                            NodeBar(
+                                                vm = vm,
+                                                node = state.nodes.firstOrNull { it.id == nodeId },
+                                                embedded = true,
+                                            )
+                                            NodeContent(
+                                                vm = vm,
+                                                nodeId = nodeId,
+                                                onGone = { selected = null },
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -149,6 +192,33 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HomeBar(
+    vm: AppModel,
+    onAdd: () -> Unit,
+    onSettings: () -> Unit,
+    embedded: Boolean = false,
+) {
+    TopAppBar(
+        title = { Text(l10n(MessageKeys.APP_NAME)) },
+        actions = {
+            IconButton(onClick = { vm.refreshNodes() }) {
+                Icon(Icons.Default.Refresh, contentDescription = l10n(MessageKeys.SETTINGS_UPDATES_CHECK))
+            }
+            IconButton(onClick = onAdd) {
+                Icon(Icons.Default.Add, contentDescription = l10n(MessageKeys.ACTION_ADD_NODE))
+            }
+            IconButton(onClick = onSettings) {
+                Icon(Icons.Default.Settings, contentDescription = l10n(MessageKeys.SETTINGS_TITLE))
+            }
+        },
+        // A bar inside a pane sits under insets the pane already took; taking them
+        // again would make this bar taller than the one beside it.
+        windowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+    )
 }
 
 @Composable
@@ -173,6 +243,10 @@ private fun NodeList(
 }
 
 private const val WideScreenDp = 840
+
+/** What a wide screen's right pane may show instead of a node's applications. */
+private const val PaneSettings = "settings"
+private const val PaneAdd = "add"
 
 /**
  * One machine, as a row of its own: its name, and how this phone reaches it —

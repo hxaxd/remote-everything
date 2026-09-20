@@ -180,7 +180,15 @@ internal class OkHttpGatewayClient(
         if (answer.status !in 300..399 || answer.location.isNullOrBlank()) {
             refusal(answer.status, answer.body)
         }
-        return answer.location
+        // A redirect is a redirect, but the place it names must be this gateway's:
+        // a substituted Location must not move this device's certificate to another
+        // host, and a relative one is resolved against the origin it came from.
+        val location = answer.location!!
+        val absolute = resolveLocation(origin, location)
+        if (!belongsToGateway(origin, absolute)) {
+            throw UnreadableAnswer("the gateway pointed at an origin that is not its own")
+        }
+        return absolute
     }
 
     companion object {
@@ -229,4 +237,42 @@ internal fun gatewayOkHttpClient(
         builder.sslSocketFactory(context.socketFactory, trust)
     }
     return builder.build()
+}
+
+/** A redirect's Location, resolved against the gateway origin it came from. */
+internal fun resolveLocation(origin: String, location: String): String = when {
+    location.startsWith("https://") -> location
+    location.startsWith("/") -> origin + location
+    else -> "$origin/$location"
+}
+
+/**
+ * Whether an address is this gateway's: the same host (a different port on it is
+ * still this gateway, which is how a LAN gateway serves each application), or a
+ * host in the gateway's own domain, which is how a gateway with a domain serves
+ * each application. Mirrors the gateway client's own rule on the other clients.
+ */
+internal fun belongsToGateway(origin: String, url: String): Boolean {
+    val gatewayHost = urlHost(origin) ?: return false
+    val targetHost = urlHost(url) ?: return false
+    if (targetHost == gatewayHost) return true
+    if (gatewayHost.contains(':')) return false
+    return targetHost.endsWith(".$gatewayHost")
+}
+
+/** The host of a URL, brackets kept for IPv6; null when there is no scheme. */
+internal fun urlHost(value: String): String? {
+    val scheme = value.indexOf("://")
+    if (scheme < 0) return null
+    var authority = value.substring(scheme + 3)
+    val stop = authority.indexOfFirst { it == '/' || it == '?' || it == '#' }
+    if (stop >= 0) authority = authority.substring(0, stop)
+    val at = authority.indexOf('@')
+    if (at >= 0) authority = authority.substring(at + 1)
+    if (authority.startsWith('[')) {
+        val close = authority.indexOf(']')
+        return if (close < 0) null else authority.substring(0, close + 1)
+    }
+    val colon = authority.lastIndexOf(':')
+    return if (colon < 0) authority else authority.substring(0, colon)
 }

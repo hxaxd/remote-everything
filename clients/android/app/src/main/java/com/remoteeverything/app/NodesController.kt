@@ -212,6 +212,14 @@ class NodesController(
         troubleState.update { current ->
             if (current.containsKey(origin)) current - origin else current
         }
-        cache?.save(snapshot)
+        // The on-disk cache is the cold-start promise for every gateway this device
+        // holds; forgetting one removes only its own entry, and a fresh answer from
+        // this run is not lost to an older file. An empty cache file is then
+        // genuinely empty, which is when the file goes.
+        val disk = cache?.load().orEmpty()
+        val kept = HashMap(disk)
+        kept.remove(origin)
+        snapshot.forEach { (o, r) -> if (o != origin) kept[o] = r }
+        cache?.save(kept)
     }
 }

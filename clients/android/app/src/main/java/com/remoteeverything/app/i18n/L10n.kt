@@ -140,6 +140,8 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.WEB_DOWNLOADS -> R.string.web_downloads
     MessageKeys.WEB_EXIT -> R.string.web_exit
     MessageKeys.WEB_LOAD_FAILED -> R.string.web_load_failed
+    MessageKeys.WEB_ISOLATION_UNAVAILABLE -> R.string.web_isolation_unavailable
+    MessageKeys.WEB_SESSION_FAILED -> R.string.web_session_failed
     MessageKeys.WEB_LOADING -> R.string.web_loading
     MessageKeys.WEB_ORIENTATION -> R.string.web_orientation
     MessageKeys.WEB_ORIENTATION_LANDSCAPE -> R.string.web_orientation_landscape

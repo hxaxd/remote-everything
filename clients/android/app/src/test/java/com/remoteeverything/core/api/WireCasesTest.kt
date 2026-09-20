@@ -1,10 +1,13 @@
 package com.remoteeverything.core.api
 
 import com.remoteeverything.core.json.Strict
+import com.remoteeverything.core.setup.SetupUri
 import com.remoteeverything.core.update.UpdateChecker
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,6 +66,11 @@ class WireCasesTest {
             "error" -> json.decodeFromString(ErrorResponse.serializer(), text).also { Wire.validateError(it) }
             "activation" -> decodeActivation(text)
             "release" -> decodeRelease(text)
+            "setup" -> {
+                val uri = json.decodeFromString(JsonObject.serializer(), text)["uri"]?.jsonPrimitive?.content
+                    ?: error("setup case needs a uri")
+                SetupUri.parse(uri)
+            }
             else -> error("unknown wire kind $kind")
         }
     }

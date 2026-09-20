@@ -157,6 +157,8 @@ object MessageKeys {
     const val WEB_DOWNLOADS = "web.downloads"
     const val WEB_EXIT = "web.exit"
     const val WEB_LOAD_FAILED = "web.load_failed"
+    const val WEB_ISOLATION_UNAVAILABLE = "web.isolation_unavailable"
+    const val WEB_SESSION_FAILED = "web.session_failed"
     const val WEB_LOADING = "web.loading"
     const val WEB_ORIENTATION = "web.orientation"
     const val WEB_ORIENTATION_LANDSCAPE = "web.orientation_landscape"

@@ -9,11 +9,13 @@ import com.remoteeverything.core.identity.Pkcs12
 import com.remoteeverything.core.model.ClientError
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.Identity
+import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.model.ServerPin
 import com.remoteeverything.core.setup.SetupUri
 import com.remoteeverything.core.store.SettingsStore
 import java.security.SecureRandom
 import java.util.Base64
+import kotlinx.coroutines.CancellationException
 
 /**
  * Pairing, as two round trips with a restart-safe middle: redeem the invitation
@@ -34,7 +36,7 @@ class PairingService(
     sealed interface Outcome {
         data class Activated(val identity: Identity, val nodeName: String = "") : Outcome
         data class ApprovalPending(val nodeName: String) : Outcome
-        data class Failed(val code: ErrorCode?) : Outcome
+        data class Failed(val code: ErrorCode?, val key: String? = null) : Outcome
     }
 
     /**
@@ -76,13 +78,20 @@ class PairingService(
             )
         } catch (e: ClientError) {
             return Outcome.Failed(e.code)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return Outcome.Failed(null)
         }
         val staged = try {
             stage(invitation, deviceName, password, pairing)
         } catch (e: Pkcs12.InvalidCredential) {
-            return Outcome.Failed(null)
+            // A credential that will not open is this client's fault to name, not
+            // the network's: the gateway answered, and what it answered was not a
+            // credential this device could take.
+            return Outcome.Failed(null, MessageKeys.ERROR_CLIENT)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return Outcome.Failed(null)
         }
@@ -161,6 +170,10 @@ class PairingService(
                 }
                 else -> Outcome.Failed(e.code)
             }
+        } catch (e: CancellationException) {
+            // Cancelling is a verdict of its own: the person left. Not a failure
+            // of the pairing, and not something to paint as one.
+            throw e
         } catch (e: Exception) {
             // A network that is down is not a verdict: keep the staged setup for
             // the retry that a resumed launch or the wizard's next attempt makes.

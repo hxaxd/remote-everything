@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +57,7 @@ import com.remoteeverything.core.model.AppInfo
 import com.remoteeverything.core.model.AppState
 import com.remoteeverything.core.model.LinkKind
 import com.remoteeverything.core.model.MessageKeys
+import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.NodeStatus
 import com.remoteeverything.core.model.Path
 import com.remoteeverything.core.store.Appearance
@@ -66,36 +69,50 @@ fun NodeScreen(vm: AppModel, nodeId: String, onBack: () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val node = state.nodes.firstOrNull { it.id == nodeId }
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(node?.name ?: "", style = MaterialTheme.typography.titleMedium)
-                        // Under its own name, whose screen this is, and which way the
-                        // phone is getting there.
-                        val status = node?.let { vm.statusOf(it) }
-                        if (status != null) {
-                            Text(
-                                currentPathHint(node?.let { vm.pathFor(it) }) ?: statusLabel(status),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = l10n(MessageKeys.ACTION_BACK),
-                        )
-                    }
-                },
-            )
-        },
+        topBar = { NodeBar(vm = vm, node = node, onBack = onBack) },
     ) { padding ->
         NodeContent(vm = vm, nodeId = nodeId, onGone = onBack, modifier = Modifier.padding(padding))
     }
+}
+
+/**
+ * One machine, named, with how this phone reaches it: the phone's applications
+ * screen puts a back arrow in it, and a wide screen sets the same bar over the
+ * applications beside the list, so both panes are titled the same way.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun NodeBar(vm: AppModel, node: Node?, onBack: (() -> Unit)? = null, embedded: Boolean = false) {
+    TopAppBar(
+        title = {
+            Column {
+                Text(node?.name ?: "", style = MaterialTheme.typography.titleMedium)
+                // Under its own name, whose screen this is, and which way the
+                // phone is getting there.
+                val status = node?.let { vm.statusOf(it) }
+                if (status != null) {
+                    Text(
+                        currentPathHint(node?.let { vm.pathFor(it) }) ?: statusLabel(status),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        navigationIcon = {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = l10n(MessageKeys.ACTION_BACK),
+                    )
+                }
+            }
+        },
+        // A bar inside a pane sits under insets the pane already took; taking them
+        // again would make this bar taller than the one beside it.
+        windowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+    )
 }
 
 /**

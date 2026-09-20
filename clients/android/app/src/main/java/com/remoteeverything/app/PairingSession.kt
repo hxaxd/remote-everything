@@ -62,7 +62,8 @@ class PairingSession(
                     onNodesChanged()
                     startApprovalPolling()
                 }
-                is PairingService.Outcome.Failed -> _pairing.value = PairingUiState.Failed(outcome.code)
+                is PairingService.Outcome.Failed ->
+                    _pairing.value = PairingUiState.Failed(outcome.code, outcome.key)
             }
         }
     }
@@ -89,7 +90,7 @@ class PairingSession(
                 PairingUiState.Success(outcome.nodeName)
             }
             is PairingService.Outcome.ApprovalPending -> PairingUiState.Pending(outcome.nodeName)
-            is PairingService.Outcome.Failed -> PairingUiState.Failed(outcome.code)
+            is PairingService.Outcome.Failed -> PairingUiState.Failed(outcome.code, outcome.key)
         }
 
     fun startApprovalPolling() {
@@ -124,6 +125,11 @@ class PairingSession(
     fun forget(origin: String) {
         stopApprovalPolling()
         pairingService.discardStaged(origin)
+        // A pairing this gateway was waiting on is gone with it: the waiting
+        // screen must not keep saying so, with nothing left to wait for.
+        if (_pairing.value !is PairingUiState.Working) {
+            _pairing.value = PairingUiState.Idle
+        }
     }
 
     fun resetPairing() {

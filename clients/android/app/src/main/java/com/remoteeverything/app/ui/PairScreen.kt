@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,11 +28,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,7 +59,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PairScreen(vm: AppModel, onBack: () -> Unit) {
+fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -112,6 +115,9 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit) {
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        // Beside the list, the surrounding layout has taken the system insets
+        // already: taking them here too would double the bars above and below.
+        contentWindowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else ScaffoldDefaults.contentWindowInsets,
         topBar = {
             TopAppBar(
                 title = { Text(l10n(MessageKeys.PAIR_TITLE)) },
@@ -123,6 +129,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit) {
                         )
                     }
                 },
+                windowInsets = if (embedded) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
             )
         },
     ) { padding ->
@@ -226,7 +233,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit) {
                     if (pairing is PairingUiState.Failed) {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            l10n(pairingFailureKey(pairing.code)),
+                            l10n(pairing.key ?: pairingFailureKey(pairing.code)),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.error,
                         )

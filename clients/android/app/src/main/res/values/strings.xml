@@ -146,4 +146,6 @@
     <string name="web_user_agent">Identity</string>
     <string name="web_user_agent_desktop">Desktop</string>
     <string name="web_user_agent_mobile">Mobile</string>
+    <string name="web_isolation_unavailable">Update your system WebView to open applications securely.</string>
+    <string name="web_session_failed">Could not safely switch application sessions. Restart the client and try again.</string>
 </resources>

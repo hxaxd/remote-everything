@@ -15,6 +15,9 @@ object Wire {
         for (node in response.nodes) {
             require(Strict.isHex64(node.id)) { "a node id is not 64 lowercase hex" }
             require(node.name.isNotEmpty()) { "a node name is empty" }
+            node.link?.let {
+                require(it == "local" || it == "tunnel") { "a node link is neither local nor tunnel" }
+            }
         }
     }
 
@@ -59,6 +62,7 @@ object Wire {
     fun validatePairing(response: PairingResponse) {
         require(response.ok) { "a pairing answer says it is not ok" }
         require(response.device_name.isNotEmpty()) { "a pairing answer echoes an empty device name" }
+        require(Strict.hasNoControlCharacters(response.device_name)) { "a pairing device name carries control characters" }
         require(Strict.isHex64(response.certificate_fingerprint)) { "a pairing fingerprint is not 64 lowercase hex" }
         require(response.credential_format == "pkcs12") { "a pairing credential is not pkcs12" }
         require(Strict.isBase64(response.credential_pkcs12)) { "a pairing credential is not base64" }
