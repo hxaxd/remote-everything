@@ -199,14 +199,14 @@ final class PathSelectionTests: XCTestCase {
         let answers = [
             NodeMerge.Answer(
                 identity: lan,
-                response: NodesResponse(ok: true, nodes: [.init(id: nodeID, name: "Desk")]),
+                response: NodesResponse(ok: true, nodes: [.init(id: nodeID, name: "Desk", link: nil)]),
                 reachable: true,
                 latencyMs: 12,
                 checkedAt: Date()
             ),
             NodeMerge.Answer(
                 identity: tunnel,
-                response: NodesResponse(ok: true, nodes: [.init(id: nodeID, name: "Desk"), .init(id: otherID, name: "NAS")]),
+                response: NodesResponse(ok: true, nodes: [.init(id: nodeID, name: "Desk", link: nil), .init(id: otherID, name: "NAS", link: nil)]),
                 reachable: true,
                 latencyMs: 80,
                 checkedAt: Date()
@@ -232,7 +232,7 @@ final class PathSelectionTests: XCTestCase {
         let merged = NodeMerge.merge([
             NodeMerge.Answer(
                 identity: identity,
-                response: NodesResponse(ok: true, nodes: [.init(id: String(repeating: "c", count: 64), name: "Desk")]),
+                response: NodesResponse(ok: true, nodes: [.init(id: String(repeating: "c", count: 64), name: "Desk", link: nil)]),
                 reachable: false,
                 latencyMs: nil,
                 checkedAt: Date()
