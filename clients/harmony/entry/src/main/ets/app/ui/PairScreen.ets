@@ -1,13 +1,13 @@
 // S2: scan or paste an invitation, inspect what it says, pair.
 
-import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
 import { scanBarcode } from '@kit.ScanKit';
 import { MessageKeys } from '../../core/model/MessageKeys';
-import { PairingStage } from '../../core/pairing/PairingMachine';
-import { model } from '../AppModel';
+import { model, PairingStage } from '../AppModel';
 import { defaultDeviceName, Strings } from '../i18n/Strings';
 import { Metrics, TypeScale, withAlpha, tileAlpha } from '../theme/Tokens';
-import { DetailRow, Header, palette } from './Components';
+import { DetailRow, Header, SCREEN_FADE, palette } from './Components';
+import { PairingState } from '../State';
 
 /** S2: scan or paste an invitation, look at what it says, pair. */
 @ComponentV2
@@ -21,8 +21,9 @@ export struct AddNodeScreen {
         Header({
           title: Strings.text(MessageKeys.PAIR_TITLE),
           dark: model.dark,
-          actionLabel: '',
-          onAction: () => {
+          actionIcon0: $r('sys.symbol.chevron_left'),
+          onAction0: () => {
+            model.goBack();
           }
         })
         if (model.pairing.stage === PairingStage.Input) {
@@ -31,13 +32,12 @@ export struct AddNodeScreen {
           this.ConfirmStage()
         } else if (model.pairing.stage === PairingStage.WaitingApproval) {
           this.WaitingStage()
-        } else if (model.pairing.stage === PairingStage.Failed) {
-          this.FailedStage()
         } else {
           this.WorkingStage()
         }
       }
       .width('100%')
+      .transition(SCREEN_FADE)
       .height('100%')
       .backgroundColor(palette(model.dark).bg)
     }
@@ -58,6 +58,9 @@ export struct AddNodeScreen {
         .onClick(() => {
           this.scan();
         })
+      // A pasted invitation is a long line: the field shows a few lines of it and
+      // scrolls, and a line that does not parse is said so as it is typed — the
+      // moment it does parse, the screen moves on to confirming it.
       TextArea({ placeholder: Strings.text(MessageKeys.PAIR_INPUT_HINT), text: this.link })
         .fontSize(TypeScale.body)
         .fontColor(palette(model.dark).textPrimary)
@@ -67,24 +70,23 @@ export struct AddNodeScreen {
         .width('100%')
         .onChange((value: string) => {
           this.link = value;
+          model.clearPairingError();
+          if (value.trim().length > 0 && model.linkIsValid(value)) {
+            model.submitLink(value);
+          }
         })
+      if (this.link.trim().length > 0 && !model.linkIsValid(this.link)) {
+        Text(Strings.text(MessageKeys.PAIR_BAD_INVITATION))
+          .fontSize(TypeScale.caption)
+          .fontColor(palette(model.dark).danger)
+          .width('100%')
+      }
       if (model.pairing.errorKey !== null) {
         Text(Strings.text(model.pairing.errorKey))
           .fontSize(TypeScale.caption)
           .fontColor(palette(model.dark).danger)
           .width('100%')
       }
-      Button(Strings.text(MessageKeys.ACTION_CONFIRM))
-        .fontSize(TypeScale.body)
-        .fontColor(palette(model.dark).accentOnBg)
-        .backgroundColor(palette(model.dark).accent)
-        .borderRadius(Metrics.radiusControl)
-        .height(Metrics.rowSettings)
-        .width('100%')
-        .enabled(this.link.trim().length > 0)
-        .onClick(() => {
-          model.submitLink(this.link);
-        })
     }
     .width('100%')
     .padding(Metrics.pageMargin)
@@ -122,6 +124,12 @@ export struct AddNodeScreen {
         .fontSize(TypeScale.footnote)
         .fontColor(palette(model.dark).textTertiary)
         .width('100%')
+      if (model.pairing.errorKey !== null) {
+        Text(Strings.text(model.pairing.errorKey))
+          .fontSize(TypeScale.caption)
+          .fontColor(palette(model.dark).danger)
+          .width('100%')
+      }
       Row({ space: Metrics.gapM }) {
         Button(Strings.text(MessageKeys.ACTION_BACK))
           .fontSize(TypeScale.body)
@@ -165,6 +173,22 @@ export struct AddNodeScreen {
       Text(Strings.text(MessageKeys.PAIR_WORKING))
         .fontSize(TypeScale.body)
         .fontColor(palette(model.dark).textSecondary)
+      if (this.workingNodeName() !== '') {
+        Text(this.workingNodeName())
+          .fontSize(TypeScale.caption)
+          .fontColor(palette(model.dark).textTertiary)
+      }
+      Button(Strings.text(MessageKeys.ACTION_CANCEL))
+        .fontSize(TypeScale.body)
+        .fontColor(palette(model.dark).textPrimary)
+        .backgroundColor(palette(model.dark).bgElevated)
+        .borderRadius(Metrics.radiusControl)
+        .height(Metrics.rowSettings)
+        .padding({ left: Metrics.gapL, right: Metrics.gapL })
+        .margin({ top: Metrics.gapS })
+        .onClick(() => {
+          model.cancelPairing();
+        })
     }
     .width('100%')
     .padding(Metrics.gapXL)
@@ -176,15 +200,30 @@ export struct AddNodeScreen {
     Column({ space: Metrics.gapM }) {
       LoadingProgress().width(40).height(40).color(palette(model.dark).warn)
       Text(Strings.text(MessageKeys.PAIR_WAITING_APPROVAL))
-        .fontSize(TypeScale.body)
-        .fontColor(palette(model.dark).textSecondary)
-        .textAlign(TextAlign.Center)
-      Button(Strings.text(MessageKeys.ACTION_BACK))
-        .fontSize(TypeScale.body)
+        .fontSize(TypeScale.headline)
+        .fontWeight(FontWeight.Medium)
         .fontColor(palette(model.dark).textPrimary)
-        .backgroundColor(palette(model.dark).bgElevated)
+        .textAlign(TextAlign.Center)
+      if (this.workingNodeName() !== '') {
+        Text(this.workingNodeName())
+          .fontSize(TypeScale.body)
+          .fontColor(palette(model.dark).textSecondary)
+      }
+      Button(Strings.text(MessageKeys.ACTION_RETRY))
+        .fontSize(TypeScale.body)
+        .fontColor(palette(model.dark).accentOnBg)
+        .backgroundColor(palette(model.dark).accent)
         .borderRadius(Metrics.radiusControl)
         .height(Metrics.rowSettings)
+        .padding({ left: Metrics.gapL, right: Metrics.gapL })
+        .margin({ top: Metrics.gapS })
+        .onClick(() => {
+          model.retryStaged();
+        })
+      Text(Strings.text(MessageKeys.ACTION_BACK))
+        .fontSize(TypeScale.body)
+        .fontColor(palette(model.dark).accent)
+        .padding({ top: Metrics.gapS })
         .onClick(() => {
           model.backToList();
         })
@@ -194,44 +233,20 @@ export struct AddNodeScreen {
     .justifyContent(FlexAlign.Center)
   }
 
-  @Builder
-  FailedStage() {
-    Column({ space: Metrics.gapM }) {
-      Text(Strings.text(model.pairing.errorKey === null ? MessageKeys.PAIR_NETWORK : model.pairing.errorKey))
-        .fontSize(TypeScale.body)
-        .fontColor(palette(model.dark).textPrimary)
-        .textAlign(TextAlign.Center)
-      Row({ space: Metrics.gapM }) {
-        Button(Strings.text(MessageKeys.ACTION_BACK))
-          .fontSize(TypeScale.body)
-          .fontColor(palette(model.dark).textPrimary)
-          .backgroundColor(palette(model.dark).bgElevated)
-          .borderRadius(Metrics.radiusControl)
-          .height(Metrics.rowSettings)
-          .layoutWeight(1)
-          .onClick(() => {
-            model.editLink();
-          })
-        Button(Strings.text(MessageKeys.ACTION_RETRY))
-          .fontSize(TypeScale.body)
-          .fontColor(palette(model.dark).accentOnBg)
-          .backgroundColor(palette(model.dark).accent)
-          .borderRadius(Metrics.radiusControl)
-          .height(Metrics.rowSettings)
-          .layoutWeight(1)
-          .onClick(() => {
-            model.editLink();
-          })
-      }
-      .width('100%')
+  /** The machine this pairing is working on or waiting for, if the state kept it. */
+  private workingNodeName(): string {
+    const pairing: PairingState = model.pairing;
+    if (pairing.setup !== null) {
+      return pairing.setup.nodeName;
     }
-    .width('100%')
-    .padding(Metrics.gapXL)
+    return pairing.nodeName;
   }
 
   /**
-   * Scanning uses the platform barcode kit.
-   * Runtime camera permission is requested before scanning so the user is prompted.
+   * Scanning uses the platform barcode kit. Runtime camera permission is requested
+   * before scanning so the user is prompted; a denial is named for what it is. A
+   * code that is not an invitation is refused here, with a word and no field
+   * filled — it is not handed down as a puzzle for the confirm step.
    */
   private scan(): void {
     const context: common.UIAbilityContext | null = model.abilityContext();
@@ -241,7 +256,7 @@ export struct AddNodeScreen {
     const atManager: abilityAccessCtrl.AtManager = abilityAccessCtrl.createAtManager();
     const permissions: Permissions[] = ['ohos.permission.CAMERA'];
     atManager.requestPermissionsFromUser(context, permissions)
-      .then((data: abilityAccessCtrl.PermissionRequestResult) => {
+      .then((data: PermissionRequestResult) => {
         let granted: boolean = false;
         for (let i: number = 0; i < data.authResults.length; i += 1) {
           if (data.authResults[i] === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED) {
@@ -250,22 +265,28 @@ export struct AddNodeScreen {
           }
         }
         if (!granted) {
-          model.showToast(MessageKeys.PAIR_SCAN_FAILED);
+          model.showToast(MessageKeys.PAIR_SCAN_DENIED);
           return;
         }
         scanBarcode.startScanForResult(context)
           .then((result: scanBarcode.ScanResult) => {
-            if (result.originalValue !== undefined && result.originalValue !== '') {
-              this.link = result.originalValue;
-              model.submitLink(result.originalValue);
+            const code: string = result.originalValue === undefined ? '' : result.originalValue;
+            if (code === '') {
+              return;
             }
+            if (!model.linkIsValid(code)) {
+              model.showToast(MessageKeys.PAIR_SCAN_FAILED);
+              return;
+            }
+            this.link = code;
+            model.submitLink(code);
           })
           .catch((error: Object) => {
             model.showToast(MessageKeys.PAIR_SCAN_FAILED);
           });
       })
       .catch((error: Object) => {
-        model.showToast(MessageKeys.PAIR_SCAN_FAILED);
+        model.showToast(MessageKeys.PAIR_SCAN_DENIED);
       });
   }
 }

@@ -3,6 +3,14 @@
 import { Palette, LIGHT, DARK, Metrics, TypeScale, withAlpha, tileAlpha, MONO_FAMILY } from '../theme/Tokens';
 import { AppState, NodeStatus } from '../../core/model/Models';
 
+/**
+ * The way a screen answers another screen: a fade, not a slide — the crossfade the
+ * other clients use between screens. Applied to every destination's own content; the
+ * Navigation's system slide is suppressed in AppRoot.
+ */
+export const SCREEN_FADE: TransitionEffect = TransitionEffect.OPACITY
+  .animation({ duration: 220, curve: Curve.EaseInOut });
+
 export function palette(dark: boolean): Palette {
   return dark ? DARK : LIGHT;
 }
@@ -34,22 +42,47 @@ export function appTone(state: AppState, dark: boolean): string {
   return colors.offline;
 }
 
-/** A page header: a title, the path a node is reached by, and up to two actions. */
+/** A page header: a title, the path a node is reached by, and up to three quiet
+ * icon actions, read left to right — the home screen's refresh, add and settings
+ * sit in the three slots in that order, as system symbols the platform draws. An
+ * optional leading slot is where a sub-screen's way back is drawn. */
 @ComponentV2
 export struct Header {
   @Param title: string = '';
   @Param dark: boolean = false;
   @Param pathLabel: string = '';
   @Param pathColor: string = '';
-  @Param actionLabel: string = '';
-  @Param actionLabel2: string = '';
+  @Param actionIcon0: Resource | null = null;
+  @Param actionIcon: Resource | null = null;
+  @Param actionIcon2: Resource | null = null;
+  @Param actionIcon3: Resource | null = null;
+  @Event onAction0: () => void = () => {
+  };
   @Event onAction: () => void = () => {
   };
   @Event onAction2: () => void = () => {
   };
+  @Event onAction3: () => void = () => {
+  };
+
+  @Builder
+  Action(icon: Resource | null, onTap: () => void) {
+    if (icon !== null) {
+      SymbolGlyph(icon)
+        .fontSize(TypeScale.headline)
+        .fontColor([palette(this.dark).textSecondary])
+        .padding({ left: Metrics.gapS, right: Metrics.gapS })
+        .onClick(() => {
+          onTap();
+        })
+    }
+  }
 
   build() {
     Row({ space: Metrics.gapS }) {
+      this.Action(this.actionIcon0, (): void => {
+        this.onAction0();
+      })
       Text(this.title)
         .fontSize(TypeScale.title)
         .fontWeight(FontWeight.Medium)
@@ -60,25 +93,15 @@ export struct Header {
         StateBadge({ label: this.pathLabel, color: this.pathColor, dark: this.dark })
       }
       Blank()
-      if (this.actionLabel2 !== '') {
-        Text(this.actionLabel2)
-          .fontSize(TypeScale.headline)
-          .fontColor(palette(this.dark).textSecondary)
-          .padding({ left: Metrics.gapS, right: Metrics.gapS })
-          .onClick(() => {
-            this.onAction2();
-          })
-      }
-      if (this.actionLabel !== '') {
-        Text(this.actionLabel)
-          .fontSize(TypeScale.headline)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(palette(this.dark).accent)
-          .padding({ left: Metrics.gapS, right: Metrics.gapS })
-          .onClick(() => {
-            this.onAction();
-          })
-      }
+      this.Action(this.actionIcon3, (): void => {
+        this.onAction3();
+      })
+      this.Action(this.actionIcon2, (): void => {
+        this.onAction2();
+      })
+      this.Action(this.actionIcon, (): void => {
+        this.onAction();
+      })
     }
     .width('100%')
     .height(Metrics.rowSettings)
@@ -124,7 +147,8 @@ export struct IconTile {
   }
 }
 
-/** The empty state: a line about now, a line about what to do, one way to do it. */
+/** The empty state: a line about now, a line about what to do, one way to do it.
+ * No illustration — three lines of text, the way the other clients draw it. */
 @ComponentV2
 export struct EmptyState {
   @Param title: string = '';
@@ -136,13 +160,6 @@ export struct EmptyState {
 
   build() {
     Column({ space: Metrics.gapM }) {
-      Text('📦')
-        .fontSize(40)
-        .textAlign(TextAlign.Center)
-        .width(72)
-        .height(72)
-        .backgroundColor(withAlpha(palette(this.dark).accent, tileAlpha(this.dark)))
-        .borderRadius(Metrics.radiusCard)
       Text(this.title)
         .fontSize(TypeScale.headline)
         .fontWeight(FontWeight.Medium)
@@ -172,16 +189,33 @@ export struct EmptyState {
   }
 }
 
-/** A full-width explanation with one way out: the offline and unauthorized pages. */
+/** A full-width explanation with one or two ways out: the offline and unauthorized
+ * pages, and the web host's failed state — where the two ways are retry, and leave. */
 @ComponentV2
 export struct Notice {
   @Param title: string = '';
   @Param body: string = '';
   @Param actionLabel: string = '';
+  @Param actionLabel2: string = '';
   @Param dark: boolean = false;
   @Param tone: string = '';
   @Event onAction: () => void = () => {
   };
+  @Event onAction2: () => void = () => {
+  };
+
+  @Builder
+  Action(label: string, onTap: () => void) {
+    if (label !== '') {
+      Text(label)
+        .fontSize(TypeScale.body)
+        .fontColor(palette(this.dark).accent)
+        .padding({ top: Metrics.gapS })
+        .onClick(() => {
+          onTap();
+        })
+    }
+  }
 
   build() {
     Column({ space: Metrics.gapS }) {
@@ -197,15 +231,15 @@ export struct Notice {
           .textAlign(TextAlign.Center)
           .lineHeight(TypeScale.line(TypeScale.body))
       }
-      if (this.actionLabel !== '') {
-        Text(this.actionLabel)
-          .fontSize(TypeScale.body)
-          .fontColor(palette(this.dark).accent)
-          .padding({ top: Metrics.gapS })
-          .onClick(() => {
-            this.onAction();
-          })
+      Row({ space: Metrics.gapL }) {
+        this.Action(this.actionLabel2, (): void => {
+          this.onAction2();
+        })
+        this.Action(this.actionLabel, (): void => {
+          this.onAction();
+        })
       }
+      .justifyContent(FlexAlign.Center)
     }
     .width('100%')
     .padding(Metrics.gapXL)

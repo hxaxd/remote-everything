@@ -16,20 +16,27 @@ import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { util } from '@kit.ArkTS';
 import { JsonReader } from '../../../../main/ets/core/json/Strict';
 import { ErrorCode, parseErrorCode } from '../../../../main/ets/core/model/Errors';
-import { CatalogAnswer, decodeCatalog, NodeSummary } from '../../../../main/ets/core/api/Dto';
+import { CatalogAnswer, decodeCatalog, NodeSummary, NodeSummaryDto } from '../../../../main/ets/core/api/Dto';
 import { Cadence } from '../../../../main/ets/core/model/Cadence';
 import { MessageKeys } from '../../../../main/ets/core/model/MessageKeys';
-import { GatewayPath, Identity, Node } from '../../../../main/ets/core/model/Models';
-import { OriginProbe, PathSelector } from '../../../../main/ets/core/pathselect/PathSelector';
-import { ProtocolClient } from '../../../../main/ets/core/api/ProtocolClient';
-import { IdentityVault } from '../../../../main/ets/core/identity/IdentityVault';
+import { AppState, GatewayPath, Identity, Node, NodeStatus } from '../../../../main/ets/core/model/Models';
+import { mergeNodes, OriginProbe } from '../../../../main/ets/core/api/Merge';
+import { PathSelector } from '../../../../main/ets/core/pathselect/PathSelector';
+import { WebAppPrefs } from '../../../../main/ets/core/store/WebAppPrefs';
+import { WebSessionScope } from '../../../../main/ets/core/store/WebSessionScope';
+
+/** The test module's own name: the HAP these fixtures ship inside. */
+const TEST_MODULE: string = 'entry_test';
 
 /** One fixture file, by name, from the test bundle. */
 function fixture(name: string): string {
   const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
   try {
-    const bytes: Uint8Array = delegator.getAppContext().resourceManager
-      .getRawFileContentSync(`behavior/${name}`);
+    // The fixtures ship in the test module's own HAP, so they are read through that
+    // module's context: the application context answers with the module under test,
+    // whose resources hold no `behavior/` directory at all.
+    const context: Context = delegator.getAppContext().createModuleContext(TEST_MODULE);
+    const bytes: Uint8Array = context.resourceManager.getRawFileContentSync(`behavior/${name}`);
     return new util.TextDecoder().decodeToString(bytes);
   } catch (error) {
     expect(`behavior/${name} is missing from the test bundle`).assertEqual('');
@@ -50,13 +57,35 @@ function arrayOf(document: JsonReader, name: string): JsonReader[] {
   return items;
 }
 
+/** The shape of web-app-prefs.json: a description, read as one. */
+interface WebAppPrefsDefaults {
+  orientation: string;
+  userAgent: string;
+}
+
+interface WebAppPrefsFixture {
+  appKey: string;
+  defaults: WebAppPrefsDefaults;
+  orientations: string[];
+  userAgents: string[];
+}
+
 /** The selector under test, with no gateway behind it: nothing here touches a network. */
 function selector(): PathSelector {
-  return new PathSelector(new ProtocolClient(new IdentityVault()));
+  return new PathSelector();
 }
 
 export default function behaviorFixturesTest() {
   describe('BehaviorFixtures', () => {
+    it('web_sessions_are_scoped_to_gateway_node_and_application', 0, () => {
+      const cases: Object[] = JSON.parse(fixture('web-session-scope.json')) as Object[];
+      for (const value of cases) {
+        const row: JsonReader = JsonReader.of(value, 'web session scope');
+        expect(WebSessionScope.profileName(row.string('gatewayOrigin'), row.string('appKey')))
+          .assertEqual(row.string('profile'));
+      }
+    });
+
     // --- errors.json ---------------------------------------------------------
 
     it('every refusal is the name the contract gives it', 0, () => {
@@ -83,14 +112,17 @@ export default function behaviorFixturesTest() {
       const probes: OriginProbe[] = [];
       for (const entry of arrayOf(document, 'answers')) {
         const summaries: NodeSummary[] = [];
-        for (const node of arrayOf(entry.object('nodes'), 'nodes')) {
-          summaries.push(new NodeSummary(node.string('id'), node.string('name')));
+        for (const node of arrayOf(entry, 'nodes')) {
+          const declared: string | null = node.optionalString('link');
+          summaries.push(new NodeSummaryDto(node.string('id'), node.string('name'),
+            declared !== null ? declared : ''));
         }
         probes.push(new OriginProbe(entry.string('origin'), true, entry.number('latencyMs'), summaries, null));
       }
       const expected: JsonReader = document.object('expected');
       const wanted: JsonReader[] = arrayOf(expected, 'nodes');
-      const merged: Node[] = selector().merge(probes, identities, []);
+      const routed: PathSelector = selector();
+      const merged: Node[] = mergeNodes(probes, identities, []).map((node: Node) => routed.route(node));
       expect(merged.length).assertEqual(wanted.length);
       for (const want of wanted) {
         const id: string = want.string('id');
@@ -107,6 +139,12 @@ export default function behaviorFixturesTest() {
         // The chosen path is the first one after routing.
         expect(node.paths[0].origin).assertEqual(want.string('chosenOrigin'));
         expect(node.paths[0].isPrivate).assertEqual(want.bool('chosenIsPrivate'));
+        // What the link is called follows the gateway's declaration when it made one:
+        // a private address can still be a path that crosses the internet.
+        const chosenLink: string | null = want.optionalString('chosenLink');
+        if (chosenLink !== null) {
+          expect(`${node.paths[0].link}`).assertEqual(chosenLink);
+        }
       }
     });
 
@@ -132,6 +170,42 @@ export default function behaviorFixturesTest() {
       }
     });
 
+    /**
+     * A remembered path is kept while it answers *and* while it is still the best
+     * class there is: the moment a private path answers, the phone takes it — which
+     * is what makes walking into the LAN's room switch a phone off the tunnel it
+     * happened to pair with first.
+     */
+    it('a remembered path holds its place only while it is the best there is', 0, () => {
+      const document: JsonReader = reader(fixture('paths.json'), 'paths.json');
+      const cases: JsonReader[] = arrayOf(document, 'remembered');
+      expect(cases.length > 0).assertTrue();
+      for (const entry of cases) {
+        const name: string = entry.string('name');
+        const remembered: string = entry.string('remembered');
+        const paths: GatewayPath[] = [];
+        const seed: GatewayPath[] = [];
+        for (const path of arrayOf(entry, 'paths')) {
+          const reachable: boolean | null = path.optionalBool('reachable');
+          const latency: number | null = path.optionalNumber('latencyMs');
+          const isPrivate: boolean = path.bool('isPrivate');
+          const origin: string = path.string('origin');
+          paths.push(new GatewayPath(origin, origin, reachable, latency, isPrivate, null));
+          // The state an app is in when it has paired over the internet and has not
+          // yet been in the same room as the gateway: only the remembered path answers.
+          seed.push(new GatewayPath(origin, origin, origin === remembered ? reachable : false, latency,
+            isPrivate, null));
+        }
+        const selector: PathSelector = new PathSelector();
+        selector.route(new Node('node', 'node', seed));
+        selector.remember([new Node('node', 'node', seed)]);
+        const chosen: GatewayPath | null = selector.choose(new Node('node', 'node', paths));
+        const want: string | null = entry.optionalString('chosen');
+        const got: string = chosen === null ? 'none' : chosen.origin;
+        expect(`${name}: ${got}`).assertEqual(`${name}: ${want === null ? 'none' : want}`);
+      }
+    });
+
     // --- cadence.json --------------------------------------------------------
 
     it('the patience is the one all three clients share', 0, () => {
@@ -146,7 +220,6 @@ export default function behaviorFixturesTest() {
       expect(document.number('controlPollTimeoutMs')).assertEqual(Cadence.controlPollTimeoutMs);
       expect(document.number('approvalPollMs')).assertEqual(Cadence.approvalPollMs);
       expect(document.number('approvalPollTimeoutMs')).assertEqual(Cadence.approvalPollTimeoutMs);
-      expect(document.number('pendingFallbackMs')).assertEqual(Cadence.pendingFallbackMs);
       expect(document.number('probeTimeoutMs')).assertEqual(Cadence.probeTimeoutMs);
       expect(document.number('requestTimeoutMs')).assertEqual(Cadence.requestTimeoutMs);
     });
@@ -195,6 +268,25 @@ export default function behaviorFixturesTest() {
         const resName: string = MessageKeys.resource(key);
         expect(resName).assertEqual(key.replace(/\./g, '_'));
       }
+    });
+
+    // --- web-app-prefs.json --------------------------------------------------
+
+    it('the per-application web choices are the vocabulary the fixture names', 0, () => {
+      const document: WebAppPrefsFixture = JSON.parse(fixture('web-app-prefs.json')) as WebAppPrefsFixture;
+      const orientations: string[] = WebAppPrefs.orientationValues();
+      const userAgents: string[] = WebAppPrefs.userAgentValues();
+      expect(document.orientations.length).assertEqual(orientations.length);
+      for (let index: number = 0; index < orientations.length; index += 1) {
+        expect(document.orientations[index]).assertEqual(orientations[index]);
+      }
+      expect(document.userAgents.length).assertEqual(userAgents.length);
+      for (let index: number = 0; index < userAgents.length; index += 1) {
+        expect(document.userAgents[index]).assertEqual(userAgents[index]);
+      }
+      const defaults: WebAppPrefs = WebAppPrefs.defaults();
+      expect(document.defaults.orientation).assertEqual(defaults.orientation);
+      expect(document.defaults.userAgent).assertEqual(defaults.userAgent);
     });
 
     it('the state names are the ones the fixtures use', 0, () => {

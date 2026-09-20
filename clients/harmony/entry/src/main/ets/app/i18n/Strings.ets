@@ -32,7 +32,11 @@ export class Strings {
     try {
       if (language === Language.System) {
         i18n.System.setAppPreferredLanguage('default');
-        context.getApplicationContext().setLanguage(i18n.System.getSystemLanguage());
+        // The resources are English and Simplified Chinese; a traditional-Chinese
+        // system falls back to the simplified set, the way the other clients do,
+        // rather than to English.
+        const system: string = i18n.System.getSystemLanguage();
+        context.getApplicationContext().setLanguage(system.startsWith('zh') ? 'zh-Hans' : system);
       } else {
         const tag: string = language === Language.Chinese ? 'zh-Hans' : 'en';
         i18n.System.setAppPreferredLanguage(tag);
@@ -102,11 +106,26 @@ export class Strings {
   }
 }
 
-/** The name this device suggests for itself, before its operator renames it. */
+/** The name this device suggests for itself, before its operator renames it: the
+ * marketing name, the same answer the other clients give, because that is the name
+ * an operator recognises the device by. */
 export function defaultDeviceName(): string {
-  // HarmonyOS does not let an app read the name of the OS account it runs under, so
-  // the platform default here is the device's own category — the second half of the
-  // "<user>'s <kind of device>" an operator would otherwise see.
+  try {
+    const market: string = deviceInfo.marketName;
+    if (market.length > 0) {
+      return market;
+    }
+  } catch (error) {
+    // A platform that will not say its marketing name falls back below.
+  }
+  try {
+    const product: string = deviceInfo.productModel;
+    if (product.length > 0) {
+      return product;
+    }
+  } catch (error) {
+    // A platform that will not say its model falls back to the category word.
+  }
   return Strings.byName(deviceCategoryResource());
 }
 

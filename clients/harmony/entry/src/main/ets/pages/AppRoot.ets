@@ -11,7 +11,7 @@ import { model } from '../app/AppModel';
 import { Strings, defaultDeviceName } from '../app/i18n/Strings';
 import { Metrics } from '../app/theme/Tokens';
 import { palette } from '../app/ui/Components';
-import { EmptyScreen, NodesScreen } from '../app/ui/HomeScreen';
+import { HomeScreen } from '../app/ui/HomeScreen';
 import { AddNodeScreen } from '../app/ui/PairScreen';
 import { NodeAppsScreen } from '../app/ui/NodeScreen';
 import { SettingsScreen } from '../app/ui/SettingsScreen';
@@ -26,27 +26,47 @@ struct AppRoot {
     Stack() {
       Navigation(this.stack) {
         Column() {
-          if (model.identities.length === 0) {
-            EmptyScreen()
-          } else {
-            NodesScreen()
-          }
+          HomeScreen()
         }
         .width('100%')
         .height('100%')
       }
       .mode(model.wide ? NavigationMode.Split : NavigationMode.Stack)
+      // The web host is the one screen that must own the whole window, so it hides
+      // the bar; everything else — settings, pairing, a node's applications — sits
+      // beside the list. A system back that pops inside Navigation never leaves the
+      // bar stuck hidden, because only the web host ever hides it.
+      .hideNavBar(model.paneFullscreen)
       .navBarWidth('38%')
       .navBarWidthRange(['320vp', '480vp'])
       .hideTitleBar(true)
       .navDestination(this.destination)
+      // The system's push is a slide from the right; these screens crossfade
+      // instead, the way the other clients move between screens. The fade itself
+      // is each destination's own content transition (SCREEN_FADE); this only
+      // stops the slide and ends the system transition as the fade runs.
+      .customNavContentTransition((from: NavContentInfo, to: NavContentInfo,
+        operation: NavigationOperation) => {
+        return {
+          timeout: 320,
+          transition: (proxy: NavigationTransitionProxy): void => {
+            if (operation === NavigationOperation.POP) {
+              proxy.finishTransition();
+              return;
+            }
+            setTimeout((): void => {
+              proxy.finishTransition();
+            }, 180);
+          }
+        };
+      })
       .width('100%')
       .height('100%')
       .backgroundColor(palette(model.dark).bg)
 
-      if (model.toast !== '') {
+      if (model.toast !== '' || model.toastText !== '') {
         Column() {
-          Text(Strings.text(model.toast))
+          Text(model.toastText !== '' ? model.toastText : Strings.text(model.toast))
             .fontSize(Metrics.rowSettings > 0 ? 13 : 13)
             .fontColor(palette(model.dark).textPrimary)
             .padding({ left: Metrics.gapM, right: Metrics.gapM, top: Metrics.gapS, bottom: Metrics.gapS })
@@ -103,8 +123,9 @@ struct AppRoot {
   }
 
   onBackPress(): boolean {
-    // On the list itself, back belongs to the platform: the app goes to the background.
-    // A destination's own back is handled where it is.
-    return false;
+    // A pushed screen pops a step; on the list itself back belongs to the
+    // platform and the app goes to the background. The web host answers its own
+    // back (the panel), so it never reaches here.
+    return model.onSystemBack();
   }
 }

@@ -1,11 +1,11 @@
 // S3: one node's applications.
 
-import { AppInfo } from '../../core/model/Models';
+import { AppInfo, AppState, NodeStatus } from '../../core/model/Models';
 import { MessageKeys } from '../../core/model/MessageKeys';
 import { model, CatalogPhase } from '../AppModel';
 import { Strings } from '../i18n/Strings';
 import { Metrics, TypeScale, withAlpha, tileAlpha } from '../theme/Tokens';
-import { appTone, BusyLine, Header, IconTile, Notice, StateBadge, palette } from './Components';
+import { appTone, BusyLine, Header, IconTile, Notice, SCREEN_FADE, StateBadge, nodeTone, palette } from './Components';
 
 /** S3: one node's applications. */
 @ComponentV2
@@ -16,13 +16,17 @@ export struct NodeAppsScreen {
         Header({
           title: model.nodeTitle(),
           dark: model.dark,
-          pathLabel: model.nodePath() === null ? ''
-            : Strings.text(model.nodePath()!.isPrivate ? MessageKeys.NODE_LAN : MessageKeys.NODE_TUNNEL),
-          pathColor: model.nodePath() === null ? ''
-            : (model.nodePath()!.isPrivate ? palette(model.dark).ok : palette(model.dark).accent),
-          actionLabel: '',
-          onAction: () => {
-          }
+          actionIcon0: $r('sys.symbol.chevron_left'),
+          onAction0: () => {
+            model.backToList();
+          },
+          pathLabel: model.nodePath() === null
+            ? Strings.text(MessageKeys.forNodeStatus(model.nodeStatus()))
+            : Strings.text(model.nodeLinkIsLocal()
+              ? MessageKeys.NODE_CURRENT_LAN : MessageKeys.NODE_CURRENT_TUNNEL),
+          pathColor: model.nodePath() === null
+            ? nodeTone(model.nodeStatus(), model.dark)
+            : (model.nodeLinkIsLocal() ? palette(model.dark).ok : palette(model.dark).warn),
         })
         BusyLine({ visible: model.catalog.phase === CatalogPhase.Loading, dark: model.dark })
         if (model.catalog.phase === CatalogPhase.Loading) {
@@ -39,7 +43,7 @@ export struct NodeAppsScreen {
             actionLabel: Strings.text(MessageKeys.ACTION_RETRY),
             dark: model.dark,
             onAction: () => {
-              model.loadCatalog(model.catalogNodeId);
+              model.retryCatalog(model.catalogNodeId);
             }
           })
         } else if (model.catalog.phase === CatalogPhase.Unauthorized) {
@@ -53,20 +57,21 @@ export struct NodeAppsScreen {
             }
           })
         } else if (model.catalog.phase === CatalogPhase.Failed) {
+          // Every failure the catalog can hit reads the same way the other clients
+          // read it: the gateway is in trouble, ask again.
           Notice({
-            title: Strings.text(model.catalog.errorCode === null ? MessageKeys.PAIR_NETWORK
-              : MessageKeys.forError(model.catalog.errorCode)),
+            title: Strings.text(MessageKeys.PAIR_GATEWAY_TROUBLE),
             body: '',
             actionLabel: Strings.text(MessageKeys.ACTION_RETRY),
             dark: model.dark,
             onAction: () => {
-              model.loadCatalog(model.catalogNodeId);
+              model.retryCatalog(model.catalogNodeId);
             }
           })
         } else if (model.catalog.apps.length === 0) {
           Notice({
             title: Strings.text(MessageKeys.APPS_EMPTY_TITLE),
-            body: '',
+            body: Strings.text(MessageKeys.APPS_EMPTY_BODY),
             actionLabel: '',
             dark: model.dark,
             onAction: () => {
@@ -78,7 +83,11 @@ export struct NodeAppsScreen {
               ListItem() {
                 this.AppRowView(app)
               }
-            }, (app: AppInfo) => app.id)
+            }, (app: AppInfo) =>
+              // The key carries what the row draws: a key of the id alone would
+              // keep the old row on screen while the state under it moved — a
+              // start or stop that looked like it did nothing.
+              `${app.id}|${app.code}|${app.enabled ? 1 : 0}`)
           }
           .layoutWeight(1)
           .width('100%')
@@ -91,6 +100,7 @@ export struct NodeAppsScreen {
         }
       }
       .width('100%')
+      .transition(SCREEN_FADE)
       .height('100%')
       .backgroundColor(palette(model.dark).bg)
     }
@@ -133,10 +143,12 @@ export struct NodeAppsScreen {
         color: appTone(app.code, model.dark),
         dark: model.dark
       })
-      if (model.catalog.busyAppId === app.id) {
+      if (app.code === AppState.Starting || app.code === AppState.Stopping) {
+        // A request is in flight: the row shows that rather than a button that
+        // would send it a second time.
         LoadingProgress().width(20).height(20).color(palette(model.dark).accent)
       } else {
-        Text(Strings.text(app.enabled ? MessageKeys.ACTION_STOP : MessageKeys.ACTION_START))
+        Text(Strings.text(app.code === AppState.Stopped ? MessageKeys.ACTION_START : MessageKeys.ACTION_STOP))
           .fontSize(TypeScale.caption)
           .fontColor(palette(model.dark).accent)
           .padding({ left: Metrics.gapS, right: Metrics.gapS, top: 6, bottom: 6 })
@@ -152,6 +164,11 @@ export struct NodeAppsScreen {
     .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
+      // A stopped application that will not start itself on open is not a door:
+      // tapping it does nothing, the way the other clients behave. Start it first.
+      if (app.code === AppState.Stopped && !app.enabled) {
+        return;
+      }
       model.openApp(model.catalogNodeId, app);
     })
   }

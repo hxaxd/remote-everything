@@ -55,41 +55,106 @@ export function withAlpha(color: string, alpha: number): string {
   return `#${hex.toUpperCase()}${color.startsWith('#') ? color.substring(1) : color}`;
 }
 
-/** The type scale: size and line height, per style.md §3. */
+/**
+ * The type scale: size and line height, per style.md §3.
+ *
+ * Every size grows with the screen: a phone reads these at one times, a tablet at up
+ * to one and a half, so the words and the rows they sit in keep the same share of
+ * the screen instead of shrinking into a corner of it. `applyScale` is applied before
+ * the first frame (from the window measure) and whenever the window size changes.
+ */
 export class TypeScale {
-  static readonly title: number = 20;
-  static readonly headline: number = 17;
-  static readonly body: number = 15;
-  static readonly caption: number = 13;
-  static readonly footnote: number = 12;
+  private static readonly BASE_TITLE: number = 20;
+  private static readonly BASE_HEADLINE: number = 17;
+  private static readonly BASE_BODY: number = 15;
+  private static readonly BASE_CAPTION: number = 13;
+  private static readonly BASE_FOOTNOTE: number = 12;
+
+  static title: number = TypeScale.BASE_TITLE;
+  static headline: number = TypeScale.BASE_HEADLINE;
+  static body: number = TypeScale.BASE_BODY;
+  static caption: number = TypeScale.BASE_CAPTION;
+  static footnote: number = TypeScale.BASE_FOOTNOTE;
+
+  /** One times on a phone-sized short side, up to 1.25 on a tablet. */
+  static uiScale(shortSideVp: number): number {
+    if (shortSideVp <= 0) {
+      return 1;
+    }
+    const factor: number = shortSideVp / 420;
+    return Math.max(1, Math.min(1.25, factor));
+  }
+
+  static applyScale(factor: number): void {
+    TypeScale.title = Math.round(TypeScale.BASE_TITLE * factor);
+    TypeScale.headline = Math.round(TypeScale.BASE_HEADLINE * factor);
+    TypeScale.body = Math.round(TypeScale.BASE_BODY * factor);
+    // The small words grow less than the big ones, so a status line keeps a
+    // status line's proportions instead of becoming a headline on a big screen.
+    const quiet: number = 1 + (factor - 1) * 0.6;
+    TypeScale.caption = Math.round(TypeScale.BASE_CAPTION * quiet);
+    TypeScale.footnote = Math.round(TypeScale.BASE_FOOTNOTE * quiet);
+  }
 
   static line(size: number): number {
     return Math.round(size * 1.4);
   }
 }
 
-/** The three radii, the spacing grid and the row heights. */
+/** The three radii, the spacing grid and the row heights — all scaled with the type
+ * they sit beside, so a tablet gets bigger rows and not just bigger words. */
 export class Metrics {
-  static readonly radiusCard: number = 14;
-  static readonly radiusControl: number = 10;
-  static readonly radiusPill: number = 100;
-  static readonly radiusIcon: number = 12;
+  private static readonly BASE_RADIUS_CARD: number = 14;
+  private static readonly BASE_RADIUS_CONTROL: number = 10;
+  private static readonly BASE_RADIUS_ICON: number = 12;
+  private static readonly BASE_GAP_S: number = 8;
+  private static readonly BASE_GAP_M: number = 16;
+  private static readonly BASE_GAP_L: number = 24;
+  private static readonly BASE_GAP_XL: number = 32;
+  private static readonly BASE_PAGE_MARGIN: number = 16;
+  private static readonly BASE_ROW_NODE: number = 64;
+  private static readonly BASE_ROW_APP: number = 72;
+  private static readonly BASE_ROW_SETTINGS: number = 52;
+  private static readonly BASE_ICON_TILE: number = 40;
+  private static readonly BASE_ICON_TILE_SMALL: number = 28;
 
-  static readonly gapS: number = 8;
-  static readonly gapM: number = 16;
-  static readonly gapL: number = 24;
-  static readonly gapXL: number = 32;
+  static radiusCard: number = Metrics.BASE_RADIUS_CARD;
+  static radiusControl: number = Metrics.BASE_RADIUS_CONTROL;
+  static radiusPill: number = 100;
+  static radiusIcon: number = Metrics.BASE_RADIUS_ICON;
 
-  static readonly pageMargin: number = 16;
-  static readonly contentMaxWidth: number = 720;
+  static gapS: number = Metrics.BASE_GAP_S;
+  static gapM: number = Metrics.BASE_GAP_M;
+  static gapL: number = Metrics.BASE_GAP_L;
+  static gapXL: number = Metrics.BASE_GAP_XL;
 
-  static readonly rowNode: number = 64;
-  static readonly rowApp: number = 72;
-  static readonly rowSettings: number = 52;
+  static pageMargin: number = Metrics.BASE_PAGE_MARGIN;
+  static contentMaxWidth: number = 720;
 
-  static readonly hairline: number = 0.5;
-  static readonly iconTile: number = 40;
-  static readonly iconTileSmall: number = 28;
+  static rowNode: number = Metrics.BASE_ROW_NODE;
+  static rowApp: number = Metrics.BASE_ROW_APP;
+  static rowSettings: number = Metrics.BASE_ROW_SETTINGS;
+
+  static hairline: number = 0.5;
+  static iconTile: number = Metrics.BASE_ICON_TILE;
+  static iconTileSmall: number = Metrics.BASE_ICON_TILE_SMALL;
+
+  static applyScale(factor: number): void {
+    const grown: (base: number) => number = (base: number): number => Math.round(base * factor);
+    Metrics.radiusCard = grown(Metrics.BASE_RADIUS_CARD);
+    Metrics.radiusControl = grown(Metrics.BASE_RADIUS_CONTROL);
+    Metrics.radiusIcon = grown(Metrics.BASE_RADIUS_ICON);
+    Metrics.gapS = grown(Metrics.BASE_GAP_S);
+    Metrics.gapM = grown(Metrics.BASE_GAP_M);
+    Metrics.gapL = grown(Metrics.BASE_GAP_L);
+    Metrics.gapXL = grown(Metrics.BASE_GAP_XL);
+    Metrics.pageMargin = grown(Metrics.BASE_PAGE_MARGIN);
+    Metrics.rowNode = grown(Metrics.BASE_ROW_NODE);
+    Metrics.rowApp = grown(Metrics.BASE_ROW_APP);
+    Metrics.rowSettings = grown(Metrics.BASE_ROW_SETTINGS);
+    Metrics.iconTile = grown(Metrics.BASE_ICON_TILE);
+    Metrics.iconTileSmall = grown(Metrics.BASE_ICON_TILE_SMALL);
+  }
 
   /** The one shadow in the app, and only on overlays. */
   static readonly overlayShadow: ShadowOptions = { radius: 24, color: 'rgba(0,0,0,0.08)', offsetX: 0, offsetY: 8 };

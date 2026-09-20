@@ -8,15 +8,23 @@ import { describe, expect, it } from '@ohos/hypium';
 import { abilityDelegatorRegistry } from '@kit.TestKit';
 import { util } from '@kit.ArkTS';
 import { JsonReader } from '../../../../main/ets/core/json/Strict';
-import { decodeCatalog, decodeControl, decodeError, decodeNodes, decodePairing } from
+import { CatalogAnswer, decodeCatalog, decodeControl, decodeError, decodeNodes, decodePairing } from
   '../../../../main/ets/core/api/Dto';
+import { validateActivation } from '../../../../main/ets/core/api/Wire';
 import { decodeRelease } from '../../../../main/ets/core/update/UpdateChecker';
+import { parseSetupUri } from '../../../../main/ets/core/setup/SetupUri';
+
+/** The test module's own name: the HAP these fixtures ship inside. */
+const TEST_MODULE: string = 'entry_test';
 
 function fixture(name: string): string {
   const delegator: abilityDelegatorRegistry.AbilityDelegator = abilityDelegatorRegistry.getAbilityDelegator();
   try {
-    const bytes: Uint8Array = delegator.getAppContext().resourceManager
-      .getRawFileContentSync(`behavior/${name}`);
+    // The fixtures ship in the test module's own HAP, so they are read through that
+    // module's context: the application context answers with the module under test,
+    // whose resources hold no `behavior/` directory at all.
+    const context: Context = delegator.getAppContext().createModuleContext(TEST_MODULE);
+    const bytes: Uint8Array = context.resourceManager.getRawFileContentSync(`behavior/${name}`);
     return new util.TextDecoder().decodeToString(bytes);
   } catch (error) {
     expect(`behavior/${name} is missing from the test bundle`).assertEqual('');
@@ -48,6 +56,11 @@ function decodeByKind(kind: string, payload: string): void {
     case 'release':
       decodeRelease(payload);
       break;
+    case 'setup': {
+      const reader: JsonReader = JsonReader.parse(payload, 'setup case');
+      parseSetupUri(reader.string('uri'));
+      break;
+    }
     default:
       throw new Error(`unknown wire kind ${kind}`);
   }
@@ -57,9 +70,7 @@ function decodeByKind(kind: string, payload: string): void {
 function decodeActivation(payload: string): void {
   try {
     const catalog: CatalogAnswer = decodeCatalog(payload);
-    if (!catalog.computerConnected || catalog.code !== 'ready') {
-      throw new Error('an activation cannot be an offline catalog');
-    }
+    validateActivation(catalog.computerConnected, catalog.code);
     return;
   } catch (error) {
     // Not a connected catalog; it must be a refusal.
