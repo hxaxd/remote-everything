@@ -95,8 +95,9 @@ enum CredentialMaterial {
         }
         let payload = Data(challenge)
 
-        guard let signingAlgorithm = signingAlgorithm(for: privateKey, operation: .sign),
-              let verifyingAlgorithm = signingAlgorithm(for: publicKey, operation: .verify)
+        // Qualified because the local below carries the function's own name.
+        guard let signingAlgorithm = Self.signingAlgorithm(for: privateKey, operation: .sign),
+              let verifyingAlgorithm = Self.signingAlgorithm(for: publicKey, operation: .verify)
         else { throw Failure.unsupportedKey }
 
         // `try?` around a Security call that may or may not be imported as

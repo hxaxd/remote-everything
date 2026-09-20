@@ -159,7 +159,7 @@ final class GatewayClient {
         case 200:
             throw ClientError(.internalError, httpStatus: 200)
         default:
-            throw refusal(from: data, status: response.statusCode)
+            throw try refusal(from: data, status: response.statusCode)
         }
     }
 
