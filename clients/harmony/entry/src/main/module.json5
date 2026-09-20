@@ -2,7 +2,7 @@
   "module": {
     "name": "entry",
     "type": "entry",
-    "srcEntry": "./ets/app/EntryAbility.ets",
+    "srcEntry": "./ets/app/EntryAbilityStage.ets",
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
     "deviceTypes": [
@@ -17,14 +17,15 @@
         "name": "EntryAbility",
         "srcEntry": "./ets/app/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:ic_launcher",
+        "icon": "$media:ic_launcher_layered",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:ic_launcher",
+        "startWindowIcon": "$media:ic_launcher_flat",
         "startWindowBackground": "$color:start_window_background",
-        // Neither the app nor an application page locks an orientation: every
-        // screen follows the system setting (ui-contract §6). "unspecified" is the
-        // platform's name for exactly that, and setPreferredOrientation is
-        // deliberately never called.
+        // The app declares no orientation: "unspecified" lets the system decide,
+        // and an application's own panel is the one thing that may hold the screen
+        // (ui-contract §6, revised) — the web host asks for it while that
+        // application is open and gives it back on the way out. Nothing else
+        // calls setPreferredOrientation.
         "orientation": "unspecified",
         "exported": true,
         "skills": [
@@ -66,6 +67,33 @@
       {
         "name": "ohos.permission.CAMERA",
         "reason": "$string:camera_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        // What an application's page may ask of the device: the microphone for a
+        // call, the location for a map. Each is granted only to a page the gateway
+        // serves, and only after the platform's own question.
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:microphone_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.LOCATION",
+        "reason": "$string:location_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.APPROXIMATELY_LOCATION",
+        "reason": "$string:location_permission_reason",
         "usedScene": {
           "abilities": ["EntryAbility"],
           "when": "inuse"
