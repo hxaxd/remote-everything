@@ -49,19 +49,29 @@ final class WireCasesTests: XCTestCase {
             try decodeActivation(decoder, data: data)
         case "release":
             _ = try decoder.decode(ReleaseManifest.self, from: data)
+        case "setup":
+            guard let payload = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let uri = payload["uri"] as? String else {
+                throw NSError(domain: "WireCasesTests", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "setup case needs a uri"])
+            }
+            _ = try SetupUri.parse(uri)
         default:
             XCTFail("unknown wire kind \(kind)")
         }
     }
 
-    /// An activation is the connected catalog, or a refusal — never the offline catalog.
+    /// An activation is the connected catalog with code=ready (activation.schema.json),
+    /// or a refusal — never the offline catalog, never a connected node that
+    /// cannot say what it runs. The same rule the production `activate` applies.
     private func decodeActivation(_ decoder: JSONDecoder, data: Data) throws {
-        do {
-            _ = try decoder.decode(CatalogResponse.self, from: data)
+        if let catalog = try? decoder.decode(CatalogResponse.self, from: data) {
+            guard catalog.computerConnected, catalog.code == .ready else {
+                throw DTORejection.badField("code", "activation")
+            }
             return
-        } catch {
-            // Not a catalog; it must be a refusal.
         }
+        // Not a catalog; it must be a refusal.
         _ = try decoder.decode(ErrorResponse.self, from: data)
     }
 

@@ -43,6 +43,14 @@ enum SetupUri {
 
     static func parse(_ text: String) throws -> Invitation {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A URI is ASCII, and a specific ASCII at that: a bare space, a control
+        // character, or a non-ASCII character (a Chinese name not percent-encoded)
+        // is not a link this client reads — the same refusal the strict side gives,
+        // ahead of what the platform parser happens to tolerate.
+        let allowed = CharacterSet(
+            charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~!$&'()*+,;=:@/?%#[]"
+        )
+        guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { throw Rejected.notASetupURI }
         let prefix = "remote-everything://setup"
         guard trimmed.hasPrefix(prefix) else { throw Rejected.notASetupURI }
         let rest = String(trimmed.dropFirst(prefix.count))
@@ -116,7 +124,10 @@ enum SetupUri {
     }
 
     /// `https://host[:port]` — scheme, host, optional port; no path, query or
-    /// fragment, and no credentials in the authority.
+    /// fragment, and no credentials in the authority. An IPv6 host is bracketed
+    /// (`[::1]`, `[2001:db8::1]:8443`): the colons inside the brackets belong
+    /// to the host, so the split happens at the closing bracket, the way the
+    /// gateway's own origin parser (Go's `url.Parse`) reads it.
     static func isOrigin(_ value: String) -> Bool {
         let prefix = "https://"
         guard value.hasPrefix(prefix) else { return false }
@@ -126,7 +137,20 @@ enum SetupUri {
         guard !authority.contains("@") else { return false }
         let host: Substring
         let port: Substring?
-        if let colon = authority.lastIndex(of: ":") {
+        if authority.hasPrefix("[") {
+            // Bracketed IPv6: the host ends at the closing bracket; after it
+            // comes either nothing or the port the brackets were protecting
+            // from the host's own colons.
+            guard let closing = authority.firstIndex(of: "]") else { return false }
+            host = authority[authority.startIndex...closing]
+            let rest = authority[authority.index(after: closing)...]
+            if rest.isEmpty {
+                port = nil
+            } else {
+                guard rest.hasPrefix(":") else { return false }
+                port = rest.dropFirst()
+            }
+        } else if let colon = authority.lastIndex(of: ":") {
             host = authority[authority.startIndex..<colon]
             port = authority[authority.index(after: colon)...]
         } else {

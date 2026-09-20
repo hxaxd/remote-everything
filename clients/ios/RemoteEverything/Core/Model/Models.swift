@@ -45,13 +45,40 @@ struct Node: Identifiable, Equatable {
 /// One gateway's road to a node.
 struct Path: Equatable {
     var origin: String
-    var identityRef: String
     /// nil = not probed yet.
     var reachable: Bool?
     var latencyMs: Int?
-    /// Whether the origin's host is a private address (RFC1918 / link-local).
+    /// Whether the origin's host is a private address (RFC1918 / link-local). It is
+    /// the *preference*: a path that does not leave the local network is the one to take.
     var isPrivate: Bool
     var lastCheckedAt: Date?
+    /// What the link is *called*, which is not the same question: a gateway may
+    /// declare that it carries this node over its own tunnel even though the phone
+    /// reaches the gateway at home, and a person reading "本地" while their traffic
+    /// crosses the internet is being told the wrong thing.
+    var link: LinkKind
+
+    init(
+        origin: String,
+        reachable: Bool? = nil,
+        latencyMs: Int? = nil,
+        isPrivate: Bool,
+        lastCheckedAt: Date? = nil,
+        link: LinkKind? = nil
+    ) {
+        self.origin = origin
+        self.reachable = reachable
+        self.latencyMs = latencyMs
+        self.isPrivate = isPrivate
+        self.lastCheckedAt = lastCheckedAt
+        self.link = link ?? (isPrivate ? .local : .tunnel)
+    }
+}
+
+/// The two words a link is shown in: a local one, or one over a tunnel.
+enum LinkKind: String, Equatable {
+    case local
+    case tunnel
 }
 
 /// S1's per-row state machine. `unknown` is the initial transient.
@@ -164,7 +191,7 @@ enum ErrorCode: String, Codable, Equatable, CaseIterable {
 /// A refusal from the wire: the code drives presentation, never the prose.
 /// `httpStatus` is carried for logging and for the "same decision written twice"
 /// rule; when the two disagree the code wins.
-struct ClientError: Error, Equatable {
+struct ClientError: Error, Equatable, CustomStringConvertible {
     let code: ErrorCode
     let httpStatus: Int?
 
@@ -172,15 +199,42 @@ struct ClientError: Error, Equatable {
         self.code = code
         self.httpStatus = httpStatus
     }
+
+    var description: String {
+        "ClientError: refused: \(code.rawValue.uppercased())"
+    }
 }
 
 /// A failure below the protocol: DNS, TLS, timeout, cancellation. No code
 /// travels here, and no code is invented for it.
-struct NetworkFailure: Error {
+struct NetworkFailure: Error, CustomStringConvertible {
     let underlying: Error?
 
     init(_ underlying: Error? = nil) {
         self.underlying = underlying
+    }
+
+    var description: String {
+        if let underlying {
+            return "NetworkFailure: \(underlying)"
+        }
+        return "NetworkFailure"
+    }
+}
+
+/// The gateway answered, and the answer could not be read: a refusal with no code
+/// in it, or a body this client does not understand. Kept apart from NetworkFailure
+/// because it says something different about where the problem is — that one is
+/// the road, this one is the far end.
+struct UnreadableAnswer: Error, CustomStringConvertible, Equatable {
+    let message: String
+
+    init(_ message: String) {
+        self.message = message
+    }
+
+    var description: String {
+        message
     }
 }
 

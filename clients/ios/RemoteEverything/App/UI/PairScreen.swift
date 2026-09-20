@@ -74,7 +74,7 @@ struct PairScreen: View {
                 set: { model.addNodeText = $0; model.parseInvitation($0) }
             ), axis: .vertical)
                 .font(Theme.body)
-                .lineLimit(2...6)
+                .lineLimit(2...4)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .padding(Theme.gapS + 2)

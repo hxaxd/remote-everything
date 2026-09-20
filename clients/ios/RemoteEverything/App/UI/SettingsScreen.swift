@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// S5: language, appearance, connections, updates, and what this build is.
 struct SettingsScreen: View {
@@ -8,6 +9,8 @@ struct SettingsScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var forgetting: Identity?
+    @State private var copied: String?
+    @State private var copiedTask: Task<Void, Never>?
 
     var body: some View {
         let theme = Theme(colorScheme)
@@ -16,7 +19,6 @@ struct SettingsScreen: View {
                 languageSection(theme)
                 appearanceSection(theme)
                 connectionsSection(theme)
-                updateSection(theme)
                 aboutSection(theme)
             }
             .listStyle(.insetGrouped)
@@ -27,6 +29,18 @@ struct SettingsScreen: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(l10n(MessageKeys.ACTION_DONE)) { dismiss() }
+                }
+            }
+            .overlay(alignment: .top) {
+                if let copied {
+                    Text(copied)
+                        .font(Theme.caption)
+                        .foregroundStyle(theme.textSecondary)
+                        .padding(.horizontal, Theme.gapM)
+                        .padding(.vertical, Theme.gapS)
+                        .background(Capsule().fill(theme.bgElevated))
+                        .padding(.top, Theme.gapL)
+                        .transition(.opacity)
                 }
             }
         }
@@ -40,7 +54,7 @@ struct SettingsScreen: View {
             ),
             presenting: forgetting
         ) { identity in
-            Button(l10n(MessageKeys.SETTINGS_FORGET), role: .destructive) {
+            Button(l10n(MessageKeys.ACTION_CONFIRM), role: .destructive) {
                 let origin = identity.origin
                 forgetting = nil
                 Task { await model.forget(origin: origin) }
@@ -49,7 +63,7 @@ struct SettingsScreen: View {
                 forgetting = nil
             }
         } message: { identity in
-            Text(l10n(MessageKeys.SETTINGS_FORGET_CONFIRM, model.nodeCount(forIdentity: identity)))
+            Text(l10n(MessageKeys.SETTINGS_FORGET_CONFIRM))
         }
     }
 
@@ -107,119 +121,233 @@ struct SettingsScreen: View {
     }
 
     private func connectionRow(_ theme: Theme, identity: Identity) -> some View {
-        VStack(alignment: .leading, spacing: Theme.gapS) {
-            Text(displayAddress(identity.origin))
-                .font(Theme.headline)
-                .foregroundStyle(theme.textPrimary)
+        let trouble = model.troubleFor(identity.origin)
+        let troubleReason: String? = {
+            if let trouble {
+                return l10n(trouble.kind.messageKey)
+            }
             if let condition = model.identityConditions[identity.origin], condition != .ok {
-                Text(conditionText(condition))
-                    .font(Theme.caption)
-                    .foregroundStyle(condition == .unauthorized ? theme.warn : theme.danger)
+                return conditionText(condition)
             }
-            row(l10n(MessageKeys.SETTINGS_NODES_COUNT), "\(model.nodeCount(forIdentity: identity))", theme: theme, mono: false)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(l10n(MessageKeys.SETTINGS_CERTIFICATE_FINGERPRINT))
-                    .font(Theme.footnote)
-                    .foregroundStyle(theme.textTertiary)
-                Text(groupedFingerprint(identity.certFingerprint))
-                    .font(Theme.mono)
-                    .foregroundStyle(theme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Button {
-                forgetting = identity
-            } label: {
-                Text(l10n(MessageKeys.SETTINGS_FORGET))
-                    .font(Theme.body)
-                    .foregroundStyle(theme.danger)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, Theme.gapS / 2)
-        }
-        .padding(.vertical, Theme.gapS)
-    }
+            return nil
+        }()
 
-    private func row(_ title: String, _ value: String, theme: Theme, mono: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(Theme.footnote)
-                .foregroundStyle(theme.textTertiary)
-            Text(value)
-                .font(mono ? Theme.mono : Theme.body)
-                .foregroundStyle(theme.textSecondary)
-        }
-    }
-
-    private func updateSection(_ theme: Theme) -> some View {
-        Section {
-            HStack {
-                Text(l10n(MessageKeys.SETTINGS_UPDATES_CURRENT, AppVersion.versionName, AppVersion.buildNumber))
-                    .font(Theme.caption)
-                    .foregroundStyle(theme.textSecondary)
-                Spacer()
-                Button {
-                    Task { await model.checkForUpdates() }
-                } label: {
-                    Text(l10n(MessageKeys.SETTINGS_UPDATES_CHECK))
-                        .font(Theme.caption)
-                        .foregroundStyle(theme.accent)
+        return VStack(alignment: .leading, spacing: Theme.gapS) {
+            HStack(alignment: .center, spacing: Theme.gapS) {
+                // What the connection is, and what it is called, one under the other
+                // and the same size, each a tap away from the clipboard: the address
+                // is what a person reads, the name is what they send with it.
+                VStack(alignment: .leading, spacing: 2) {
+                    copyable(identity.origin, display: displayAddress(identity.origin), theme: theme, colour: theme.textPrimary)
+                    copyable(identity.deviceName, theme: theme, colour: theme.textSecondary)
                 }
-                .buttonStyle(.plain)
-                .disabled(model.updateState == .checking)
+                Spacer(minLength: Theme.gapS)
+                Button {
+                    forgetting = identity
+                } label: {
+                    Text(l10n(MessageKeys.SETTINGS_FORGET))
+                        .font(Theme.body)
+                        .foregroundStyle(theme.danger)
+                        .lineLimit(1)
+                }
+                .buttonStyle(.borderless)
             }
-            updateResultView(theme)
-        } header: {
-            Text(l10n(MessageKeys.SETTINGS_UPDATES))
-                .foregroundStyle(theme.textSecondary)
+            if let troubleReason {
+                HStack(alignment: .center, spacing: Theme.gapS) {
+                    Text(troubleReason)
+                        .font(Theme.caption)
+                        .foregroundStyle(theme.danger)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: Theme.gapS)
+                    if trouble != nil {
+                        Button {
+                            let report = model.troubleReport(identity: identity)
+                            if !report.isEmpty { copy(report) }
+                        } label: {
+                            Text(l10n(MessageKeys.SETTINGS_COPY_ERROR))
+                                .font(Theme.caption)
+                                .foregroundStyle(theme.accent)
+                                .lineLimit(1)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+        .padding(Theme.gapM)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(theme.bgElevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(theme.hairline, lineWidth: Theme.hairlineWidth)
+                )
+        )
+        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
+    /// A line of a connection that is also a thing to take away.
+    private func copyable(_ value: String, display: String? = nil, theme: Theme, colour: Color, font: Font = Theme.body) -> some View {
+        Text(display ?? value)
+            .font(font)
+            .foregroundStyle(colour)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .contentShape(Rectangle())
+            .onTapGesture { copy(value) }
+    }
+
+    /// The clipboard has no opinion about what happened, so this screen says so —
+    /// once, briefly, the way a screen says everything else it has to say.
+    private func copy(_ value: String) {
+        UIPasteboard.general.string = value
+        copiedTask?.cancel()
+        withAnimation(.easeOut(duration: 0.15)) { copied = l10n(MessageKeys.ACTION_COPIED) }
+        copiedTask = Task {
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) { copied = nil }
         }
     }
 
-    @ViewBuilder
-    private func updateResultView(_ theme: Theme) -> some View {
-        switch model.updateState {
-        case .idle:
-            EmptyView()
-        case .checking:
-            Text(l10n(MessageKeys.SETTINGS_UPDATES_CHECKING))
-                .font(Theme.caption)
-                .foregroundStyle(theme.textSecondary)
-        case .result(.upToDate):
-            Text(l10n(MessageKeys.SETTINGS_UPDATES_NONE))
-                .font(Theme.caption)
-                .foregroundStyle(theme.textSecondary)
-        case .result(.available(let versionName, let buildNumber)):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, versionName, buildNumber))
-                    .font(Theme.body)
-                    .foregroundStyle(theme.textPrimary)
-                Text(l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT))
-                    .font(Theme.caption)
-                    .foregroundStyle(theme.textSecondary)
-            }
-        case .result(.protocolChanged):
-            VStack(alignment: .leading, spacing: 2) {
-                Text(l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL))
-                    .font(Theme.body)
-                    .foregroundStyle(theme.warn)
-                Text(l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT))
-                    .font(Theme.caption)
-                    .foregroundStyle(theme.textSecondary)
-            }
-        case .result(.unreachable):
-            Text(ErrorText.network)
-                .font(Theme.caption)
-                .foregroundStyle(theme.textSecondary)
-        }
-    }
-
+    /// Three plain rows, the way a page about the build reads: what this app is, what
+    /// it speaks, and what this phone calls itself. Nothing is boxed, because none of it
+    /// is a list — and the version number is the update check, without a button saying so.
     private func aboutSection(_ theme: Theme) -> some View {
         Section {
-            row(l10n(MessageKeys.SETTINGS_VERSION), "\(AppVersion.versionName) (\(AppVersion.buildNumber))", theme: theme, mono: false)
-            row(l10n(MessageKeys.SETTINGS_PROTOCOL_VERSION), "\(AppVersion.protocolVersion)", theme: theme, mono: false)
-            row(l10n(MessageKeys.SETTINGS_DEVICE_NAME), AppModel.defaultDeviceName(), theme: theme, mono: false)
+            versionRow(theme)
+            aboutRow(
+                l10n(MessageKeys.SETTINGS_PROTOCOL_VERSION),
+                "\(AppVersion.protocolVersion)",
+                theme: theme
+            )
+            aboutRow(
+                l10n(MessageKeys.SETTINGS_DEVICE_NAME),
+                AppModel.defaultDeviceName(),
+                theme: theme,
+                onValue: { copy(AppModel.defaultDeviceName()) }
+            )
         } header: {
             Text(l10n(MessageKeys.SETTINGS_ABOUT))
                 .foregroundStyle(theme.textSecondary)
+        }
+    }
+
+    /**
+     * The version line of "about this build", which is also the update check.
+     *
+     * Short outcomes ("checking…", "up to date") live on the same line between the
+     * label and the version without shifting the rows beneath it. An available update
+     * highlights the new version on the right, and detailed store instructions only
+     * appear below when there is an update to act on.
+     */
+    private func versionRow(_ theme: Theme) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(l10n(MessageKeys.SETTINGS_VERSION))
+                    .font(Theme.body)
+                    .foregroundStyle(theme.textPrimary)
+                Spacer(minLength: Theme.gapM)
+                Text(versionValueText)
+                    .font(Theme.caption)
+                    .foregroundStyle(versionValueColor(theme))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            if let detail = versionDetailText {
+                Text(detail)
+                    .font(Theme.caption)
+                    .foregroundStyle(versionDetailColor(theme))
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            Task { await model.checkForUpdates() }
+        }
+    }
+
+    private var currentVersionText: String {
+        "\(AppVersion.versionName) (\(AppVersion.buildNumber))"
+    }
+
+    private var versionValueText: String {
+        switch model.updateState {
+        case .idle:
+            return currentVersionText
+        case .checking:
+            return "\(l10n(MessageKeys.SETTINGS_UPDATES_CHECKING)) · \(currentVersionText)"
+        case .result(.upToDate):
+            return "\(l10n(MessageKeys.SETTINGS_UPDATES_NONE)) · \(currentVersionText)"
+        case .result(.available(let versionName, let buildNumber)):
+            return l10n(MessageKeys.SETTINGS_UPDATES_AVAILABLE, versionName, buildNumber)
+        case .result(.protocolChanged), .result(.unreachable):
+            return currentVersionText
+        }
+    }
+
+    private func versionValueColor(_ theme: Theme) -> Color {
+        switch model.updateState {
+        case .result(.available):
+            return theme.accent
+        case .result(.protocolChanged):
+            return theme.danger
+        default:
+            return theme.textSecondary
+        }
+    }
+
+    private var versionDetailText: String? {
+        switch model.updateState {
+        case .idle, .checking, .result(.upToDate):
+            return nil
+        case .result(.available):
+            return l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT)
+        case .result(.protocolChanged):
+            return "\(l10n(MessageKeys.SETTINGS_UPDATES_PROTOCOL)) \(l10n(MessageKeys.SETTINGS_UPDATES_STORE_HINT))"
+        case .result(.unreachable):
+            return l10n(MessageKeys.SETTINGS_UPDATES_FAILED)
+        }
+    }
+
+    private func versionDetailColor(_ theme: Theme) -> Color {
+        switch model.updateState {
+        case .result(.protocolChanged), .result(.unreachable):
+            return theme.danger
+        default:
+            return theme.textSecondary
+        }
+    }
+
+    /**
+     * One line of "about this build": what it is on the left, what it is on the right,
+     * and — where there is something a person can do with the value — the whole row is
+     * what they tap. No button, because the value is the thing.
+     */
+    private func aboutRow(
+        _ label: String,
+        _ value: String,
+        theme: Theme,
+        onValue: (() -> Void)? = nil
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label)
+                .font(Theme.body)
+                .foregroundStyle(theme.textPrimary)
+            Spacer(minLength: Theme.gapM)
+            Text(value)
+                .font(Theme.caption)
+                .foregroundStyle(theme.textSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let onValue, !value.isEmpty {
+                onValue()
+            }
         }
     }
 

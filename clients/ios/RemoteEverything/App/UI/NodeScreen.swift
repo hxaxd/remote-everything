@@ -19,9 +19,19 @@ struct NodeScreen: View {
         .navigationTitle(node?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let node, let path = PathSelector.choose(node.paths) {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    PathLabel(isPrivate: path.isPrivate)
+            // Under its own name, whose screen this is, and which way the phone is
+            // getting there.
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text(node?.name ?? "")
+                        .font(Theme.headline)
+                        .foregroundStyle(theme.textPrimary)
+                    if let node = model.node(withID: nodeID),
+                       let hint = currentPathHint(model.preferredPath(for: node)) {
+                        Text(hint)
+                            .font(Theme.caption)
+                            .foregroundStyle(theme.textSecondary)
+                    }
                 }
             }
         }
@@ -36,6 +46,18 @@ struct NodeScreen: View {
 
     @ViewBuilder
     private func page(_ theme: Theme, node: Node?) -> some View {
+        guard let node else {
+            MessagePage(
+                title: l10n(MessageKeys.ERROR_NODE_GONE),
+                body: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
+                action: {
+                    model.selectedNodeID = nil
+                    model.path.removeAll()
+                    Task { await model.refreshNodes() }
+                }
+            )
+        }
         switch model.catalogs[nodeID] {
         case .none, .some(.loading):
             VStack {
@@ -76,14 +98,18 @@ struct NodeScreen: View {
         case .some(.unauthorized):
             MessagePage(
                 title: l10n(MessageKeys.ERROR_NODE_GONE),
-                body: nil,
+                body: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
                 actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
-                action: { model.path.removeAll() }
+                action: {
+                    model.selectedNodeID = nil
+                    model.path.removeAll()
+                    Task { await model.refreshNodes() }
+                }
             )
         case .some(.unreachable):
             MessagePage(
                 title: ErrorText.network,
-                body: node?.paths.isEmpty == false ? pathNames(node) : nil,
+                body: !node.paths.isEmpty ? pathNames(node) : nil,
                 actionTitle: l10n(MessageKeys.ACTION_RETRY),
                 action: { Task { await model.loadCatalog(nodeID: nodeID) } }
             )
@@ -157,8 +183,8 @@ private struct ApplicationRow: View {
                 ProgressView()
                     .frame(width: 28)
             } else {
-                Button(action: app.enabled ? onStop : onStart) {
-                    Text(app.enabled ? l10n(MessageKeys.ACTION_STOP) : l10n(MessageKeys.ACTION_START))
+                Button(action: app.code == .stopped ? onStart : onStop) {
+                    Text(app.code == .stopped ? l10n(MessageKeys.ACTION_START) : l10n(MessageKeys.ACTION_STOP))
                         .font(Theme.caption)
                         .foregroundStyle(theme.textPrimary)
                         .frame(width: 44)
@@ -176,5 +202,16 @@ private struct ApplicationRow: View {
 
     private var stateText: String {
         l10n(MessageKeys.forAppState(app.code))
+    }
+}
+
+/// The one-line answer to "which way am I going in": local link or tunnel, said
+/// with the same words the row uses. A machine nothing answers for has no path to
+/// describe, and its own screen already says so.
+private func currentPathHint(_ path: Path?) -> String? {
+    switch path?.link {
+    case .local: return l10n(MessageKeys.NODE_CURRENT_LAN)
+    case .tunnel: return l10n(MessageKeys.NODE_CURRENT_TUNNEL)
+    case .none: return nil
     }
 }

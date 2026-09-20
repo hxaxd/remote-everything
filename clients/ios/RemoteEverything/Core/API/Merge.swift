@@ -24,10 +24,14 @@ enum Merge {
             for entry in answer.response.nodes {
                 let path = Path(
                     origin: answer.identity.origin,
-                    identityRef: answer.identity.credentialRef,
                     reachable: answer.reachable,
                     latencyMs: answer.latencyMs,
                     isPrivate: isPrivate,
+                    // A gateway that declared how it reaches the node is believed; one
+                    // that said nothing leaves the client to judge by the address it
+                    // dials. Either way a path that leaves the local network reads as a
+                    // tunnel, because that is what it costs the person using it.
+                    link: (summary.link == "tunnel" || !isPrivate) ? .tunnel : .local,
                     lastCheckedAt: answer.checkedAt
                 )
                 if var existing = byID[entry.id] {

@@ -119,20 +119,37 @@ final class PairingSession: ObservableObject {
                 clients.drop(origin: identity.origin)
                 onCatalogReady?(attempt.invitation.node, catalog)
                 await nodesController.refreshNodes()
-                finishPairingSheet()
+                finishIfCurrent(attempt)
             case .pendingApproval(let staged):
                 nodesController.setStaged(staged)
                 startPendingLoop()
-                finishPairingSheet()
+                finishIfCurrent(attempt)
                 await nodesController.refreshNodes()
             }
         } catch let error as ClientError {
-            pairingPhase = .failed(.refusal(error))
+            failIfCurrent(attempt, .refusal(error))
         } catch is NetworkFailure {
-            pairingPhase = .failed(.network)
+            failIfCurrent(attempt, .network)
         } catch {
-            pairingPhase = .failed(.client)
+            failIfCurrent(attempt, .client)
         }
+    }
+
+    /// The sheet belongs to the attempt it is showing: a fresh invitation or a
+    /// retry may have replaced this attempt while it was in flight, and an
+    /// answer arriving late must not wipe the new attempt's input or fail a
+    /// pairing the user did not ask about. The durable half of an outcome is
+    /// committed above either way; only the attempt the user is still on may
+    /// reset the sheet it sits on. The attempt is a class instance, so identity
+    /// is reference equality, not value equality.
+    private func finishIfCurrent(_ attempt: PairingCoordinator.Attempt) {
+        guard pairingAttempt === attempt else { return }
+        finishPairingSheet()
+    }
+
+    private func failIfCurrent(_ attempt: PairingCoordinator.Attempt, _ failure: PairingFailure) {
+        guard pairingAttempt === attempt else { return }
+        pairingPhase = .failed(failure)
     }
 
     func startPendingLoop() {
@@ -151,6 +168,18 @@ final class PairingSession: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Forgetting a gateway takes the pairing still waiting on it with it: the
+    /// staged row leaves the list, and the file that would have resumed it — and
+    /// the credential it names — go too, exactly as an expired stage does in
+    /// `resumeStagedSetups`. The coordinator owns the stage store, so the
+    /// discard goes through it; the row removal is the controller's.
+    func discardStagedSetups(origin: String) {
+        for staged in nodesController.stagedSetups where staged.origin == origin {
+            pairing.discard(staged)
+        }
+        nodesController.removeStaged(origin: origin)
     }
 
     func resumeStagedSetups() async {

@@ -7,10 +7,13 @@ struct NodesResponse: Codable, Equatable {
     struct Node: Codable, Equatable {
         let id: String
         let name: String
+        /// How the answering gateway reaches it, when the operator or the gateway said.
+        let link: String?
 
         enum CodingKeys: String, CodingKey {
             case id
             case name
+            case link
         }
     }
 
@@ -41,10 +44,15 @@ extension NodesResponse {
 
 extension NodesResponse.Node {
     init(from decoder: Decoder) throws {
-        try WireStrict.requireOnly(decoder, ["id", "name"], "node")
+        try WireStrict.requireOnly(decoder, ["id", "name", "link"], "node")
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = try container.decode(String.self, forKey: .id)
         self.name = try container.decode(String.self, forKey: .name)
+        let link = try container.decodeIfPresent(String.self, forKey: .link)
+        guard link == nil || link == "local" || link == "tunnel" else {
+            throw DTORejection.badField("nodes[].link", "node")
+        }
+        self.link = link
     }
 }
 
@@ -313,9 +321,10 @@ struct PairingResponse: Codable, Equatable {
     let certificateFingerprint: String
     let credentialFormat: String
     let credentialPKCS12: String
-    let pendingExpiresAt: String
-
-    var pendingExpiry: Date? { WireDate.parse(pendingExpiresAt) }
+    /// The pending window the gateway names, already parsed: the decoder
+    /// refuses an answer whose `pending_expires_at` it cannot read, so the
+    /// client never invents a window of its own (behavior README).
+    let pendingExpiresAt: Date
 
     enum CodingKeys: String, CodingKey {
         case ok
@@ -338,7 +347,9 @@ extension PairingResponse {
         let ok = try container.decode(Bool.self, forKey: .ok)
         guard ok else { throw DTORejection.notTrue("ok", "pairing response") }
         let deviceName = try container.decode(String.self, forKey: .deviceName)
-        guard !deviceName.isEmpty else { throw DTORejection.badField("device_name", "pairing response") }
+        guard !deviceName.isEmpty, hasNoControlCharacters(deviceName) else {
+            throw DTORejection.badField("device_name", "pairing response")
+        }
         let fingerprint = try container.decode(String.self, forKey: .certificateFingerprint)
         guard SetupURI.isHex64(fingerprint) else {
             throw DTORejection.badField("certificate_fingerprint", "pairing response")
@@ -350,7 +361,7 @@ extension PairingResponse {
             throw DTORejection.badField("credential_pkcs12", "pairing response")
         }
         let expiresAt = try container.decode(String.self, forKey: .pendingExpiresAt)
-        guard WireDate.parse(expiresAt) != nil else {
+        guard let expiry = WireDate.parse(expiresAt) else {
             throw DTORejection.badField("pending_expires_at", "pairing response")
         }
         self.ok = ok
@@ -358,7 +369,7 @@ extension PairingResponse {
         self.certificateFingerprint = fingerprint
         self.credentialFormat = format
         self.credentialPKCS12 = pkcs12
-        self.pendingExpiresAt = expiresAt
+        self.pendingExpiresAt = expiry
     }
 }
 
@@ -447,62 +458,5 @@ extension ReleaseManifest {
         self.buildNumber = buildNumber
         self.protocolVersion = protocolVersion
         self.minimumPlatforms = try container.decode(MinimumPlatforms.self, forKey: .minimumPlatforms)
-    }
-}
-
-// MARK: - Shared checks
-
-enum DTORejection: Error, Equatable {
-    case notTrue(String, String)
-    case badField(String, String)
-}
-
-/// `^[a-z0-9][a-z0-9._-]{0,63}$`
-func isApplicationID(_ value: String) -> Bool {
-    guard let first = value.first, first.isASCII, first.isLowercase || first.isNumber else { return false }
-    guard value.count <= 64 else { return false }
-    return value.allSatisfy { character in
-        character.isASCII && (character.isLowercase || character.isNumber || "._-".contains(character))
-    }
-}
-
-/// `^#[0-9A-Fa-f]{6}$`
-func isAccentColor(_ value: String) -> Bool {
-    guard value.count == 7, value.hasPrefix("#") else { return false }
-    return value.dropFirst().allSatisfy { character in
-        (character >= "0" && character <= "9")
-            || (character >= "a" && character <= "f")
-            || (character >= "A" && character <= "F")
-    }
-}
-
-/// `^\d+\.\d+\.\d+$`
-func isVersionName(_ value: String) -> Bool {
-    let parts = value.split(separator: ".", omittingEmptySubsequences: false)
-    guard parts.count == 3 else { return false }
-    return parts.allSatisfy { part in !part.isEmpty && part.allSatisfy(\.isNumber) }
-}
-
-func hasNoControlCharacters(_ value: String) -> Bool {
-    value.unicodeScalars.allSatisfy { scalar in
-        scalar.value >= 0x20 && scalar.value != 0x7F
-    }
-}
-
-/// Timestamps on the wire are RFC 3339 in UTC with second precision.
-enum WireDate {
-    static func parse(_ value: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: value) { return date }
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.date(from: value)
-    }
-
-    static func string(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter.string(from: date)
     }
 }

@@ -9,9 +9,15 @@ import Foundation
 ///
 /// The names and the three mappings are the same in every client, spelled the
 /// same way (Kotlin `camelCase`, Swift `camelCase`, ArkTS `camelCase`).
+///
+/// Some seventeen of the constants below this client's screens never render;
+/// they exist so the three clients' one vocabulary stays complete, and a
+/// platform trimming the entries it does not use breaks the other two.
 enum MessageKeys {
 
     // Node states
+    static let NODE_CURRENT_LAN = "node.current_lan"
+    static let NODE_CURRENT_TUNNEL = "node.current_tunnel"
     static let NODE_LAN = "node.lan"
     static let NODE_TUNNEL = "node.tunnel"
     static let NODE_OFFLINE = "node.offline"
@@ -48,6 +54,26 @@ enum MessageKeys {
     static let DEVICE_CATEGORY_PHONE = "device.category_phone"
     static let DEVICE_CATEGORY_TABLET = "device.category_tablet"
 
+    // The report a person copies out of a connection that will not answer
+    static let DIAG_ATTEMPTS = "diag.attempts"
+    static let DIAG_CAUSE = "diag.cause"
+    static let DIAG_CAUSE_BAD_ANSWER = "diag.cause_bad_answer"
+    static let DIAG_CAUSE_NO_NETWORK = "diag.cause_no_network"
+    static let DIAG_CAUSE_REFUSED = "diag.cause_refused"
+    static let DIAG_CAUSE_UNREACHABLE = "diag.cause_unreachable"
+    static let DIAG_CAUSE_UNKNOWN = "diag.cause_unknown"
+    static let DIAG_CLIENT = "diag.client"
+    static let DIAG_CONNECTION = "diag.connection"
+    static let DIAG_DEVICE_NAME = "diag.device_name"
+    static let DIAG_FAILURES = "diag.failures"
+    static let DIAG_LAST_ANSWER = "diag.last_answer"
+    static let DIAG_MACHINES = "diag.machines"
+    static let DIAG_NETWORK = "diag.network"
+    static let DIAG_SINCE = "diag.since"
+    static let DIAG_STATE = "diag.state"
+    static let DIAG_SYSTEM = "diag.system"
+    static let DIAG_TITLE = "diag.title"
+
     // Screens
     static let APP_NAME = "app.name"
     static let APP_OPEN_FAILED = "app.open_failed"
@@ -65,6 +91,7 @@ enum MessageKeys {
     static let ACTION_BACK_TO_NODES = "action.back_to_nodes"
     static let ACTION_CANCEL = "action.cancel"
     static let ACTION_CONFIRM = "action.confirm"
+    static let ACTION_COPIED = "action.copied"
     static let ACTION_DONE = "action.done"
     static let PAIR_TITLE = "pair.title"
     static let PAIR_INPUT_HINT = "pair.input_hint"
@@ -83,8 +110,25 @@ enum MessageKeys {
     static let PAIR_WAITING_APPROVAL = "pair.waiting_approval"
     static let NODE_OFFLINE_TITLE = "node.offline_title"
     static let NODE_OFFLINE_BODY = "node.offline_body"
+    static let WEB_CHOOSE_FILE = "web.choose_file"
+    static let WEB_DOWNLOAD_DONE = "web.download_done"
+    static let WEB_DOWNLOAD_FAILED = "web.download_failed"
+    static let WEB_DOWNLOAD_OPEN = "web.download_open"
+    static let WEB_DOWNLOAD_SAVED = "web.download_saved"
+    static let WEB_DOWNLOADS = "web.downloads"
+    static let WEB_EXIT = "web.exit"
     static let WEB_LOAD_FAILED = "web.load_failed"
+    static let WEB_ISOLATION_UNAVAILABLE = "web.isolation_unavailable"
+    static let WEB_SESSION_FAILED = "web.session_failed"
     static let WEB_LOADING = "web.loading"
+    static let WEB_ORIENTATION = "web.orientation"
+    static let WEB_ORIENTATION_LANDSCAPE = "web.orientation_landscape"
+    static let WEB_ORIENTATION_PORTRAIT = "web.orientation_portrait"
+    static let WEB_ORIENTATION_SYSTEM = "web.orientation_system"
+    static let WEB_REFRESH = "web.refresh"
+    static let WEB_USER_AGENT = "web.user_agent"
+    static let WEB_USER_AGENT_DESKTOP = "web.user_agent_desktop"
+    static let WEB_USER_AGENT_MOBILE = "web.user_agent_mobile"
     static let LANGUAGE_ZH = "language.zh"
     static let LANGUAGE_EN = "language.en"
     static let IDENTITY_UNAUTHORIZED = "identity.unauthorized"
@@ -99,6 +143,7 @@ enum MessageKeys {
     static let SETTINGS_APPEARANCE_LIGHT = "settings.appearance_light"
     static let SETTINGS_APPEARANCE_DARK = "settings.appearance_dark"
     static let SETTINGS_IDENTITIES = "settings.identities"
+    static let SETTINGS_COPY_ERROR = "settings.copy_error"
     static let SETTINGS_NO_IDENTITIES = "settings.no_identities"
     static let SETTINGS_NODES_COUNT = "settings.nodes_count"
     static let SETTINGS_CERTIFICATE_FINGERPRINT = "settings.certificate_fingerprint"

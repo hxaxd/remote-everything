@@ -24,13 +24,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "LAN"
+            "value": "Local"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "局域网"
+            "value": "本地"
           }
         }
       }
@@ -58,13 +58,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This machine is offline"
+            "value": "Offline"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台机器不在线"
+            "value": "不在线"
           }
         }
       }
@@ -75,13 +75,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for operator approval"
+            "value": "Pending approval"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "等待操作者批准"
+            "value": "待批准"
           }
         }
       }
@@ -92,13 +92,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not checked yet"
+            "value": "Unknown"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "尚未探测"
+            "value": "未知"
           }
         }
       }
@@ -109,13 +109,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This machine is offline"
+            "value": "This node is offline"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台机器不在线"
+            "value": "这个节点不在线"
           }
         }
       }
@@ -126,13 +126,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It may be off, asleep, or its tunnel is down."
+            "value": "It may be off, asleep, or disconnected."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它可能没开机、正在休眠，或者隧道中断了。"
+            "value": "它可能已关机、正在休眠，或连接已断开。"
           }
         }
       }
@@ -211,13 +211,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not open this app"
+            "value": "Couldn't open this app"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打不开这个应用"
+            "value": "无法打开此应用"
           }
         }
       }
@@ -228,7 +228,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No applications"
+            "value": "No apps"
           }
         },
         "zh-Hans": {
@@ -245,13 +245,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This machine is configured to open nothing."
+            "value": "No apps to open on this node yet."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台机器没有配置任何可打开的应用。"
+            "value": "这个节点上还没有可打开的应用。"
           }
         }
       }
@@ -262,7 +262,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This invitation is invalid or already used"
+            "value": "This invitation is invalid or has already been used"
           }
         },
         "zh-Hans": {
@@ -279,13 +279,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invitation expired; ask the operator for a new one"
+            "value": "Invitation expired, ask the operator for a new one"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "邀请已过期，请让操作者重新签发"
+            "value": "邀请已过期，请向操作者索取新邀请。"
           }
         }
       }
@@ -296,13 +296,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This is not a valid invitation"
+            "value": "This isn't a valid invitation link"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这不是一个有效的邀请"
+            "value": "这不是有效的邀请链接"
           }
         }
       }
@@ -313,13 +313,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cannot reach this gateway; check the network and retry"
+            "value": "Can't connect, check your network and try again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连不上这个网关，检查网络后重试"
+            "value": "无法连接，请检查网络后重试。"
           }
         }
       }
@@ -330,13 +330,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The gateway is having trouble; contact the operator"
+            "value": "Gateway unavailable, contact the operator"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "网关出问题了，请联系操作者"
+            "value": "网关暂时不可用，请联系操作者。"
           }
         }
       }
@@ -353,7 +353,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个节点不在你的访问名单里了"
+            "value": "无法访问这个节点"
           }
         }
       }
@@ -364,13 +364,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Busy right now; try again later"
+            "value": "Server busy, try again later"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有点忙，稍后再试"
+            "value": "服务繁忙，请稍后再试。"
           }
         }
       }
@@ -381,13 +381,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This app is no longer there"
+            "value": "This app is no longer available"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个应用已经不在了"
+            "value": "此应用已不可用"
           }
         }
       }
@@ -398,13 +398,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop failed; the app may still be running"
+            "value": "Stop failed, the app may still be running"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "停止失败，应用可能仍在运行"
+            "value": "停止失败，应用可能仍在运行。"
           }
         }
       }
@@ -415,13 +415,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The gateway does not serve that"
+            "value": "Not found"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "网关没有提供这个地址"
+            "value": "未找到"
           }
         }
       }
@@ -432,13 +432,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Client error"
+            "value": "Something went wrong, try again later"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "客户端自身错误"
+            "value": "出现错误，请稍后再试。"
           }
         }
       }
@@ -449,13 +449,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cannot connect; check the network and retry"
+            "value": "Can't connect, check your network and try again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连不上，检查网络后重试"
+            "value": "无法连接，请检查网络后重试。"
           }
         }
       }
@@ -466,13 +466,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The gateway did not carry that out; try again"
+            "value": "Action didn't go through, try again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "网关没能执行，请重试"
+            "value": "操作未完成，请再试一次。"
           }
         }
       }
@@ -483,13 +483,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The credential for %1$s is gone; pair it again"
+            "value": "This connection's credentials are no longer valid, pair again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s 的证书已不可用，需要重新配对"
+            "value": "此连接的凭据已失效，请重新配对。"
           }
         }
       }
@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a machine to see what it runs."
+            "value": "Select a node"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从左边选一台机器，看它跑着什么。"
+            "value": "选择一个节点"
           }
         }
       }
@@ -534,13 +534,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nothing here yet"
+            "value": "No nodes yet"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这里还什么都没有"
+            "value": "还没有节点"
           }
         }
       }
@@ -551,13 +551,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scan or paste an invitation to reach your machines."
+            "value": "Scan or paste an invitation to add a node."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "扫描或粘贴邀请，把手机接入你的机器。"
+            "value": "扫描或粘贴邀请来添加节点。"
           }
         }
       }
@@ -653,13 +653,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Back to the list"
+            "value": "Back to nodes"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "返回列表"
+            "value": "返回节点列表"
           }
         }
       }
@@ -772,13 +772,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camera access is off"
+            "value": "Scanning needs camera permission, or paste the link"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "相机权限未开启"
+            "value": "扫码需要相机权限，也可以直接粘贴链接。"
           }
         }
       }
@@ -789,13 +789,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Turn it on in Settings to scan a code."
+            "value": "Point the camera at the invitation QR code."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在系统设置里开启相机权限后即可扫码。"
+            "value": "将摄像头对准邀请二维码。"
           }
         }
       }
@@ -874,7 +874,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Failed to load"
+            "value": "Couldn't load the page"
           }
         },
         "zh-Hans": {
@@ -925,13 +925,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Access was withdrawn; confirm on the gateway"
+            "value": "Not authorized for this node"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "访问权限已被收回，请在网关侧确认"
+            "value": "无权访问这个节点"
           }
         }
       }
@@ -942,13 +942,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pair again: the credential is gone from this device"
+            "value": "Pair this device again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要重新配对：证书已不在设备上"
+            "value": "请重新配对这台设备"
           }
         }
       }
@@ -1084,7 +1084,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "接入"
+            "value": "连接"
           }
         }
       }
@@ -1101,7 +1101,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没有接入"
+            "value": "还没有连接"
           }
         }
       }
@@ -1118,7 +1118,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "节点数"
+            "value": "节点"
           }
         }
       }
@@ -1129,13 +1129,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Device certificate fingerprint"
+            "value": "Certificate fingerprint"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设备证书指纹"
+            "value": "证书指纹"
           }
         }
       }
@@ -1152,7 +1152,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "忘记此接入"
+            "value": "忘记此连接"
           }
         }
       }
@@ -1163,13 +1163,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forgetting removes access to %1$d node(s) behind it."
+            "value": "Forget this connection?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "忘记后，名下 %1$d 台节点将同时失去访问。"
+            "value": "确定要忘记这个连接吗？"
           }
         }
       }
@@ -1197,13 +1197,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Check"
+            "value": "Check for updates"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查"
+            "value": "检查更新"
           }
         }
       }
@@ -1265,7 +1265,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version %1$s (%2$d) available"
+            "value": "Version %1$s (%2$d) is available"
           }
         },
         "zh-Hans": {
@@ -1282,13 +1282,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The protocol has changed; re-pairing is required after upgrading"
+            "value": "This update changes how devices connect, so pair again after updating"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "协议已更新，升级后需要重新配对"
+            "value": "新版本改变了连接方式，更新后需要重新配对。"
           }
         }
       }
@@ -1299,13 +1299,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Update from the App Store."
+            "value": "Install the new version from the app store"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "请在 App Store 更新。"
+            "value": "从应用商店安装新版本"
           }
         }
       }
@@ -1333,13 +1333,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version"
+            "value": "Current version"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本"
+            "value": "当前版本"
           }
         }
       }
@@ -1356,7 +1356,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "协议版本"
+            "value": "通信协议版本"
           }
         }
       }
@@ -1367,13 +1367,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This device"
+            "value": "Default device name"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "本机设备名"
+            "value": "设备默认名称"
           }
         }
       }
@@ -1435,13 +1435,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It may have been removed from your access."
+            "value": "The operator may have removed your access."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "它可能已被移出你的访问名单。"
+            "value": "访问权限可能已被操作者移除。"
           }
         }
       }
@@ -1452,13 +1452,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This connection's key is no longer on this device; pair again to restore it."
+            "value": "This connection's credentials are no longer on this device, pair again"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这个接入的密钥已不在本机，请重新配对以恢复。"
+            "value": "此连接的凭据已不在本机，请重新配对。"
           }
         }
       }
@@ -1469,13 +1469,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Identity missing"
+            "value": "Pairing required"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "缺少身份凭证"
+            "value": "需要重新配对"
           }
         }
       }
@@ -1486,7 +1486,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A name other devices will see"
+            "value": "The name other devices will see"
           }
         },
         "zh-Hans": {
@@ -1503,13 +1503,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A device name is required"
+            "value": "Enter a device name"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "需要设备名"
+            "value": "请填写设备名"
           }
         }
       }
@@ -1537,13 +1537,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machine"
+            "value": "Node"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "机器"
+            "value": "节点"
           }
         }
       }
@@ -1554,13 +1554,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No invitation found in the frame"
+            "value": "No invitation QR code found"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "画面里没有邀请"
+            "value": "未识别到邀请二维码"
           }
         }
       }
@@ -1588,13 +1588,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not reach the update channel"
+            "value": "Couldn't check for updates, try again later"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连不上更新源"
+            "value": "无法检查更新，请稍后再试。"
           }
         }
       }
@@ -1612,6 +1612,669 @@
           "stringUnit": {
             "state": "translated",
             "value": "加载中…"
+          }
+        }
+      }
+    },
+    "action.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
+          }
+        }
+      }
+    },
+    "diag.attempts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent attempts"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近尝试"
+          }
+        }
+      }
+    },
+    "diag.cause": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cause"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原因"
+          }
+        }
+      }
+    },
+    "diag.cause_bad_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the gateway's answer could not be read"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关的应答无法识别"
+          }
+        }
+      }
+    },
+    "diag.cause_no_network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this phone has no network"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手机当前没有网络"
+          }
+        }
+      }
+    },
+    "diag.cause_refused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the gateway refused this device"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网关拒绝了这个设备"
+          }
+        }
+      }
+    },
+    "diag.cause_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown cause"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知原因"
+          }
+        }
+      }
+    },
+    "diag.cause_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the gateway does not answer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连不上网关"
+          }
+        }
+      }
+    },
+    "diag.client": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Client"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端"
+          }
+        }
+      }
+    },
+    "diag.connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
+      }
+    },
+    "diag.device_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Device name"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备名"
+          }
+        }
+      }
+    },
+    "diag.failures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$s failures in a row"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连续失败 %1$s 次"
+          }
+        }
+      }
+    },
+    "diag.last_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "last answer %1$s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最后应答 %1$s"
+          }
+        }
+      }
+    },
+    "diag.machines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nodes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节点"
+          }
+        }
+      }
+    },
+    "diag.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络"
+          }
+        }
+      }
+    },
+    "diag.since": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "since %1$s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %1$s 起"
+          }
+        }
+      }
+    },
+    "diag.state": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "State"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "状态"
+          }
+        }
+      }
+    },
+    "diag.system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        }
+      }
+    },
+    "diag.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection diagnostics"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接诊断"
+          }
+        }
+      }
+    },
+    "node.current_lan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently on the local link"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前为本地连接"
+          }
+        }
+      }
+    },
+    "node.current_tunnel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently over the tunnel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前为隧道连接"
+          }
+        }
+      }
+    },
+    "settings.copy_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy error info"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制错误信息"
+          }
+        }
+      }
+    },
+    "web.choose_file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a file"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择文件"
+          }
+        }
+      }
+    },
+    "web.download_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download finished"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载完成"
+          }
+        }
+      }
+    },
+    "web.download_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download failed"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载失败"
+          }
+        }
+      }
+    },
+    "web.download_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        }
+      }
+    },
+    "web.download_saved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved to %1$s"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已保存到 %1$s"
+          }
+        }
+      }
+    },
+    "web.downloads": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载"
+          }
+        }
+      }
+    },
+    "web.exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出"
+          }
+        }
+      }
+    },
+    "web.orientation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orientation"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕方向"
+          }
+        }
+      }
+    },
+    "web.orientation_landscape": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landscape"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横屏"
+          }
+        }
+      }
+    },
+    "web.orientation_portrait": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portrait"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "竖屏"
+          }
+        }
+      }
+    },
+    "web.orientation_system": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随系统"
+          }
+        }
+      }
+    },
+    "web.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新"
+          }
+        }
+      }
+    },
+    "web.user_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identity"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标识"
+          }
+        }
+      }
+    },
+    "web.user_agent_desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "桌面"
+          }
+        }
+      }
+    },
+    "web.user_agent_mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动"
+          }
+        }
+      }
+    },
+    "web.isolation_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update your system WebView to open applications securely."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请更新系统网页组件后再打开应用。"
+          }
+        }
+      }
+    },
+    "web.session_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not safely switch application sessions. Restart the client and try again."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法安全切换应用会话，请重启客户端后重试。"
           }
         }
       }

@@ -149,7 +149,7 @@ final class WireDecodingTests: XCTestCase {
          "credential_format":"pkcs12","credential_pkcs12":"MIIB","pending_expires_at":"2026-09-17T10:00:00Z"}
         """)
         XCTAssertEqual(response.credentialFormat, "pkcs12")
-        XCTAssertNotNil(response.pendingExpiry)
+        XCTAssertEqual(response.pendingExpiresAt, WireDate.parse("2026-09-17T10:00:00Z"))
     }
 
     func testRejectsAPairingAnswerThatIsNotPKCS12() {

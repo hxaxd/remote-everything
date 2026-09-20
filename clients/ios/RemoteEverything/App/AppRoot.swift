@@ -21,10 +21,13 @@ struct AppRootView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         GeometryReader { proxy in
-            let isWide = min(proxy.size.width, proxy.size.height) >= Theme.wideLayoutShortSide
+            // An iPad in portrait (>= 700pt), landscape (>= 1080pt), or Split View 2/3 has
+            // room for two columns; Split View 1/3 (~320pt) or iPhones drop back to single pane.
+            let isWide = verticalSizeClass != .compact && proxy.size.width >= 700
             let theme = Theme(colorScheme)
             ZStack(alignment: .top) {
                 Group {
@@ -35,6 +38,9 @@ struct AppRootView: View {
                     }
                 }
                 .environment(\.reWideLayout, isWide)
+                .onChange(of: isWide) { _, wide in
+                    handleLayoutTransition(toWide: wide)
+                }
                 if let notice = model.notice {
                     NoticeBanner(notice: notice) {
                         model.notice = nil
@@ -62,6 +68,40 @@ struct AppRootView: View {
         }
         .task {
             model.start()
+        }
+    }
+
+    /// Keep navigation state seamless when resizing or rotating between single-column and split-column.
+    private func handleLayoutTransition(toWide: Bool) {
+        if toWide {
+            // Narrow -> Wide:
+            // If the user navigated into a node in narrow layout, extract the root node route
+            // to selectedNodeID so detailColumn displays it directly, leaving any child routes (e.g. .application)
+            // pushed cleanly in the detail stack.
+            if let first = model.path.first {
+                switch first {
+                case .node(let nodeID):
+                    model.selectedNodeID = nodeID
+                    model.path.removeFirst()
+                case .application(let nodeID, _):
+                    if model.selectedNodeID == nil {
+                        model.selectedNodeID = nodeID
+                    }
+                }
+            }
+        } else {
+            // Wide -> Narrow:
+            // If a node was selected in wide layout, ensure it is at the root of model.path
+            // so the user does not get kicked back to the home screen.
+            if let selected = model.selectedNodeID {
+                let hasNodeInPath = model.path.contains { route in
+                    if case .node(let id) = route, id == selected { return true }
+                    return false
+                }
+                if !hasNodeInPath {
+                    model.path.insert(.node(selected), at: 0)
+                }
+            }
         }
     }
 
@@ -98,8 +138,8 @@ struct AppRootView: View {
             NodeScreen(nodeID: nodeID)
         } else {
             MessagePage(
-                title: l10n(MessageKeys.NODES_TITLE),
-                body: l10n(MessageKeys.NODES_SELECT_HINT),
+                title: l10n(MessageKeys.NODES_SELECT_HINT),
+                body: nil,
                 actionTitle: nil,
                 action: nil
             )

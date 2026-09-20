@@ -32,10 +32,6 @@ enum Cadence {
     static let approvalPollMs: Int = 5_000
     static let approvalPollTimeoutMs: Int = 600_000
 
-    /// How long a staged pairing is treated as alive when the gateway's own expiry
-    /// could not be read: the invitation lifetime it hands out by default.
-    static let pendingFallbackMs: Int = 600_000
-
     /// How long a path is given to answer while it is being probed.
     static let probeTimeoutMs: Int = 2_000
 
@@ -48,7 +44,6 @@ enum Cadence {
     static var controlPollCeiling: TimeInterval { seconds(controlPollCeilingMs) }
     static var controlPollTimeout: TimeInterval { seconds(controlPollTimeoutMs) }
     static var approvalPollTimeout: TimeInterval { seconds(approvalPollTimeoutMs) }
-    static var pendingFallback: TimeInterval { seconds(pendingFallbackMs) }
     static var probeTimeout: TimeInterval { seconds(probeTimeoutMs) }
     static var requestTimeout: TimeInterval { seconds(requestTimeoutMs) }
 

@@ -77,7 +77,7 @@ final class GatewayClient {
         case 200:
             return try decode(PairingResponse.self, from: data)
         default:
-            throw refusal(from: data, status: response.statusCode)
+            throw try refusal(from: data, status: response.statusCode)
         }
     }
 
@@ -88,13 +88,22 @@ final class GatewayClient {
         let (data, response) = try await perform(request)
         switch response.statusCode {
         case 200:
-            return .approved(try decode(CatalogResponse.self, from: data))
+            let catalog = try decode(CatalogResponse.self, from: data)
+            // activation.schema.json: the catalog an activation answers with is
+            // always the connected one, always code=ready — a device is never
+            // activated against a node that is not there. Any other catalog on
+            // a 200 is a body this request does not accept, refused the way an
+            // unreadable one is.
+            guard catalog.computerConnected, catalog.code == .ready else {
+                throw ClientError(.internalError, httpStatus: response.statusCode)
+            }
+            return .approved(catalog)
         case 202:
-            let refusal = refusal(from: data, status: 202)
+            let refusal = try refusal(from: data, status: 202)
             if refusal.code == .approvalPending { return .pendingApproval }
             throw refusal
         default:
-            throw refusal(from: data, status: response.statusCode)
+            throw try refusal(from: data, status: response.statusCode)
         }
     }
 
@@ -102,7 +111,7 @@ final class GatewayClient {
     func nodes(timeout: TimeInterval = Cadence.requestTimeout) async throws -> NodesResponse {
         let request = try makeRequest(method: "GET", path: Paths.nodes, nodeID: nil, timeout: timeout)
         let (data, response) = try await perform(request)
-        guard response.statusCode == 200 else { throw refusal(from: data, status: response.statusCode) }
+        guard response.statusCode == 200 else { throw try refusal(from: data, status: response.statusCode) }
         return try decode(NodesResponse.self, from: data)
     }
 
@@ -110,7 +119,7 @@ final class GatewayClient {
     func catalog(nodeID: String) async throws -> CatalogResponse {
         let request = try makeRequest(method: "GET", path: Paths.apps, nodeID: nodeID, timeout: Cadence.requestTimeout)
         let (data, response) = try await perform(request)
-        guard response.statusCode == 200 else { throw refusal(from: data, status: response.statusCode) }
+        guard response.statusCode == 200 else { throw try refusal(from: data, status: response.statusCode) }
         return try decode(CatalogResponse.self, from: data)
     }
 
@@ -182,7 +191,7 @@ final class GatewayClient {
 
     private func control(_ request: URLRequest) async throws -> ControlResponse {
         let (data, response) = try await perform(request)
-        guard response.statusCode == 200 else { throw refusal(from: data, status: response.statusCode) }
+        guard response.statusCode == 200 else { throw try refusal(from: data, status: response.statusCode) }
         return try decode(ControlResponse.self, from: data)
     }
 
@@ -204,21 +213,21 @@ final class GatewayClient {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            // A body this client cannot read is not retried with a guess: the
-            // refusal it carries is unknown, and internal_error is what the
-            // contract calls an answer the gateway failed to write.
-            throw ClientError(.internalError, httpStatus: nil)
+            // A body this client cannot read is a body it does not understand, and
+            // the protocol says an implementation rejects that rather than guessing.
+            throw UnreadableAnswer("the gateway answered a body this client does not understand")
         }
     }
 
-    /// The refusal a body names, or the one its status names when the body is
-    /// unreadable. The code wins whenever there is one — HTTP is the same
-    /// decision written twice, not a second opinion.
-    private func refusal(from data: Data, status: Int) -> ClientError {
-        if let body = try? JSONDecoder().decode(ErrorResponse.self, from: data) {
-            return ClientError(body.code, httpStatus: status)
+    /// The refusal a body names, or an unreadable answer when the body cannot be read.
+    /// An answer this client cannot read stops being folded into a generic error,
+    /// because "the gateway refused this device" and "the gateway said something I do not understand"
+    /// send the operator to two different places.
+    private func refusal(from data: Data, status: Int) throws -> ClientError {
+        guard let body = try? JSONDecoder().decode(ErrorResponse.self, from: data) else {
+            throw UnreadableAnswer("HTTP \(status) without a refusal this client can read")
         }
-        return ClientError(GatewayClient.code(forStatus: status), httpStatus: status)
+        return ClientError(body.code, httpStatus: status)
     }
 
     static func code(forStatus status: Int) -> ErrorCode {

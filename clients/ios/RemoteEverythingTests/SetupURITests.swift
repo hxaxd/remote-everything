@@ -77,6 +77,41 @@ final class SetupURITests: XCTestCase {
         XCTAssertEqual(parsed.origin, "https://192.168.1.4:8443")
     }
 
+    // MARK: - IPv6 origins (bracketed hosts)
+
+    func testAcceptsABracketedIPv6Host() throws {
+        let query = "node=\(nodeID)&node_name=Desk&origin=https://[::1]&invitation=\(invitation)"
+        let parsed = try SetupURI.parse(uri(query))
+        XCTAssertEqual(parsed.origin, "https://[::1]")
+    }
+
+    func testAcceptsABracketedIPv6HostWithAPort() throws {
+        let query = "node=\(nodeID)&node_name=Desk&origin=https://[2001:db8::1]:8443&invitation=\(invitation)"
+        let parsed = try SetupURI.parse(uri(query))
+        XCTAssertEqual(parsed.origin, "https://[2001:db8::1]:8443")
+    }
+
+    func testRejectsABracketedHostWithNoClosingBracket() {
+        let query = "node=\(nodeID)&node_name=Desk&origin=https://[::1&invitation=\(invitation)"
+        XCTAssertThrowsError(try SetupURI.parse(uri(query)))
+    }
+
+    func testRejectsABracketedHostWithJunkAfterTheBracket() {
+        XCTAssertFalse(SetupURI.isOrigin("https://[::1]junk"))
+        XCTAssertFalse(SetupURI.isOrigin("https://[::1]:"))
+        XCTAssertFalse(SetupURI.isOrigin("https://[::1]:0"))
+        XCTAssertFalse(SetupURI.isOrigin("https://[::1]:99999"))
+    }
+
+    func testDirectOriginChecks() {
+        XCTAssertTrue(SetupURI.isOrigin("https://gw.example.com"))
+        XCTAssertTrue(SetupURI.isOrigin("https://192.168.1.4:8443"))
+        XCTAssertFalse(SetupURI.isOrigin("http://gw.example.com"))
+        XCTAssertFalse(SetupURI.isOrigin("https://"))
+        XCTAssertFalse(SetupURI.isOrigin("https://gw.example.com/path"))
+        XCTAssertFalse(SetupURI.isOrigin("https://user@gw.example.com"))
+    }
+
     func testRejectsAShortInvitationToken() {
         let query = "node=\(nodeID)&node_name=Desk&origin=https://gw.example.com&invitation=\(String(repeating: "A", count: 42))"
         XCTAssertThrowsError(try SetupURI.parse(uri(query)))

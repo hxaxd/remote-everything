@@ -101,6 +101,7 @@ final class BehaviorFixturesTests: XCTestCase {
                 let pathCount: Int
                 let chosenOrigin: String
                 let chosenIsPrivate: Bool
+                let chosenLink: String?
             }
             let nodes: [NodeEntry]
         }
@@ -142,6 +143,11 @@ final class BehaviorFixturesTests: XCTestCase {
             XCTAssertEqual(expected.pathCount, node.paths.count)
             let chosen = PathSelector.choose(node.paths)
             XCTAssertEqual(expected.chosenOrigin, chosen?.origin)
+            // What the link is called follows the gateway's declaration when it made
+            // one: a private address can still be a path that crosses the internet.
+            if let want = expected.chosenLink {
+                XCTAssertEqual(want, chosen?.link.rawValue)
+            }
             XCTAssertEqual(expected.chosenIsPrivate, chosen?.isPrivate)
         }
     }
@@ -170,7 +176,6 @@ final class BehaviorFixturesTests: XCTestCase {
             let paths = entry.paths.map { path in
                 Path(
                     origin: path.origin,
-                    identityRef: path.origin,
                     reachable: path.reachable,
                     latencyMs: path.latencyMs,
                     isPrivate: path.isPrivate,
@@ -197,7 +202,6 @@ final class BehaviorFixturesTests: XCTestCase {
         let controlPollTimeoutMs: Int
         let approvalPollMs: Int
         let approvalPollTimeoutMs: Int
-        let pendingFallbackMs: Int
         let probeTimeoutMs: Int
         let requestTimeoutMs: Int
     }
@@ -215,7 +219,6 @@ final class BehaviorFixturesTests: XCTestCase {
         XCTAssertEqual(fixture.controlPollTimeoutMs, Cadence.controlPollTimeoutMs, "controlPollTimeoutMs")
         XCTAssertEqual(fixture.approvalPollMs, Cadence.approvalPollMs, "approvalPollMs")
         XCTAssertEqual(fixture.approvalPollTimeoutMs, Cadence.approvalPollTimeoutMs, "approvalPollTimeoutMs")
-        XCTAssertEqual(fixture.pendingFallbackMs, Cadence.pendingFallbackMs, "pendingFallbackMs")
         XCTAssertEqual(fixture.probeTimeoutMs, Cadence.probeTimeoutMs, "probeTimeoutMs")
         XCTAssertEqual(fixture.requestTimeoutMs, Cadence.requestTimeoutMs, "requestTimeoutMs")
     }
@@ -324,5 +327,69 @@ final class BehaviorFixturesTests: XCTestCase {
             let localizations: Localizations
         }
         let strings: [String: Entry]
+    }
+
+    /// The other direction of the test above: every constant `MessageKeys`
+    /// carries must name a key the fixture has, so the client cannot drift from
+    /// the vocabulary by adding, renaming or dropping a constant. Swift cannot
+    /// reflect over an enum's static constants, so they are read the way this
+    /// file already reads the repository — out of the source, which lives at
+    /// `<repo>/clients/ios/RemoteEverything/Core/Model/MessageKeys.swift`.
+    func testEveryMessageKeysConstantIsAKeyTheFixtureNames() throws {
+        let canonical = try JSONDecoder().decode([String].self, from: try fixtureData("message-keys.json"))
+
+        let sourceURL = BehaviorFixturesTests.fixturesDirectory()
+            .deletingLastPathComponent()   // fixtures -> behavior
+            .deletingLastPathComponent()   // behavior -> clients
+            .appendingPathComponent("ios/RemoteEverything/Core/Model/MessageKeys.swift")
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            XCTFail("MessageKeys.swift is not where this checkout keeps it (\(sourceURL.path))")
+            return
+        }
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let regex = try NSRegularExpression(pattern: #"static let\s+(\w+)\s*=\s*"([^"]+)""#)
+        let declarations = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
+            .compactMap { match -> (name: String, value: String)? in
+                guard let name = Range(match.range(at: 1), in: source),
+                      let value = Range(match.range(at: 2), in: source)
+                else { return nil }
+                return (String(source[name]), String(source[value]))
+            }
+        XCTAssertFalse(declarations.isEmpty, "no constants found in \(sourceURL.path) — did the source move?")
+        XCTAssertEqual(declarations.count, Set(declarations.map { $0.name }).count, "MessageKeys declares a constant twice")
+
+        // clients/README.md: the key set is the fixture's, exactly — the value
+        // each constant carries is the key, so the two sets must be one.
+        XCTAssertEqual(
+            Set(declarations.map { $0.value }),
+            Set(canonical),
+            "MessageKeys' keys are not the shared vocabulary"
+        )
+    }
+
+    // MARK: - web-app-prefs.json
+
+    private struct WebAppPrefsFixture: Decodable {
+        struct Defaults: Decodable {
+            let orientation: String
+            let userAgent: String
+        }
+        let appKey: String
+        let defaults: Defaults
+        let orientations: [String]
+        let userAgents: [String]
+    }
+
+    /// The two choices one application's panel offers are the same two on every
+    /// client, in the same order, and an application nobody has touched gets the
+    /// same defaults: without this the three clients could store three different
+    /// vocabularies for the same two settings.
+    func testThePerApplicationWebChoicesAreTheVocabularyTheFixtureNames() throws {
+        let fixture: WebAppPrefsFixture = try fixture(WebAppPrefsFixture.self, "web-app-prefs.json")
+        XCTAssertEqual(fixture.orientations, WebOrientation.allCases.map { $0.rawValue })
+        XCTAssertEqual(fixture.userAgents, WebUserAgent.allCases.map { $0.rawValue })
+        let defaults = WebAppPrefs()
+        XCTAssertEqual(fixture.defaults.orientation, defaults.orientation.rawValue)
+        XCTAssertEqual(fixture.defaults.userAgent, defaults.userAgent.rawValue)
     }
 }

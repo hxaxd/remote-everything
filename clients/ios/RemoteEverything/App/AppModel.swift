@@ -137,7 +137,9 @@ final class AppModel: ObservableObject {
     func start() {
         Localization.apply(settings.language)
         network.onPathChange = { [weak self] in
-            Task { await self?.refreshNodes() }
+            guard let self else { return }
+            self.pathSelector.reset()
+            Task { await self.refreshNodes() }
         }
         network.start()
         let (_, lost) = nodesController.reconcile(pairing: pairingCoordinator)
@@ -195,6 +197,8 @@ final class AppModel: ObservableObject {
     func status(of node: Node) -> NodeStatus {
         nodesController.status(of: node)
     }
+
+    func preferredPath(for node: Node) -> Path? { nodesController.preferredPath(for: node) }
 
     func node(withID id: String) -> Node? {
         nodesController.node(withID: id)
@@ -305,12 +309,18 @@ final class AppModel: ObservableObject {
 
     func forget(origin: String) async {
         guard identities.contains(where: { $0.origin == origin }) else { return }
+        // A pairing staged against this gateway is part of what is being
+        // forgotten: its row, its resume file and the credential it names go
+        // with the identity (behavior README — forgetting does not leave a
+        // half-pairing behind).
+        pairingSession.discardStagedSetups(origin: origin)
         catalogController.clear()
         nodesController.forget(origin: origin)
         await refreshNodes()
     }
 
     func checkForUpdates() async {
+        guard updateState != .checking else { return }
         updateState = .checking
         let result = await updateChecker.check(
             currentBuildNumber: AppVersion.buildNumber,
@@ -321,5 +331,68 @@ final class AppModel: ObservableObject {
 
     func dismissNotice(_ notice: Notice) {
         if self.notice == notice { self.notice = nil }
+    }
+
+    // --- connections & diagnostics -------------------------------------------
+
+    func troubleFor(_ origin: String) -> LinkTrouble? {
+        nodesController.troubleFor(origin)
+    }
+
+    /// The report a person copies out of a connection that will not answer.
+    ///
+    /// It is built here rather than on the screen because most of it is not on the
+    /// screen: what the last few probes failed with, when this connection last
+    /// answered, and which road each machine was reachable by.
+    func troubleReport(identity: Identity) -> String {
+        guard let trouble = nodesController.troubleFor(identity.origin) else { return "" }
+        let say: (String, String?) -> String = { key, arg in
+            if let arg {
+                return l10n(key, arg)
+            } else {
+                return l10n(key)
+            }
+        }
+        let machines = nodes
+            .filter { node in node.paths.contains { $0.origin == identity.origin } }
+            .map { node -> String in
+                let roads = node.paths
+                    .filter { $0.origin == identity.origin }
+                    .map { path -> String in
+                        let label = say(
+                            path.link == .local ? MessageKeys.NODE_LAN : MessageKeys.NODE_TUNNEL,
+                            nil
+                        )
+                        let mark = path.reachable == true ? "✓" : "✗"
+                        let latency = (path.reachable == true && path.latencyMs != nil) ? " \(path.latencyMs!)ms" : ""
+                        return "\(label) \(mark)\(latency)"
+                    }
+                    .joined(separator: " ")
+                return "\(node.name) \(roads)"
+            }
+
+        let deviceModel = UIDevice.current.model
+        let osVersion = UIDevice.current.systemVersion
+        let system = "iOS \(osVersion) · \(deviceModel)"
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+
+        return buildLinkReport(
+            input: LinkReportInput(
+                appName: say(MessageKeys.APP_NAME, nil),
+                client: "\(AppVersion.versionName) (\(AppVersion.buildNumber))",
+                protocolVersion: "\(AppVersion.protocolVersion)",
+                system: system,
+                origin: identity.origin,
+                deviceName: identity.deviceName,
+                network: network.describe(),
+                machines: machines,
+                trouble: trouble,
+                attempts: nodesController.failedProbesFor(identity.origin),
+                time: { formatter.string(from: $0) }
+            ),
+            say: say
+        )
     }
 }

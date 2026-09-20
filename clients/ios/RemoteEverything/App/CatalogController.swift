@@ -337,7 +337,7 @@ final class CatalogController: ObservableObject {
                     pin: identity.serverPin,
                     credential: credential
                 )
-                return WebTarget(url: target, handler: handler, isPrivate: path.isPrivate)
+                return WebTarget(gatewayOrigin: identity.origin, url: target, handler: handler, isPrivate: path.isPrivate)
             } catch let error as ClientError {
                 if error.code == .appNotFound {
                     onNotice?(.appGone)

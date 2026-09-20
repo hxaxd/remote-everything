@@ -69,6 +69,43 @@ struct PathLabel: View {
     }
 }
 
+/// The ways in this phone has to one machine: a local link, a link over the tunnel,
+/// or both — each a dot and a word, with the one it would actually take standing
+/// out and the other left quiet. Two links is the ordinary state of a phone that
+/// paired over the internet and later met the gateway at home, and seeing both is
+/// how a person knows that losing one of them is not losing the machine.
+struct LinkDots: View {
+
+    let paths: [Path]
+    let inUse: Path?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let theme = Theme(colorScheme)
+        HStack(spacing: Theme.gapS) {
+            ForEach([LinkKind.local, LinkKind.tunnel], id: \.self) { kind in
+                if paths.contains(where: { $0.link == kind }) {
+                    let live = inUse?.link == kind
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(dotColour(theme, live: live, kind: kind))
+                            .frame(width: 7, height: 7)
+                        Text(l10n(kind == .local ? MessageKeys.NODE_LAN : MessageKeys.NODE_TUNNEL))
+                            .font(Theme.caption)
+                            .foregroundStyle(dotColour(theme, live: live, kind: kind))
+                    }
+                }
+            }
+        }
+    }
+
+    private func dotColour(_ theme: Theme, live: Bool, kind: LinkKind) -> Color {
+        if !live { return theme.textTertiary }
+        return kind == .local ? theme.ok : theme.warn
+    }
+}
+
 /// An application's emoji over its own accent, as a 12-point rounded square.
 struct AppIconTile: View {
     let icon: String

@@ -6,7 +6,7 @@ import XCTest
 final class PathSelectionTests: XCTestCase {
 
     private func path(origin: String, reachable: Bool?, latency: Int?, isPrivate: Bool) -> Path {
-        Path(origin: origin, identityRef: "re-x", reachable: reachable, latencyMs: latency, isPrivate: isPrivate, lastCheckedAt: nil)
+        Path(origin: origin, reachable: reachable, latencyMs: latency, isPrivate: isPrivate, lastCheckedAt: nil)
     }
 
     func testPrivateWinsOverPublic() {
@@ -54,6 +54,77 @@ final class PathSelectionTests: XCTestCase {
             path(origin: "https://gw.example.com", reachable: true, latency: 10, isPrivate: false),
         ])
         XCTAssertEqual(cache.resolve(node: moved, networkKey: "cellular")?.origin, "https://gw.example.com")
+    }
+
+    // MARK: - The remembered choice
+
+    /// The remembered choice holds while it answers *and* while it is still the
+    /// best class there is — the cases clients/behavior/fixtures/paths.json pins,
+    /// in the same order.
+    func testARememberedTunnelGivesWayToAPrivatePathThatHasBecomeReachable() {
+        let cache = PathSelector.Cache()
+        let tunnelOnly = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://gw.example.com", reachable: true, latency: 20, isPrivate: false),
+            path(origin: "https://192.168.1.10:58627", reachable: false, latency: nil, isPrivate: true),
+        ])
+        XCTAssertEqual(cache.resolve(node: tunnelOnly, networkKey: "wifi")?.origin, "https://gw.example.com")
+
+        let both = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://gw.example.com", reachable: true, latency: 20, isPrivate: false),
+            path(origin: "https://192.168.1.10:58627", reachable: true, latency: 40, isPrivate: true),
+        ])
+        XCTAssertEqual(cache.resolve(node: both, networkKey: "wifi")?.origin, "https://192.168.1.10:58627")
+    }
+
+    func testARememberedPrivatePathIsKeptWhileItAnswers() {
+        let cache = PathSelector.Cache()
+        let both = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://gw.example.com", reachable: true, latency: 20, isPrivate: false),
+            path(origin: "https://192.168.1.10:58627", reachable: true, latency: 40, isPrivate: true),
+        ])
+        XCTAssertEqual(cache.resolve(node: both, networkKey: "wifi")?.origin, "https://192.168.1.10:58627")
+        XCTAssertEqual(cache.resolve(node: both, networkKey: "wifi")?.origin, "https://192.168.1.10:58627")
+    }
+
+    func testARememberedPathThatStoppedAnsweringIsReplaced() {
+        let cache = PathSelector.Cache()
+        let lanOnly = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://192.168.1.10:58627", reachable: true, latency: 40, isPrivate: true),
+            path(origin: "https://gw.example.com", reachable: false, latency: nil, isPrivate: false),
+        ])
+        XCTAssertEqual(cache.resolve(node: lanOnly, networkKey: "wifi")?.origin, "https://192.168.1.10:58627")
+
+        let lanGone = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://192.168.1.10:58627", reachable: false, latency: nil, isPrivate: true),
+            path(origin: "https://slow.example.com", reachable: true, latency: 90, isPrivate: false),
+            path(origin: "https://gw.example.com", reachable: true, latency: 20, isPrivate: false),
+        ])
+        XCTAssertEqual(cache.resolve(node: lanGone, networkKey: "wifi")?.origin, "https://gw.example.com")
+    }
+
+    func testInsideOneClassTheRememberedChoiceIsTheChoice() {
+        let cache = PathSelector.Cache()
+        let slowOnly = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://slow.example.com", reachable: true, latency: 90, isPrivate: false),
+            path(origin: "https://gw.example.com", reachable: false, latency: nil, isPrivate: false),
+        ])
+        XCTAssertEqual(cache.resolve(node: slowOnly, networkKey: "wifi")?.origin, "https://slow.example.com")
+        let both = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://slow.example.com", reachable: true, latency: 90, isPrivate: false),
+            path(origin: "https://gw.example.com", reachable: true, latency: 20, isPrivate: false),
+        ])
+        // Kept: the choice is remembered inside a class, which is what stops a poll
+        // from flapping between two tunnels.
+        XCTAssertEqual(cache.resolve(node: both, networkKey: "wifi")?.origin, "https://slow.example.com")
+    }
+
+    func testNothingReachableRemembersNothing() {
+        let cache = PathSelector.Cache()
+        let answerless = Node(id: "n", name: "Desk", paths: [
+            path(origin: "https://gw.example.com", reachable: false, latency: nil, isPrivate: false),
+            path(origin: "https://192.168.1.10:58627", reachable: nil, latency: nil, isPrivate: true),
+        ])
+        XCTAssertNil(cache.resolve(node: answerless, networkKey: "wifi"))
     }
 
     func testInvalidatingRetiresOnlyOneNode() {

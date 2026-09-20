@@ -30,12 +30,23 @@ enum PathSelector {
                 self.networkKey = networkKey
                 _ = choices.removeAll()
             }
-            if let cached = choices[node.id],
-               node.paths.contains(where: { $0.origin == cached.origin && $0.reachable == true }) {
-                return cached
+            let best = PathSelector.choose(node.paths)
+            let remembered = choices[node.id].flatMap { cached in
+                node.paths.contains(where: { $0.origin == cached.origin && $0.reachable == true }) ? cached : nil
             }
-            guard let chosen = PathSelector.choose(node.paths) else { return nil }
-            choices[node.id] = chosen
+            let chosen: Path?
+            switch (best, remembered) {
+            case (nil, _):
+                chosen = nil
+            case (let best?, nil):
+                chosen = best
+            case (let best?, let remembered?):
+                // Remembering is what keeps a poll from flapping between two
+                // tunnels; it is not a reason to keep going out to the internet
+                // after the phone has walked into the same room as the gateway.
+                chosen = remembered.isPrivate == best.isPrivate ? remembered : best
+            }
+            if let chosen { choices[node.id] = chosen } else { _ = choices.removeValue(forKey: node.id) }
             return chosen
         }
 

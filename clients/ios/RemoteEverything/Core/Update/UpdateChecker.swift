@@ -24,11 +24,6 @@ enum UpdateResult: Equatable {
     /// part of it. There is no negotiation and no compatibility path.
     case protocolChanged(protocolVersion: Int)
     case unreachable
-
-    var isProtocolChange: Bool {
-        if case .protocolChanged = self { return true }
-        return false
-    }
 }
 
 /// Checking for a newer release. Deliberately decoupled from any gateway: a

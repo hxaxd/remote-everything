@@ -81,9 +81,10 @@ final class PairingService {
         )
 
         // Everything the resumed attempt needs, in one file, one rename. The
-        // gateway names when a pending pairing stops being worth resuming; when it
-        // names no window, the client's own — `Cadence`'s, the same ten minutes it
-        // waits for an approval — stands in, so a stage always has an end.
+        // gateway names when a pending pairing stops being worth resuming, and
+        // the strict decoder guarantees the answer carries that instant — a
+        // pairing that could not be read is refused, never given a window the
+        // client made up.
         let staged = StagedSetup(
             origin: origin,
             nodeID: attempt.invitation.node,
@@ -92,7 +93,7 @@ final class PairingService {
             certificateFingerprint: response.certificateFingerprint,
             credentialRef: credentialRef,
             serverPin: attempt.invitation.serverPin,
-            pendingExpiresAt: response.pendingExpiry ?? Date().addingTimeInterval(Cadence.pendingFallback),
+            pendingExpiresAt: response.pendingExpiresAt,
             createdAt: Date()
         )
         try stages.stage(staged)

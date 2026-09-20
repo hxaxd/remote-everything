@@ -7,7 +7,11 @@ final class NodesController: ObservableObject {
     @Published private(set) var nodes: [Node] = []
     @Published private(set) var stagedSetups: [StagedSetup] = []
     @Published private(set) var identityConditions: [String: IdentityCondition] = [:]
+    @Published private(set) var trouble: [String: LinkTrouble] = [:]
     @Published private(set) var isRefreshing = false
+
+    private var failedProbes: [String: [LinkAttempt]] = [:]
+    private var lastAnswerAt: [String: Date] = [:]
 
     private let store: ClientStore
     private let vault: IdentityVault
@@ -85,10 +89,12 @@ final class NodesController: ObservableObject {
             }
 
             for result in results {
+                let origin = result.identity.origin
                 switch result.outcome {
                 case .answered(let response, let latency):
-                    identityConditions[result.identity.origin] = .ok
-                    store.saveCachedNodes(response, origin: result.identity.origin)
+                    identityConditions[origin] = .ok
+                    recordAnswer(origin: origin, response: response)
+                    store.saveCachedNodes(response, origin: origin)
                     answers.append(
                         NodeMerge.Answer(
                             identity: result.identity,
@@ -98,15 +104,15 @@ final class NodesController: ObservableObject {
                             checkedAt: Date()
                         )
                     )
-                case .refused(let error):
-                    if error.code == .unauthorized || error.code == .nodeRequired {
-                        identityConditions[result.identity.origin] = .unauthorized
+                case .failed(let error):
+                    let failure = classifyFailure(error, offline: network.isOffline)
+                    recordFailure(origin: origin, failure: failure)
+                    if let clientError = error as? ClientError,
+                       (clientError.code == .unauthorized || clientError.code == .nodeRequired) {
+                        identityConditions[origin] = .unauthorized
                     } else {
-                        identityConditions[result.identity.origin] = .unreachable
+                        identityConditions[origin] = .unreachable
                     }
-                    fallback(&answers, identity: result.identity)
-                case .unreachable:
-                    identityConditions[result.identity.origin] = .unreachable
                     fallback(&answers, identity: result.identity)
                 }
             }
@@ -117,7 +123,10 @@ final class NodesController: ObservableObject {
     }
 
     func status(of node: Node) -> NodeStatus {
-        if stagedSetups.contains(where: { $0.nodeID == node.id }) { return .pendingApproval }
+        // Only a stage whose pending window is still open says "waiting for
+        // approval"; an expired one is dropped by the approval poll and is not
+        // a pending row in the meantime.
+        if stagedSetups.contains(where: { $0.nodeID == node.id && !$0.isExpired }) { return .pendingApproval }
         if let chosen = pathSelector.preferred(node: node, networkKey: network.key) {
             return chosen.isPrivate ? .onlineLan : .onlineTunnel
         }
@@ -135,6 +144,12 @@ final class NodesController: ObservableObject {
 
     func nodeCount(forIdentity identity: Identity) -> Int {
         nodes.filter { node in node.paths.contains { $0.origin == identity.origin } }.count
+    }
+
+    /// The path a request for this node would take right now — the one the row
+    /// names, and the one the screen's own hint names.
+    func preferredPath(for node: Node) -> Path? {
+        pathSelector.preferred(node: node, networkKey: network.key)
     }
 
     func orderedPaths(for node: Node) -> [Path] {
@@ -192,10 +207,53 @@ final class NodesController: ObservableObject {
         identities = identities.filter { $0.origin != origin }
         store.saveIdentities(identities)
         _ = identityConditions.removeValue(forKey: origin)
+        _ = trouble.removeValue(forKey: origin)
+        _ = failedProbes.removeValue(forKey: origin)
+        _ = lastAnswerAt.removeValue(forKey: origin)
         nodes = nodes.compactMap { node in
             let remaining = node.paths.filter { $0.origin != origin }
             return remaining.isEmpty ? nil : Node(id: node.id, name: node.name, paths: remaining)
         }
+    }
+
+    func troubleFor(_ origin: String) -> LinkTrouble? {
+        trouble[origin]
+    }
+
+    func failedProbesFor(_ origin: String) -> [LinkAttempt] {
+        failedProbes[origin] ?? []
+    }
+
+    func lastAnswerFor(_ origin: String) -> Date? {
+        lastAnswerAt[origin]
+    }
+
+    private func recordAnswer(origin: String, response: NodesResponse) {
+        lastAnswerAt[origin] = Date()
+        failedProbes.removeValue(forKey: origin)
+        trouble.removeValue(forKey: origin)
+    }
+
+    private func recordFailure(origin: String, failure: LinkFailure) {
+        let now = Date()
+        var log = failedProbes[origin] ?? []
+        log.insert(LinkAttempt(at: now, kind: failure.kind), at: 0)
+        while log.count > LinkAttemptsKept {
+            log.removeLast()
+        }
+        failedProbes[origin] = log
+
+        let previous = trouble[origin]
+        trouble[origin] = LinkTrouble(
+            kind: failure.kind,
+            at: now,
+            since: previous?.since ?? now,
+            attempts: (previous?.attempts ?? 0) + 1,
+            code: failure.code,
+            httpStatus: failure.httpStatus,
+            detail: failure.detail,
+            lastGoodAt: lastAnswerAt[origin]
+        )
     }
 
     private func replace(_ node: Node) {
@@ -203,12 +261,17 @@ final class NodesController: ObservableObject {
         nodes[index] = node
     }
 
+    /// A stage whose pending window has closed is not a pending row any more:
+    /// it leaves the list here and leaves `stagedSetups` when the approval poll
+    /// runs into it (`resumeStagedSetups` discards it with a notice) — an
+    /// expired invitation is not a node worth waiting on.
     private func refreshPendingRows() {
+        let waiting = stagedSetups.filter { !$0.isExpired }
         let known = Set(nodes.map(\.id))
-        for staged in stagedSetups where !known.contains(staged.nodeID) {
+        for staged in waiting where !known.contains(staged.nodeID) {
             nodes.append(NodeMerge.pendingNode(staged: staged))
         }
-        let stagedNodeIDs = Set(stagedSetups.map(\.nodeID))
+        let stagedNodeIDs = Set(waiting.map(\.nodeID))
         nodes = nodes.filter { node in
             !node.paths.isEmpty || stagedNodeIDs.contains(node.id)
         }
@@ -233,8 +296,7 @@ final class NodesController: ObservableObject {
 
         enum Outcome {
             case answered(NodesResponse, Int?)
-            case refused(ClientError)
-            case unreachable
+            case failed(Error)
         }
     }
 
@@ -244,10 +306,8 @@ final class NodesController: ObservableObject {
             let response = try await client.nodes(timeout: Cadence.probeTimeout)
             let latency = Int(Date().timeIntervalSince(started) * 1000)
             return NodeProbe(identity: identity, outcome: .answered(response, latency))
-        } catch let error as ClientError {
-            return NodeProbe(identity: identity, outcome: .refused(error))
         } catch {
-            return NodeProbe(identity: identity, outcome: .unreachable)
+            return NodeProbe(identity: identity, outcome: .failed(error))
         }
     }
 }

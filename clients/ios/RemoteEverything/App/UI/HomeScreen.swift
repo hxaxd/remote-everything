@@ -18,9 +18,16 @@ struct HomeScreen: View {
             content(theme)
         }
         .background(theme.bg)
-        .navigationTitle(l10n(MessageKeys.NODES_TITLE))
+        .navigationTitle(l10n(MessageKeys.APP_NAME))
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task { await model.refreshNodes() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     model.beginAddNode()
@@ -40,57 +47,81 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func content(_ theme: Theme) -> some View {
-        if model.identities.isEmpty && model.stagedSetups.isEmpty {
-            ScrollView {
-                EmptyStateView(
-                    title: l10n(MessageKeys.EMPTY_TITLE),
-                    body: l10n(MessageKeys.EMPTY_BODY),
-                    actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                    action: { model.beginAddNode() }
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, Theme.gapXL * 2)
-            }
-            .refreshable { await model.refreshNodes() }
-        } else if model.nodes.isEmpty {
-            // Paired, but nothing to show: the nodes were taken away on the
-            // gateway's side. Same words as S0, and settings stay reachable.
-            ScrollView {
-                EmptyStateView(
-                    title: l10n(MessageKeys.EMPTY_TITLE),
-                    body: l10n(MessageKeys.EMPTY_BODY),
-                    actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                    action: { model.beginAddNode() }
-                )
-                .frame(maxWidth: .infinity)
-                .padding(.top, Theme.gapXL * 2)
-            }
-            .refreshable { await model.refreshNodes() }
-        } else {
-            List {
-                ForEach(model.nodes) { node in
+        VStack(spacing: 0) {
+            if let staged = model.stagedSetups.first {
+                HStack(spacing: Theme.gapM) {
+                    StatusBadge(text: l10n(MessageKeys.NODE_PENDING), color: theme.warn)
+                    Text(staged.nodeName)
+                        .font(Theme.headline)
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                    Spacer()
                     Button {
-                        open(node)
+                        Task { await model.resumeStagedSetups() }
                     } label: {
-                        NodeRow(
-                            node: node,
-                            status: model.status(of: node),
-                            showsPath: pathIsPrivate(node)
-                        )
+                        Text(l10n(MessageKeys.ACTION_RETRY))
+                            .font(Theme.caption)
+                            .foregroundStyle(theme.accentOnBg)
+                            .padding(.horizontal, Theme.gapM)
+                            .padding(.vertical, 6)
+                            .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(theme.bgElevated)
                 }
+                .padding(.horizontal, Theme.gapM)
+                .padding(.vertical, Theme.gapS + 2)
+                .background(theme.bgElevated)
+                Hairline()
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .refreshable { await model.refreshNodes() }
+            if model.identities.isEmpty && model.stagedSetups.isEmpty {
+                ScrollView {
+                    EmptyStateView(
+                        title: l10n(MessageKeys.EMPTY_TITLE),
+                        body: l10n(MessageKeys.EMPTY_BODY),
+                        actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
+                        action: { model.beginAddNode() }
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.gapXL * 2)
+                }
+                .refreshable { await model.refreshNodes() }
+            } else if model.nodes.isEmpty {
+                // Paired, but nothing to show: the nodes were taken away on the
+                // gateway's side. Same words as S0, and settings stay reachable.
+                ScrollView {
+                    EmptyStateView(
+                        title: l10n(MessageKeys.EMPTY_TITLE),
+                        body: l10n(MessageKeys.EMPTY_BODY),
+                        actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
+                        action: { model.beginAddNode() }
+                    )
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, Theme.gapXL * 2)
+                }
+                .refreshable { await model.refreshNodes() }
+            } else {
+                List {
+                    ForEach(model.nodes) { node in
+                        let isSelected = isWide && model.selectedNodeID == node.id
+                        Button {
+                            open(node)
+                        } label: {
+                            NodeRow(
+                                node: node,
+                                status: model.status(of: node),
+                                inUse: model.status(of: node).isOnline ? model.preferredPath(for: node) : nil,
+                                isSelected: isSelected
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(isSelected ? theme.tint(theme.accent) : theme.bgElevated)
+                    }
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .refreshable { await model.refreshNodes() }
+            }
         }
-    }
-
-    private func pathIsPrivate(_ node: Node) -> Bool? {
-        guard model.status(of: node).isOnline else { return nil }
-        return PathSelector.choose(node.paths)?.isPrivate
     }
 
     private func open(_ node: Node) {
@@ -101,6 +132,7 @@ struct HomeScreen: View {
         }
         if isWide {
             model.selectedNodeID = node.id
+            model.path.removeAll()
         } else {
             model.path.append(.node(node.id))
         }
@@ -112,7 +144,8 @@ struct HomeScreen: View {
 private struct NodeRow: View {
     let node: Node
     let status: NodeStatus
-    let showsPath: Bool?
+    let inUse: Path?
+    let isSelected: Bool
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -123,7 +156,7 @@ private struct NodeRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)
                     .font(Theme.headline)
-                    .foregroundStyle(status == .offline || status == .unknown ? theme.textSecondary : theme.textPrimary)
+                    .foregroundStyle(isSelected ? theme.accent : (status == .offline || status == .unknown ? theme.textSecondary : theme.textPrimary))
                     .lineLimit(1)
                 if let detail {
                     Text(detail)
@@ -132,12 +165,15 @@ private struct NodeRow: View {
                 }
             }
             Spacer(minLength: Theme.gapS)
-            if let showsPath {
-                PathLabel(isPrivate: showsPath)
+            // Which ways in this phone has, and which one it would take.
+            if status == .pendingApproval {
+                StatusBadge(text: l10n(MessageKeys.forNodeStatus(status)), color: theme.color(for: status))
+            } else if status != .unknown {
+                LinkDots(paths: node.paths, inUse: inUse)
             }
             Image(systemName: "chevron.right")
                 .font(Theme.caption)
-                .foregroundStyle(theme.textTertiary)
+                .foregroundStyle(isSelected ? theme.accent : theme.textTertiary)
         }
         .frame(minHeight: Theme.nodeRowHeight)
         .contentShape(Rectangle())

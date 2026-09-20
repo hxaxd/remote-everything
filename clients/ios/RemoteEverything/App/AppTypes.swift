@@ -73,6 +73,7 @@ enum UpdateState: Equatable {
 
 /// What an application's WebView needs: where to go, and who answers for it.
 struct WebTarget {
+    let gatewayOrigin: String
     let url: URL
     let handler: GatewayChallengeHandler
     let isPrivate: Bool
