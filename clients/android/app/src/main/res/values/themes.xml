@@ -1,12 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.RemoteEverything" parent="android:style/Theme.Material.Light.NoActionBar">
-        <item name="android:fontFamily">sans</item>
-        <item name="android:windowActionModeOverlay">true</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#FAFAF9</item>
-        <item name="android:statusBarColor">#FAFAF9</item>
-        <item name="android:windowNoTitle">true</item>
+    <style name="Theme.RemoteEverything" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_bg</item>
+        <!-- The web view applies the page's own dark styles; never force-invert it. -->
+        <item name="android:forceDarkAllowed">false</item>
     </style>
 </resources>

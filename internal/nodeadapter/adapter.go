@@ -80,22 +80,26 @@ func (a *Adapter) stateObject() *goja.Object {
 	return obj
 }
 
-// reqObject builds a goja object with setQuery/setHeader/delHeader.
+// reqObject builds a goja object with setQuery/setHeader/delHeader and inspection methods.
 func (a *Adapter) reqObject(req *http.Request) *goja.Object {
 	w := &jsReq{r: req}
 	obj := a.vm.NewObject()
 	obj.Set("setQuery", w.SetQuery)
 	obj.Set("setHeader", w.SetHeader)
 	obj.Set("delHeader", w.DelHeader)
+	obj.Set("getHeader", w.GetHeader)
+	obj.Set("getQuery", w.GetQuery)
+	obj.Set("getPath", w.GetPath)
 	return obj
 }
 
-// respObject builds a goja object with setHeader/delHeader/setStatus.
+// respObject builds a goja object with setHeader/delHeader/setStatus and getHeader.
 func (a *Adapter) respObject(resp *http.Response) *goja.Object {
 	w := &jsResp{r: resp}
 	obj := a.vm.NewObject()
 	obj.Set("setHeader", w.SetHeader)
 	obj.Set("delHeader", w.DelHeader)
+	obj.Set("getHeader", w.GetHeader)
 	obj.Set("setStatus", w.SetStatus)
 	return obj
 }

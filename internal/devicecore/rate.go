@@ -68,7 +68,7 @@ func newStatusRateLimiter() *rateLimiter {
 	}
 }
 
-func (limiter *rateLimiter) allow(clientIP string) bool {
+func (limiter *rateLimiter) allow(address string) bool {
 	limiter.mu.Lock()
 	defer limiter.mu.Unlock()
 	now := time.Now()
@@ -89,10 +89,10 @@ func (limiter *rateLimiter) allow(clientIP string) bool {
 		limiter.global.count--
 		return false
 	}
-	entry, ok := limiter.byIP[clientIP]
+	entry, ok := limiter.byIP[address]
 	if !ok {
 		entry = &ipRateEntry{windowAt: now}
-		limiter.byIP[clientIP] = entry
+		limiter.byIP[address] = entry
 	}
 	if entry.windowAt.Add(limiter.window).Before(now) {
 		entry.count = 0
@@ -125,8 +125,10 @@ func (limiter *rateLimiter) release() {
 	limiter.mu.Unlock()
 }
 
-// clientIP is the address a request is counted against, which is the client rather
-// than whichever machine relayed it.
+// ClientAddress is the address a request is counted against, which is the
+// client rather than whichever machine relayed it. Endpoints that attribute
+// requests — the pairing doors above all, where a credential can be guessed
+// at — read it here, so every door counts the same client the same way.
 //
 // A request that arrives over loopback came from the entrance in front of this
 // gateway — that entrance is the only thing that reaches a gateway listening on
@@ -135,7 +137,7 @@ func (limiter *rateLimiter) release() {
 // makes that name worth reading: counting every device as 127.0.0.1 would turn the
 // per-client limits into one shared bucket for the whole deployment. A request from
 // anywhere else is its own peer, and what it says about itself is not believed.
-func clientIP(request *http.Request) string {
+func ClientAddress(request *http.Request) string {
 	host, _, err := net.SplitHostPort(request.RemoteAddr)
 	if err != nil {
 		return request.RemoteAddr

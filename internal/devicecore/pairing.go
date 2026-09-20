@@ -129,7 +129,7 @@ func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairRe
 		return pairResponse{}, err
 	}
 	record := deviceRecord{
-		Schema: recordSchema, DeviceName: payload.DeviceName, CertificateFingerprint: fingerprint, Nodes: nodes,
+		Schema: recordSchema, Kind: deviceKindCertificate, DeviceName: payload.DeviceName, CertificateFingerprint: fingerprint, Nodes: nodes,
 		Status: "pending", CreatedAt: isoUTC(now), CertificateExpiresAt: isoUTC(certificate.NotAfter), PendingExpiresAt: invite.ExpiresAt,
 	}
 	if _, err := os.Stat(service.deviceRecordPath(fingerprint)); err == nil || !errors.Is(err, os.ErrNotExist) {
@@ -139,6 +139,7 @@ func (service *Trust) pairDevice(invitation string, payload pairPayload) (pairRe
 		return pairResponse{}, err
 	}
 	invite.UsedAt = isoUTC(now)
+	invite.Kind = deviceKindCertificate
 	invite.DeviceName = payload.DeviceName
 	invite.CredentialPasswordHash = passwordHash
 	invite.CertificateFingerprint = fingerprint
@@ -159,7 +160,7 @@ func (service *Trust) pairHTTPHandler(writer http.ResponseWriter, request *http.
 		gatewaycore.WriteJSON(writer, http.StatusNotFound, errorBody("not_found"))
 		return
 	}
-	if !service.pairLimiter.allow(clientIP(request)) {
+	if !service.pairLimiter.allow(ClientAddress(request)) {
 		gatewaycore.WriteJSON(writer, http.StatusTooManyRequests, errorBody("rate_limited"))
 		return
 	}
@@ -201,4 +202,116 @@ func (service *Trust) pairHTTPHandler(writer http.ResponseWriter, request *http.
 		return
 	}
 	gatewaycore.WriteJSON(writer, http.StatusOK, result)
+}
+
+// WebPairResult is the result of redeeming an invitation for a web browser client.
+type WebPairResult struct {
+	Fingerprint string   `json:"fingerprint"`
+	DeviceName  string   `json:"device_name"`
+	Status      string   `json:"status"`
+	Nodes       []string `json:"nodes"`
+}
+
+// PairWebDevice redeems an invitation for a browser web client identified by
+// the client id it keeps. The address is where the request came from, which
+// the attempt is counted against: pairing is the one exchange where a
+// credential can be guessed at, and a browser redeems an invitation at no
+// lesser a door than an app does — the same limits, and the same delay before
+// a refusal, guard both.
+//
+// The client id names a browser; it is not an authorization credential.
+// Every pairing consumes a fresh invitation. Session renewal belongs to the
+// independently authenticated web unlock endpoint.
+func (service *Trust) PairWebDevice(address, invitation, clientID, deviceName string) (result WebPairResult, code string, err error) {
+	clientID = strings.ToLower(strings.TrimSpace(clientID))
+	if !validHex64.MatchString(clientID) {
+		return WebPairResult{}, "invalid_client_id", errors.New("invalid client id")
+	}
+	deviceName = strings.TrimSpace(deviceName)
+	if !validDeviceName(deviceName) {
+		return WebPairResult{}, "invalid_device_name", errors.New("invalid device name")
+	}
+	if !service.pairLimiter.allow(address) {
+		return WebPairResult{}, "rate_limited", errors.New("rate limited")
+	}
+	if !service.pairLimiter.acquire() {
+		return WebPairResult{}, "server_busy", errors.New("server busy")
+	}
+	defer service.pairLimiter.release()
+	result, code, err = service.pairWeb(invitation, clientID, deviceName)
+	if code == "invitation_denied" {
+		time.Sleep(service.pairFailureDelay)
+	}
+	return result, code, err
+}
+
+// pairWeb admits the named browser by consuming a fresh invitation.
+func (service *Trust) pairWeb(invitation, clientID, deviceName string) (WebPairResult, string, error) {
+	sum := sha256.Sum256([]byte("web:" + clientID))
+	fingerprint := hex.EncodeToString(sum[:])
+
+	service.pairLock.Lock()
+	defer service.pairLock.Unlock()
+
+	invite, err := service.loadInvitation(invitation)
+	if err != nil {
+		return WebPairResult{}, "invitation_denied", validationError("invitation_denied")
+	}
+	if invite.UsedAt != "" {
+		return WebPairResult{}, "invitation_denied", validationError("invitation_denied")
+	}
+	nodes := []string{invite.NodeID}
+	if _, ok := service.nodeByID(invite.NodeID); !ok {
+		return WebPairResult{}, "invitation_denied", validationError("invitation_denied")
+	}
+	if invite.ReplacesFingerprint != "" {
+		replaced, replacedErr := service.loadDeviceRecord(invite.ReplacesFingerprint)
+		if replacedErr != nil || replaced.Status != "approved" {
+			return WebPairResult{}, "invitation_denied", validationError("invitation_denied")
+		}
+		nodes = replaced.Nodes
+	}
+
+	now := time.Now().UTC()
+	status := "pending"
+	approvedAt := ""
+	approvalRequestedAt := isoUTC(now)
+	pendingExpiresAt := invite.ExpiresAt
+	activatedAt := ""
+	if service.approveOnRedemption {
+		status = "approved"
+		approvedAt = isoUTC(now)
+		pendingExpiresAt = ""
+		activatedAt = isoUTC(now)
+	}
+	record := deviceRecord{
+		Schema: recordSchema, Kind: deviceKindWeb, DeviceName: deviceName, CertificateFingerprint: fingerprint, Nodes: nodes,
+		Status: status, CreatedAt: isoUTC(now), PendingExpiresAt: pendingExpiresAt,
+		ApprovalRequestedAt: approvalRequestedAt, ApprovedAt: approvedAt, ActivatedAt: activatedAt,
+	}
+	previous, previousErr := service.loadDeviceRecord(fingerprint)
+	if err := service.writeDeviceRecord(record); err != nil {
+		return WebPairResult{}, "pairing_failed", err
+	}
+
+	invite.UsedAt = isoUTC(now)
+	invite.Kind = deviceKindWeb
+	invite.DeviceName = deviceName
+	invite.CertificateFingerprint = fingerprint
+	if err := service.writeInvitation(invite); err != nil {
+		if previousErr == nil {
+			_ = service.writeDeviceRecord(previous)
+		} else {
+			_ = os.Remove(service.deviceRecordPath(fingerprint))
+		}
+		return WebPairResult{}, "pairing_failed", err
+	}
+
+	service.audit("web device paired", "fingerprint", fingerprint, "device_name", deviceName, "status", status)
+	return WebPairResult{
+		Fingerprint: fingerprint,
+		DeviceName:  deviceName,
+		Status:      status,
+		Nodes:       nodes,
+	}, "", nil
 }

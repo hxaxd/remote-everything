@@ -1,8 +1,9 @@
 import groovy.json.JsonSlurper
 
 plugins {
-  alias(libs.plugins.android.application)
-  alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // Read version from clients/release.json — the single source of truth for all three platforms.
@@ -10,6 +11,7 @@ val releaseJson = JsonSlurper().parse(file("../../release.json")) as Map<String,
 val releaseVersionName = releaseJson["versionName"] as String
 val releaseBuildNumber = (releaseJson["buildNumber"] as Number).toInt()
 val releaseMinSdk = ((releaseJson["minimumPlatforms"] as Map<String, Any>)["androidSdk"] as Number).toInt()
+val releaseProtocolVersion = (releaseJson["protocolVersion"] as Number).toInt()
 
 android {
     namespace = "com.remoteeverything.app"
@@ -18,8 +20,10 @@ android {
         applicationId = "com.remoteeverything.app"
         minSdk = releaseMinSdk
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = releaseBuildNumber
         versionName = releaseVersionName
+        buildConfigField("int", "PROTOCOL_VERSION", "$releaseProtocolVersion")
     }
 
     val releaseStore = providers.environmentVariable("REMOTE_EVERYTHING_ANDROID_KEYSTORE").orNull
@@ -49,16 +53,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
-      compose = true
-      aidl = false
-      buildConfig = true
-      shaders = false
+        compose = true
+        aidl = false
+        buildConfig = true
+        shaders = false
     }
-
     packaging {
-      resources {
-        excludes += "/META-INF/{AL2.0,LGPL2.1}"
-      }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
     }
 }
 
@@ -67,20 +70,26 @@ kotlin {
 }
 
 dependencies {
-  implementation(platform(libs.compose.bom))
-  implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.activity.compose)
-  implementation(libs.compose.ui)
-  implementation(libs.compose.ui.tooling.preview)
-  implementation(libs.compose.material3)
-  implementation(libs.compose.material.icons)
-  implementation(libs.navigation.compose)
-  implementation(libs.lifecycle.viewmodel.compose)
-  implementation(libs.lifecycle.runtime.compose)
-  implementation(libs.androidx.webkit)
-  implementation(libs.kotlinx.coroutines.android)
-  implementation(libs.zxing.embedded)
-  debugImplementation(libs.compose.ui.tooling)
-  testImplementation(libs.junit)
-  testImplementation(libs.json)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.webkit)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.core)
+    implementation(libs.navigation.compose)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.lifecycle.runtime.compose)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.zxing.embedded)
+    debugImplementation(libs.compose.ui.tooling)
+    testImplementation(libs.junit)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // Test-only: the JDK has no public API for minting a certificate, and these
+    // tests are about what a credential must prove, not about the minting.
+    testImplementation(libs.bouncycastle.pkix)
 }

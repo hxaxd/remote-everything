@@ -17,24 +17,53 @@ import (
 
 const recordSchema = 1
 
+// The kind of a device record: the credential the device was admitted under.
+// A certificate device holds a credential this gateway issued; a web device
+// is a browser client, which holds no credential file — the client id it
+// keeps is what it authenticates by from then on.
+const (
+	deviceKindCertificate = "certificate"
+	deviceKindWeb         = "web"
+)
+
+// normalizeDeviceKind is what a record's kind is when it does not say: the
+// first devices this protocol admitted all held certificates, so a record
+// written before kinds were named is a certificate device's.
+func normalizeDeviceKind(kind string) string {
+	if kind == "" {
+		return deviceKindCertificate
+	}
+	return kind
+}
+
 // deviceRecord is one device of this gateway. What it may reach is the list of
 // nodes it was granted: a device's permission is here and nowhere else, so
 // granting one more node, withdrawing one, and asking what a device may reach all
 // read and write this one field.
 type deviceRecord struct {
-	Schema                 int      `json:"schema"`
-	DeviceName             string   `json:"device_name"`
+	Schema     int    `json:"schema"`
+	Kind       string `json:"kind"`
+	DeviceName string `json:"device_name"`
+	// CertificateFingerprint is the device's identity on this gateway, and
+	// the record is keyed by it. It is the SHA-256 of the credential the
+	// device was admitted under: of the certificate's DER encoding for a
+	// certificate device, and of the "web:" prefixed client id the browser
+	// keeps for a web device — there is no certificate, and Kind says which
+	// of the two this is.
 	CertificateFingerprint string   `json:"certificate_fingerprint"`
 	Nodes                  []string `json:"nodes"`
 	Status                 string   `json:"status"`
 	CreatedAt              string   `json:"created_at"`
-	CertificateExpiresAt   string   `json:"certificate_expires_at"`
-	PendingExpiresAt       string   `json:"pending_expires_at,omitempty"`
-	ApprovalRequestedAt    string   `json:"approval_requested_at,omitempty"`
-	ApprovedAt             string   `json:"approved_at,omitempty"`
-	ActivatedAt            string   `json:"activated_at,omitempty"`
-	RevokedAt              string   `json:"revoked_at,omitempty"`
-	ReplacedByFingerprint  string   `json:"replaced_by_fingerprint,omitempty"`
+	// CertificateExpiresAt is when a certificate device's certificate stops
+	// being valid. A web device holds no certificate — what ends its access
+	// is a revoke and nothing else — so the field is empty for one.
+	CertificateExpiresAt  string `json:"certificate_expires_at"`
+	PendingExpiresAt      string `json:"pending_expires_at,omitempty"`
+	ApprovalRequestedAt   string `json:"approval_requested_at,omitempty"`
+	ApprovedAt            string `json:"approved_at,omitempty"`
+	ActivatedAt           string `json:"activated_at,omitempty"`
+	RevokedAt             string `json:"revoked_at,omitempty"`
+	ReplacedByFingerprint string `json:"replaced_by_fingerprint,omitempty"`
 }
 
 func isoUTC(value time.Time) string {
@@ -52,6 +81,10 @@ func (service *Trust) deviceRecordPath(fingerprint string) string {
 func validateDeviceRecord(record deviceRecord) error {
 	if record.Schema != recordSchema || !validHex64.MatchString(record.CertificateFingerprint) || !validDeviceName(record.DeviceName) {
 		return errors.New("invalid device record")
+	}
+	kind := normalizeDeviceKind(record.Kind)
+	if kind != deviceKindCertificate && kind != deviceKindWeb {
+		return errors.New("invalid device kind")
 	}
 	// A device always says which nodes it holds, even when that is none: a record
 	// that does not is a record whose permissions were not written down.
@@ -72,14 +105,22 @@ func validateDeviceRecord(record deviceRecord) error {
 	if err != nil {
 		return errors.New("invalid device created_at")
 	}
-	certificateExpires, err := parseTimestamp(record.CertificateExpiresAt)
-	if err != nil || !certificateExpires.After(created) {
-		return errors.New("invalid certificate expiration")
+	certificateExpires := time.Time{}
+	if kind == deviceKindCertificate {
+		certificateExpires, err = parseTimestamp(record.CertificateExpiresAt)
+		if err != nil || !certificateExpires.After(created) {
+			return errors.New("invalid certificate expiration")
+		}
+	} else if record.CertificateExpiresAt != "" {
+		return errors.New("a web device holds no certificate")
 	}
 	switch record.Status {
 	case "pending":
 		expires, err := parseTimestamp(record.PendingExpiresAt)
-		if err != nil || !expires.After(created) || expires.After(certificateExpires) || record.ActivatedAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
+		if err != nil || !expires.After(created) || record.ActivatedAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
+			return errors.New("invalid pending expiration")
+		}
+		if kind == deviceKindCertificate && expires.After(certificateExpires) {
 			return errors.New("invalid pending expiration")
 		}
 		if record.ApprovalRequestedAt == "" {
@@ -102,7 +143,8 @@ func validateDeviceRecord(record deviceRecord) error {
 		requested, requestErr := parseTimestamp(record.ApprovalRequestedAt)
 		approved, approveErr := parseTimestamp(record.ApprovedAt)
 		activated, err := parseTimestamp(record.ActivatedAt)
-		if requestErr != nil || approveErr != nil || err != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || !activated.Before(certificateExpires) || record.PendingExpiresAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
+		outlivedCertificate := kind == deviceKindCertificate && !activated.Before(certificateExpires)
+		if requestErr != nil || approveErr != nil || err != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || outlivedCertificate || record.PendingExpiresAt != "" || record.RevokedAt != "" || record.ReplacedByFingerprint != "" {
 			return errors.New("invalid approved device state")
 		}
 	case "revoked":
@@ -110,7 +152,8 @@ func validateDeviceRecord(record deviceRecord) error {
 		approved, approveErr := parseTimestamp(record.ApprovedAt)
 		activated, activatedErr := parseTimestamp(record.ActivatedAt)
 		revoked, revokedErr := parseTimestamp(record.RevokedAt)
-		if requestErr != nil || approveErr != nil || activatedErr != nil || revokedErr != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || !activated.Before(certificateExpires) || revoked.Before(activated) || record.PendingExpiresAt != "" || (record.ReplacedByFingerprint != "" && (!validHex64.MatchString(record.ReplacedByFingerprint) || record.ReplacedByFingerprint == record.CertificateFingerprint)) {
+		outlivedCertificate := kind == deviceKindCertificate && !activated.Before(certificateExpires)
+		if requestErr != nil || approveErr != nil || activatedErr != nil || revokedErr != nil || requested.Before(created) || approved.Before(requested) || activated.Before(approved) || outlivedCertificate || revoked.Before(activated) || record.PendingExpiresAt != "" || (record.ReplacedByFingerprint != "" && (!validHex64.MatchString(record.ReplacedByFingerprint) || record.ReplacedByFingerprint == record.CertificateFingerprint)) {
 			return errors.New("invalid revoked device state")
 		}
 	}
@@ -125,6 +168,7 @@ func (service *Trust) loadDeviceRecord(fingerprint string) (deviceRecord, error)
 	if err := jsonfile.Read(service.deviceRecordPath(fingerprint), &record); err != nil {
 		return deviceRecord{}, err
 	}
+	record.Kind = normalizeDeviceKind(record.Kind)
 	if err := validateDeviceRecord(record); err != nil || record.CertificateFingerprint != fingerprint {
 		return deviceRecord{}, errors.New("invalid device record")
 	}
@@ -232,6 +276,7 @@ func (service *Trust) deviceRevoke(fingerprint, nodeID string, output io.Writer)
 			return err
 		}
 		service.audit("device revoked", "fingerprint", fingerprint)
+		service.revokeDevice(record.CertificateFingerprint)
 	}
 	return json.NewEncoder(output).Encode(map[string]any{"ok": true, "fingerprint": fingerprint, "changed": changed})
 }

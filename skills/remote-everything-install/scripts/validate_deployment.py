@@ -119,19 +119,25 @@ def validate_caddy_contract(text):
     for required in ("auto_https disable_redirects", "disable_http_challenge", "encode @compressible zstd gzip", "path('/~!frp')", "{tls_client_issuer}", "header_up X-Remote-Everything-Client-Fingerprint {tls_client_fingerprint}", "mode verify_if_given", "on_demand_tls"):
         if required not in active:
             raise ValueError(f"Caddy config missing {required}")
-    if "header_up -X-Remote-Everything-Client-Fingerprint" in active:
-        raise ValueError("Caddy fingerprint overwrite must not be combined with a deletion operation")
-    # Every application of every node is served under a host of its own, which is
-    # what keeps one application's browser storage out of another's: the gateway's
-    # own host is one site, and every application host under it is another. Caddy's
-    # wildcards stand for exactly one label each, so covering
+    for proxy in re.findall(r"reverse_proxy[^\n]*\{\n(.*?)^\s*\}", active, re.MULTILINE | re.DOTALL):
+        if "header_up X-Remote-Everything-Client-Fingerprint" in proxy and "header_up -X-Remote-Everything-Client-Fingerprint" in proxy:
+            raise ValueError("Caddy fingerprint overwrite must not be combined with deletion in the same proxy")
+    for web_route in re.findall(r"handle @web_\w+\s*\{\n(.*?)^\s*\}", active, re.MULTILINE | re.DOTALL):
+        if "header_up -X-Remote-Everything-Client-Fingerprint" not in web_route:
+            raise ValueError("Caddy web routes must discard client-supplied fingerprints")
+    # Each application has its own host and origin; cookie scope is governed
+    # separately. Caddy's wildcards stand for exactly one label each, so covering
     # `<application>.<node prefix>.<host>` takes one wildcard per label.
     addresses = site_addresses(active)
-    if len(addresses) != 2:
+    if len(addresses) not in (2, 3):
         raise ValueError("Caddy must serve the gateway host and the application hosts")
-    site_address, application_address = addresses
+    site_address, application_address = addresses[0], addresses[1]
     if not application_address.startswith("https://*.*.") or not application_address.removeprefix("https://*.*.") == site_address:
         raise ValueError(f"Caddy must serve one host per application under {site_address}")
+    if len(addresses) == 3:
+        web_address = addresses[2]
+        if not web_address.startswith(site_address + ":") and not web_address.startswith(f"https://{site_address}:"):
+            raise ValueError(f"Caddy web client site must be on {site_address}")
     # An application host has no certificate until it is asked for, and it is only
     # issued after the gateway was asked whether it serves that host.
     if not re.search(r"^\s*on_demand\s*$", active, re.MULTILINE):

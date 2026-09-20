@@ -19,6 +19,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 type testPlatform struct{ commandErr error }
@@ -415,7 +416,7 @@ func TestAppStateCodeCoversDesiredAndObservedState(t *testing.T) {
 }
 
 func TestActionResponseIncludesFalseStateFields(t *testing.T) {
-	contents, err := json.Marshal(actionResponse{OK: true, Action: "stop", Code: "stopped"})
+	contents, err := json.Marshal(wire.Action{OK: true, Action: "stop", Code: "stopped"})
 	if err != nil {
 		t.Fatal(err)
 	}

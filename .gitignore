@@ -6,6 +6,8 @@
 *.jks
 *.keystore
 remote-everything.properties
+# 鸿蒙签名材料：本机凭据，由 hvigorfile.ts 注入（见 signing.json.example）
+clients/harmony/signing.json
 AGENTS.local.md
 local.properties
 .trae/
@@ -29,6 +31,13 @@ __pycache__/
 .hvigor/
 .test/
 oh_modules/
+oh-package-lock.json5
+
+# iOS 客户端：xcodegen 生成的工程与本地产物（`xcodegen generate` 随时重建）
+clients/ios/*.xcodeproj/
+clients/ios/*.xcworkspace/
+clients/ios/**/xcuserdata/
+clients/ios/DerivedData/
 
 # 系统
 .DS_Store

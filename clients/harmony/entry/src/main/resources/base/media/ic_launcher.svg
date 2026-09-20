@@ -1,6 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="56" fill="#1c1917"/>
-  <path d="M48 72c0-13.3 10.7-24 24-24h112c13.3 0 24 10.7 24 24v76c0 13.3-10.7 24-24 24h-42l18 28h-64l18-28H72c-13.3 0-24-10.7-24-24V72z" fill="#fbbf24"/>
-  <path d="M78 82h100v58H78z" fill="#0c0a09"/>
-  <circle cx="128" cy="156" r="5" fill="#0c0a09"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024" role="img"><title>Remote Everything</title><defs>
+  <linearGradient id="glass-face" x1="0" y1="0" x2="0.78" y2="1" gradientUnits="objectBoundingBox">
+    <stop stop-color="#FFFFFF" stop-opacity=".48"/>
+    <stop offset=".38" stop-color="#EAF6FF" stop-opacity=".22"/>
+    <stop offset=".72" stop-color="#E1F2FF" stop-opacity=".27"/>
+    <stop offset="1" stop-color="#F5FBFF" stop-opacity=".42"/>
+  </linearGradient>
+  <linearGradient id="front-face" x1="0" y1="0" x2="1" y2="1">
+    <stop stop-color="#FFFFFF" stop-opacity=".58"/>
+    <stop offset=".44" stop-color="#EAF6FF" stop-opacity=".35"/>
+    <stop offset=".70" stop-color="#D9EFFF" stop-opacity=".39"/>
+    <stop offset="1" stop-color="#FFFFFF" stop-opacity=".55"/>
+  </linearGradient>
+  <linearGradient id="edge-light" x1="0" y1="0" x2=".85" y2="1">
+    <stop stop-color="#FFFFFF" stop-opacity=".98"/>
+    <stop offset=".30" stop-color="#F7FCFF" stop-opacity=".76"/>
+    <stop offset=".55" stop-color="#C7E0EF" stop-opacity=".38"/>
+    <stop offset=".82" stop-color="#FFFFFF" stop-opacity=".88"/>
+    <stop offset="1" stop-color="#F7FCFF" stop-opacity=".94"/>
+  </linearGradient>
+  <linearGradient id="edge-shade" x1="0" y1="0" x2=".85" y2="1">
+    <stop stop-color="#335578" stop-opacity=".39"/>
+    <stop offset=".45" stop-color="#254E72" stop-opacity=".21"/>
+    <stop offset="1" stop-color="#173856" stop-opacity=".46"/>
+  </linearGradient>
+  <filter id="contact-shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+    <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#102B49" flood-opacity=".22"/>
+  </filter>
+  <filter id="front-shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+    <feDropShadow dx="-2" dy="3" stdDeviation="3.2" flood-color="#122C48" flood-opacity=".28"/>
+  </filter>
+  <path id="pane-left" d="M222 212H298Q320 212 320 234V790Q320 812 298 812H222Q200 812 200 790V234Q200 212 222 212Z"/>
+  <path id="pane-right" d="M726 212H802Q824 212 824 234V790Q824 812 802 812H726Q704 812 704 790V234Q704 212 726 212Z"/>
+  <path id="pane-crossbar" d="M326 465H698Q704 465 704 471V553Q704 559 698 559H326Q320 559 320 553V471Q320 465 326 465Z"/>
+  <path id="pane-rising" d="M222 812H308Q328 812 342 796L811 244Q835 212 802 212H716Q696 212 682 228L213 780Q189 812 222 812Z"/>
+  <path id="pane-descending" d="M222 212H308Q328 212 342 228L811 780Q835 812 802 812H716Q696 812 682 796L213 244Q189 212 222 212Z"/>
+  <mask id="behind-diagonals" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="white"/><use href="#pane-rising" fill="#242424"/><use href="#pane-descending" fill="#171717"/></mask>
+  <mask id="behind-front" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024"><rect width="1024" height="1024" fill="white"/><use href="#pane-descending" fill="#202020"/></mask>
+</defs><defs>
+ <linearGradient id="background-color" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#9B98C2"/><stop offset=".55" stop-color="#615E91"/><stop offset="1" stop-color="#353F63"/></linearGradient>
+ <radialGradient id="background-light" cx=".24" cy=".10" r=".85"><stop stop-color="#E7DDF5" stop-opacity=".42"/><stop offset="1" stop-color="#E7DDF5" stop-opacity="0"/></radialGradient>
+ </defs><g id="background"><rect width="1024" height="1024" fill="url(#background-color)"/><rect width="1024" height="1024" fill="url(#background-light)"/></g><g id="foreground" stroke-linejoin="round"><g id="left" filter="url(#contact-shadow)">
+  <use href="#pane-left" fill="url(#glass-face)"/>
+  <g mask="url(#behind-diagonals)">
+   <use href="#pane-left" fill="none" stroke="url(#edge-shade)" stroke-width="4.2"/>
+   <use href="#pane-left" fill="none" stroke="url(#edge-light)" stroke-width="3" transform="translate(0,-1.2)"/>
+  </g>
+ </g><g id="right" filter="url(#contact-shadow)">
+  <use href="#pane-right" fill="url(#glass-face)"/>
+  <g mask="url(#behind-diagonals)">
+   <use href="#pane-right" fill="none" stroke="url(#edge-shade)" stroke-width="4.2"/>
+   <use href="#pane-right" fill="none" stroke="url(#edge-light)" stroke-width="3" transform="translate(0,-1.2)"/>
+  </g>
+ </g><g id="crossbar" filter="url(#contact-shadow)">
+  <use href="#pane-crossbar" fill="url(#glass-face)"/>
+  <g mask="url(#behind-diagonals)">
+   <use href="#pane-crossbar" fill="none" stroke="url(#edge-shade)" stroke-width="4.2"/>
+   <use href="#pane-crossbar" fill="none" stroke="url(#edge-light)" stroke-width="3" transform="translate(0,-1.2)"/>
+  </g>
+ </g><g id="rising" filter="url(#contact-shadow)">
+  <use href="#pane-rising" fill="url(#glass-face)"/>
+  <g mask="url(#behind-front)">
+   <use href="#pane-rising" fill="none" stroke="url(#edge-shade)" stroke-width="4.2"/>
+   <use href="#pane-rising" fill="none" stroke="url(#edge-light)" stroke-width="3" transform="translate(0,-1.2)"/>
+  </g>
+ </g><g id="descending" filter="url(#front-shadow)">
+  <use href="#pane-descending" fill="url(#front-face)"/>
+  <g >
+   <use href="#pane-descending" fill="none" stroke="url(#edge-shade)" stroke-width="4.2"/>
+   <use href="#pane-descending" fill="none" stroke="url(#edge-light)" stroke-width="3" transform="translate(0,-1.2)"/>
+  </g>
+ </g></g></svg>

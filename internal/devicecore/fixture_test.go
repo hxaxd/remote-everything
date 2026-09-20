@@ -112,7 +112,7 @@ func newGatewayFixture(t *testing.T, approveOnRedemption bool) *gatewayFixture {
 		if err := atomicfile.Write(tokenPath, []byte(node.token+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if state, err = state.AddNode(gatewaycore.Node{ID: id, Name: testNodeNames[index], Address: strings.TrimPrefix(node.server.URL, "http://")}); err != nil {
+		if state, err = state.AddNode(gatewaycore.Node{ID: id, Name: testNodeNames[index], Address: strings.TrimPrefix(node.server.URL, "http://"), Link: gatewaycore.NodeLinkLocal}); err != nil {
 			t.Fatal(err)
 		}
 		fixture.nodes = append(fixture.nodes, node)
@@ -226,7 +226,7 @@ func stubGateway(t *testing.T) *gatewaycore.Gateway {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err = state.AddNode(gatewaycore.Node{ID: node.id, Name: testNodeNames[0], Address: strings.TrimPrefix(node.server.URL, "http://")})
+	state, err = state.AddNode(gatewaycore.Node{ID: node.id, Name: testNodeNames[0], Address: strings.TrimPrefix(node.server.URL, "http://"), Link: gatewaycore.NodeLinkLocal})
 	if err != nil {
 		t.Fatal(err)
 	}

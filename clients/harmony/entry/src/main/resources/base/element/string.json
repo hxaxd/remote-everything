@@ -1,28 +1,568 @@
 {
   "string": [
     {
-      "name": "module_desc",
-      "value": "Remote Everything HarmonyOS客户端"
-    },
-    {
       "name": "EntryAbility_desc",
-      "value": "Remote Everything主界面"
+      "value": "Remote Everything"
     },
     {
       "name": "EntryAbility_label",
-      "value": "远程万物"
+      "value": "Remote Everything"
     },
     {
-      "name": "internet_permission_reason",
-      "value": "用于连接远程计算机"
+      "name": "action_add_node",
+      "value": "Add node"
+    },
+    {
+      "name": "action_back",
+      "value": "Back"
+    },
+    {
+      "name": "action_back_to_nodes",
+      "value": "Back to nodes"
+    },
+    {
+      "name": "action_cancel",
+      "value": "Cancel"
+    },
+    {
+      "name": "action_confirm",
+      "value": "OK"
+    },
+    {
+      "name": "action_copied",
+      "value": "Copied"
+    },
+    {
+      "name": "action_done",
+      "value": "Done"
+    },
+    {
+      "name": "action_retry",
+      "value": "Retry"
+    },
+    {
+      "name": "action_start",
+      "value": "Start"
+    },
+    {
+      "name": "action_stop",
+      "value": "Stop"
+    },
+    {
+      "name": "app_name",
+      "value": "Remote Everything"
+    },
+    {
+      "name": "app_open_failed",
+      "value": "Couldn't open this app"
+    },
+    {
+      "name": "app_ready",
+      "value": "Running"
+    },
+    {
+      "name": "app_starting",
+      "value": "Starting"
+    },
+    {
+      "name": "app_stopped",
+      "value": "Stopped"
+    },
+    {
+      "name": "app_stopping",
+      "value": "Stopping"
+    },
+    {
+      "name": "apps_empty_body",
+      "value": "No apps to open on this node yet."
+    },
+    {
+      "name": "apps_empty_title",
+      "value": "No apps"
     },
     {
       "name": "camera_permission_reason",
-      "value": "用于扫描setup二维码"
+      "value": "Scan an invitation QR code."
+    },
+    {
+      "name": "device_category_default",
+      "value": "Device"
+    },
+    {
+      "name": "device_category_phone",
+      "value": "Phone"
+    },
+    {
+      "name": "device_category_tablet",
+      "value": "Tablet"
+    },
+    {
+      "name": "empty_body",
+      "value": "Scan or paste an invitation to add a node."
+    },
+    {
+      "name": "empty_title",
+      "value": "No nodes yet"
+    },
+    {
+      "name": "error_app_gone",
+      "value": "This app is no longer available"
+    },
+    {
+      "name": "error_busy",
+      "value": "Server busy, try again later"
+    },
+    {
+      "name": "error_client",
+      "value": "Something went wrong, try again later"
+    },
+    {
+      "name": "error_control_failed",
+      "value": "Action didn't go through, try again"
+    },
+    {
+      "name": "error_credential_lost",
+      "value": "This connection's credentials are no longer valid, pair again"
+    },
+    {
+      "name": "error_network",
+      "value": "Can't connect, check your network and try again"
+    },
+    {
+      "name": "error_node_gone",
+      "value": "This node is no longer available to you"
+    },
+    {
+      "name": "error_node_gone_body",
+      "value": "The operator may have removed your access."
+    },
+    {
+      "name": "error_not_found",
+      "value": "Not found"
+    },
+    {
+      "name": "error_stop_failed",
+      "value": "Stop failed, the app may still be running"
+    },
+    {
+      "name": "identity_needs_pairing",
+      "value": "Pair this device again"
+    },
+    {
+      "name": "identity_needs_pairing_body",
+      "value": "This connection's credentials are no longer on this device, pair again"
+    },
+    {
+      "name": "identity_needs_pairing_title",
+      "value": "Pairing required"
+    },
+    {
+      "name": "identity_unauthorized",
+      "value": "Not authorized for this node"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "Reach the gateways and nodes you added."
+    },
+    {
+      "name": "language_en",
+      "value": "English"
+    },
+    {
+      "name": "language_zh",
+      "value": "中文"
+    },
+    {
+      "name": "module_desc",
+      "value": "Remote Everything"
+    },
+    {
+      "name": "node_current_lan",
+      "value": "Currently on the local link"
+    },
+    {
+      "name": "node_current_tunnel",
+      "value": "Currently over the tunnel"
+    },
+    {
+      "name": "node_lan",
+      "value": "Local"
+    },
+    {
+      "name": "node_offline",
+      "value": "Offline"
+    },
+    {
+      "name": "node_offline_body",
+      "value": "It may be off, asleep, or disconnected."
+    },
+    {
+      "name": "node_offline_title",
+      "value": "This node is offline"
+    },
+    {
+      "name": "node_pending",
+      "value": "Pending approval"
+    },
+    {
+      "name": "node_tunnel",
+      "value": "Tunnel"
+    },
+    {
+      "name": "node_unknown",
+      "value": "Unknown"
+    },
+    {
+      "name": "nodes_select_hint",
+      "value": "Select a node"
+    },
+    {
+      "name": "nodes_title",
+      "value": "Nodes"
+    },
+    {
+      "name": "pair_action_join",
+      "value": "Join"
+    },
+    {
+      "name": "pair_bad_invitation",
+      "value": "This isn't a valid invitation link"
+    },
+    {
+      "name": "pair_confirm_body",
+      "value": "Join node “%2$s” via %1$s"
+    },
+    {
+      "name": "pair_denied",
+      "value": "This invitation is invalid or has already been used"
+    },
+    {
+      "name": "pair_device_name",
+      "value": "Device name"
+    },
+    {
+      "name": "pair_device_name_hint",
+      "value": "The name other devices will see"
+    },
+    {
+      "name": "pair_device_name_required",
+      "value": "Enter a device name"
+    },
+    {
+      "name": "pair_expired",
+      "value": "Invitation expired, ask the operator for a new one"
+    },
+    {
+      "name": "pair_gateway_label",
+      "value": "Gateway"
+    },
+    {
+      "name": "pair_gateway_trouble",
+      "value": "Gateway unavailable, contact the operator"
+    },
+    {
+      "name": "pair_input_hint",
+      "value": "Paste the invitation link"
+    },
+    {
+      "name": "pair_network",
+      "value": "Can't connect, check your network and try again"
+    },
+    {
+      "name": "pair_node_label",
+      "value": "Node"
+    },
+    {
+      "name": "pair_scan",
+      "value": "Scan"
+    },
+    {
+      "name": "pair_scan_body",
+      "value": "Point the camera at the invitation QR code."
+    },
+    {
+      "name": "pair_scan_denied",
+      "value": "Scanning needs camera permission, or paste the link"
+    },
+    {
+      "name": "pair_scan_failed",
+      "value": "No invitation QR code found"
+    },
+    {
+      "name": "pair_title",
+      "value": "Add node"
+    },
+    {
+      "name": "pair_waiting_approval",
+      "value": "Waiting for the operator to approve this device"
+    },
+    {
+      "name": "pair_working",
+      "value": "Pairing…"
+    },
+    {
+      "name": "settings_about",
+      "value": "About"
+    },
+    {
+      "name": "settings_appearance",
+      "value": "Appearance"
+    },
+    {
+      "name": "settings_appearance_dark",
+      "value": "Dark"
+    },
+    {
+      "name": "settings_appearance_light",
+      "value": "Light"
+    },
+    {
+      "name": "settings_appearance_system",
+      "value": "System"
+    },
+    {
+      "name": "settings_certificate_fingerprint",
+      "value": "Certificate fingerprint"
+    },
+    {
+      "name": "settings_device_name",
+      "value": "Default device name"
+    },
+    {
+      "name": "settings_forget",
+      "value": "Forget this connection"
+    },
+    {
+      "name": "settings_forget_confirm",
+      "value": "Forget this connection?"
+    },
+    {
+      "name": "settings_identities",
+      "value": "Connections"
+    },
+    {
+      "name": "settings_language",
+      "value": "Language"
+    },
+    {
+      "name": "settings_language_system",
+      "value": "System"
+    },
+    {
+      "name": "settings_no_identities",
+      "value": "No connections yet"
+    },
+    {
+      "name": "settings_nodes_count",
+      "value": "Nodes"
+    },
+    {
+      "name": "settings_protocol_version",
+      "value": "Protocol version"
+    },
+    {
+      "name": "settings_title",
+      "value": "Settings"
+    },
+    {
+      "name": "settings_updates",
+      "value": "Check for updates"
+    },
+    {
+      "name": "settings_updates_available",
+      "value": "Version %1$s (%2$s) is available"
+    },
+    {
+      "name": "settings_updates_check",
+      "value": "Check for updates"
+    },
+    {
+      "name": "settings_updates_checking",
+      "value": "Checking…"
+    },
+    {
+      "name": "settings_updates_current",
+      "value": "Current version %1$s (%2$s)"
+    },
+    {
+      "name": "settings_updates_failed",
+      "value": "Couldn't check for updates, try again later"
+    },
+    {
+      "name": "settings_updates_none",
+      "value": "Up to date"
+    },
+    {
+      "name": "settings_updates_protocol",
+      "value": "This update changes how devices connect, so pair again after updating"
+    },
+    {
+      "name": "settings_updates_store_hint",
+      "value": "Install the new version from the app store"
+    },
+    {
+      "name": "settings_version",
+      "value": "Current version"
+    },
+    {
+      "name": "web_load_failed",
+      "value": "Couldn't load the page"
+    },
+    {
+      "name": "web_loading",
+      "value": "Loading…"
+    },
+    {
+      "name": "web_choose_file",
+      "value": "Choose a file"
+    },
+    {
+      "name": "web_download_done",
+      "value": "Download finished"
+    },
+    {
+      "name": "web_download_failed",
+      "value": "Download failed"
+    },
+    {
+      "name": "web_download_open",
+      "value": "Open"
+    },
+    {
+      "name": "web_download_saved",
+      "value": "Saved to %1$s"
+    },
+    {
+      "name": "web_downloads",
+      "value": "Downloads"
+    },
+    {
+      "name": "web_exit",
+      "value": "Exit"
+    },
+    {
+      "name": "web_orientation",
+      "value": "Orientation"
+    },
+    {
+      "name": "web_orientation_landscape",
+      "value": "Landscape"
+    },
+    {
+      "name": "web_orientation_portrait",
+      "value": "Portrait"
+    },
+    {
+      "name": "web_orientation_system",
+      "value": "System"
+    },
+    {
+      "name": "web_refresh",
+      "value": "Refresh"
+    },
+    {
+      "name": "web_user_agent",
+      "value": "Identity"
+    },
+    {
+      "name": "web_user_agent_desktop",
+      "value": "Desktop"
+    },
+    {
+      "name": "web_user_agent_mobile",
+      "value": "Mobile"
     },
     {
       "name": "microphone_permission_reason",
-      "value": "用于远程网页明确请求的语音输入和通话"
+      "value": "Let an application use the microphone"
+    },
+    {
+      "name": "location_permission_reason",
+      "value": "Let an application know where this device is while it is open"
+    },
+    {
+      "name": "diag_attempts",
+      "value": "Recent attempts"
+    },
+    {
+      "name": "diag_cause",
+      "value": "Cause"
+    },
+    {
+      "name": "diag_cause_bad_answer",
+      "value": "the gateway's answer could not be read"
+    },
+    {
+      "name": "diag_cause_no_network",
+      "value": "this phone has no network"
+    },
+    {
+      "name": "diag_cause_refused",
+      "value": "the gateway refused this device"
+    },
+    {
+      "name": "diag_cause_unknown",
+      "value": "unknown cause"
+    },
+    {
+      "name": "diag_cause_unreachable",
+      "value": "the gateway does not answer"
+    },
+    {
+      "name": "diag_client",
+      "value": "Client"
+    },
+    {
+      "name": "diag_connection",
+      "value": "Connection"
+    },
+    {
+      "name": "diag_failures",
+      "value": "%1$s failures in a row"
+    },
+    {
+      "name": "diag_last_answer",
+      "value": "last answer %1$s"
+    },
+    {
+      "name": "diag_machines",
+      "value": "Nodes"
+    },
+    {
+      "name": "diag_network",
+      "value": "Network"
+    },
+    {
+      "name": "diag_since",
+      "value": "since %1$s"
+    },
+    {
+      "name": "diag_state",
+      "value": "State"
+    },
+    {
+      "name": "diag_system",
+      "value": "System"
+    },
+    {
+      "name": "diag_title",
+      "value": "Connection diagnostics"
+    },
+    {
+      "name": "settings_copy_error",
+      "value": "Copy error info"
+    },
+    {
+      "name": "diag_device_name",
+      "value": "Device name"
+    },
+    {
+      "name": "web_isolation_unavailable",
+      "value": "Update your system WebView to open applications securely."
+    },
+    {
+      "name": "web_session_failed",
+      "value": "Could not safely switch application sessions. Restart the client and try again."
     }
   ]
 }

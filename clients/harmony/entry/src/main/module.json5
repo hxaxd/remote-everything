@@ -2,7 +2,7 @@
   "module": {
     "name": "entry",
     "type": "entry",
-    "srcEntry": "./ets/app/EntryAbility.ets",
+    "srcEntry": "./ets/app/EntryAbilityStage.ets",
     "description": "$string:module_desc",
     "mainElement": "EntryAbility",
     "deviceTypes": [
@@ -17,15 +17,25 @@
         "name": "EntryAbility",
         "srcEntry": "./ets/app/EntryAbility.ets",
         "description": "$string:EntryAbility_desc",
-        "icon": "$media:ic_launcher",
+        "icon": "$media:ic_launcher_layered",
         "label": "$string:EntryAbility_label",
-        "startWindowIcon": "$media:ic_launcher",
+        "startWindowIcon": "$media:ic_launcher_flat",
         "startWindowBackground": "$color:start_window_background",
+        "orientation": "unspecified",
         "exported": true,
         "skills": [
           {
             "entities": ["entity.system.home"],
             "actions": ["action.system.home"]
+          },
+          {
+            "actions": ["ohos.want.action.viewData"],
+            "uris": [
+              {
+                "scheme": "remote-everything",
+                "host": "setup"
+              }
+            ]
           }
         ]
       }
@@ -38,6 +48,9 @@
           "abilities": ["EntryAbility"],
           "when": "always"
         }
+      },
+      {
+        "name": "ohos.permission.GET_NETWORK_INFO"
       },
       {
         "name": "ohos.permission.ACCESS_CERT_MANAGER"
@@ -53,6 +66,22 @@
       {
         "name": "ohos.permission.MICROPHONE",
         "reason": "$string:microphone_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.LOCATION",
+        "reason": "$string:location_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility"],
+          "when": "inuse"
+        }
+      },
+      {
+        "name": "ohos.permission.APPROXIMATELY_LOCATION",
+        "reason": "$string:location_permission_reason",
         "usedScene": {
           "abilities": ["EntryAbility"],
           "when": "inuse"

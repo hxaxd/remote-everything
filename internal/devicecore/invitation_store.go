@@ -25,7 +25,14 @@ import (
 // an invitation opens a door to one machine, and redeeming it is what puts that
 // node on the device it was issued for.
 type invitationRecord struct {
-	Schema                 int    `json:"schema"`
+	Schema int `json:"schema"`
+	// Kind is how the invitation was redeemed, written when it was: a
+	// certificate redemption handed a device its credential and keeps it, so
+	// the same device can fetch that credential again; a web redemption
+	// admitted a browser that authenticates by the client id it keeps, and
+	// keeps nothing. An invitation that has not been redeemed is not either
+	// yet, so the kind is empty until it is.
+	Kind                   string `json:"kind"`
 	TokenHash              string `json:"token_hash"`
 	NodeID                 string `json:"node_id"`
 	CreatedAt              string `json:"created_at"`
@@ -88,10 +95,22 @@ func validateInvitation(record invitationRecord) error {
 		if err != nil || used.Before(created) || used.After(expires) {
 			return errors.New("invalid invitation used_at")
 		}
-		if !validDeviceName(record.DeviceName) || !validHex64.MatchString(record.CredentialPasswordHash) || !validHex64.MatchString(record.CertificateFingerprint) || record.CredentialPKCS12 == "" {
+		if !validDeviceName(record.DeviceName) || !validHex64.MatchString(record.CertificateFingerprint) {
 			return errors.New("invalid used invitation transaction")
 		}
-	} else if record.DeviceName != "" || record.CredentialPasswordHash != "" || record.CertificateFingerprint != "" || record.CredentialPKCS12 != "" {
+		switch normalizeDeviceKind(record.Kind) {
+		case deviceKindCertificate:
+			if !validHex64.MatchString(record.CredentialPasswordHash) || record.CredentialPKCS12 == "" {
+				return errors.New("invalid used invitation transaction")
+			}
+		case deviceKindWeb:
+			if record.CredentialPasswordHash != "" || record.CredentialPKCS12 != "" {
+				return errors.New("invalid used invitation transaction")
+			}
+		default:
+			return errors.New("invalid used invitation transaction")
+		}
+	} else if record.DeviceName != "" || record.CredentialPasswordHash != "" || record.CertificateFingerprint != "" || record.CredentialPKCS12 != "" || record.Kind != "" {
 		return errors.New("unused invitation contains transaction state")
 	}
 	return nil

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hxaxd/remote-everything/internal/entrance"
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/nodecore"
 )
@@ -92,7 +94,7 @@ func TestAddLANNodeRecordsAndDeliversOneNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
-	added, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, bootstrapDir)
+	added, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "", bootstrapDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +147,7 @@ func TestAddLANNodeRecordsAndDeliversOneNode(t *testing.T) {
 	if otherNode.ListenAddress == node.ListenAddress {
 		t.Fatalf("the second node was given the first one's address %s", otherNode.ListenAddress)
 	}
-	if _, err := addLANNode(root, "Laptop", otherNode.NodeID, otherNode.ListenAddress, filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+	if _, err := addLANNode(root, "Laptop", otherNode.NodeID, otherNode.ListenAddress, "", filepath.Join(t.TempDir(), "bootstrap")); err != nil {
 		t.Fatal(err)
 	}
 	otherToken, err := gatewaycore.ReadNodeToken(root, otherNode.NodeID)
@@ -153,15 +155,15 @@ func TestAddLANNodeRecordsAndDeliversOneNode(t *testing.T) {
 		t.Fatalf("the second node got %q, %v", otherToken, err)
 	}
 	// An address no gateway could dial is not where a node is.
-	if _, err := addLANNode(root, "Desk", node.NodeID, "0.0.0.0:58627", filepath.Join(t.TempDir(), "bootstrap")); err == nil {
+	if _, err := addLANNode(root, "Desk", node.NodeID, "0.0.0.0:58627", "", filepath.Join(t.TempDir(), "bootstrap")); err == nil {
 		t.Fatal("an unspecified node address was recorded")
 	}
-	if _, err := addLANNode(root, "Desk", node.NodeID, "10.0.0.1", filepath.Join(t.TempDir(), "bootstrap")); err == nil {
+	if _, err := addLANNode(root, "Desk", node.NodeID, "10.0.0.1", "", filepath.Join(t.TempDir(), "bootstrap")); err == nil {
 		t.Fatal("a node address without a port was recorded")
 	}
 	// The same node added again is that node kept up to date: a machine that moved
 	// is put back in reach without being recorded twice.
-	moved, err := addLANNode(root, "Desk", node.NodeID, "10.0.0.1:58627", filepath.Join(t.TempDir(), "bootstrap"))
+	moved, err := addLANNode(root, "Desk", node.NodeID, "10.0.0.1:58627", "", filepath.Join(t.TempDir(), "bootstrap"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +198,7 @@ func TestLANRenewalAndRepairKeepTheNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "", filepath.Join(t.TempDir(), "bootstrap")); err != nil {
 		t.Fatal(err)
 	}
 	beforeRenewal, err := loadLANState(root)
@@ -288,7 +290,7 @@ func TestRemoveLANNodeForgetsTheNodeEntirely(t *testing.T) {
 		}
 		addresses[node.ListenAddress] = true
 		ids = append(ids, node.NodeID)
-		if _, err := addLANNode(root, []string{"Desk", "Laptop"}[index], node.NodeID, node.ListenAddress, filepath.Join(t.TempDir(), "bootstrap")); err != nil {
+		if _, err := addLANNode(root, []string{"Desk", "Laptop"}[index], node.NodeID, node.ListenAddress, "", filepath.Join(t.TempDir(), "bootstrap")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -339,7 +341,7 @@ func TestRenewLANNodeTokenReplacesTheTokenAndDeliversIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
-	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, bootstrapDir); err != nil {
+	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "", bootstrapDir); err != nil {
 		t.Fatal(err)
 	}
 	before, err := gatewaycore.ReadNodeToken(root, node.NodeID)
@@ -470,5 +472,159 @@ func TestLANApplicationsListenWhereTheEntranceWasTold(t *testing.T) {
 	refused := t.TempDir()
 	if _, err := initializeLAN(refused, "127.0.0.1", "gateway.example.com", 30); err == nil {
 		t.Fatal("a name was accepted as the address applications listen on")
+	}
+}
+
+func TestLANInitOptions_RequireApprovalAndTunnel(t *testing.T) {
+	root := t.TempDir()
+	res, err := initializeLAN(root, "127.0.0.1", "", 30, WithRequireApproval(true), WithTunnel(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.RequireApproval {
+		t.Fatal("expected RequireApproval to be true")
+	}
+	if res.FRPSListen == "" || res.FRPSTokenFile == "" || res.TunnelCAFile == "" {
+		t.Fatalf("expected tunnel files to be populated: %+v", res)
+	}
+	if _, err := os.Stat(res.FRPSTokenFile); err != nil {
+		t.Fatalf("FRPS token file not written: %v", err)
+	}
+	if _, err := os.Stat(res.TunnelCAFile); err != nil {
+		t.Fatalf("Tunnel CA file not written: %v", err)
+	}
+
+	rootCLI := t.TempDir()
+	var out bytes.Buffer
+	if err := runLANInit([]string{"--state", rootCLI, "--host", "127.0.0.1", "--require-approval", "--tunnel"}, &out); err != nil {
+		t.Fatalf("runLANInit failed: %v", err)
+	}
+	var cliRes lanInitResult
+	if err := json.Unmarshal(out.Bytes(), &cliRes); err != nil {
+		t.Fatal(err)
+	}
+	if !cliRes.RequireApproval || cliRes.FRPSListen == "" {
+		t.Fatalf("CLI result did not reflect flags: %+v", cliRes)
+	}
+	// The approval policy is the operator's word at init, and saying it again
+	// without the flag says it off: the flag is not a one-way latch.
+	again, err := initializeLAN(root, "127.0.0.1", "", 30)
+	if err != nil || again.RequireApproval {
+		t.Fatalf("re-running init left the approval policy on: %+v %v", again, err)
+	}
+	if state, err := loadLANState(root); err != nil || len(state.Listeners) != 2 {
+		t.Fatalf("re-running init without the tunnel took its listener away: %+v %v", state.Listeners, err)
+	}
+}
+
+func TestLANTunnelNodeAddAndRenew(t *testing.T) {
+	root := t.TempDir()
+	if _, err := initializeLAN(root, "127.0.0.1", "", 30, WithTunnel(true)); err != nil {
+		t.Fatal(err)
+	}
+	nodeID := strings.Repeat("a", 64)
+	bootstrapDir := filepath.Join(t.TempDir(), "bootstrap")
+	nodeRes, err := addLANNode(root, "TunnelDesk", nodeID, "", "", bootstrapDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nodeRes.OK || nodeRes.NodeAddress != "127.0.0.1:58628" {
+		t.Fatalf("unexpected nodeRes: %+v", nodeRes)
+	}
+	if nodeRes.TunnelMaterialDir == "" || nodeRes.TunnelClientFingerprint == "" {
+		t.Fatalf("expected tunnel material in result: %+v", nodeRes)
+	}
+	for _, file := range []string{"bootstrap.json", "control-token"} {
+		if _, err := os.Stat(filepath.Join(bootstrapDir, file)); err != nil {
+			t.Fatalf("missing expected bootstrap file %q: %v", file, err)
+		}
+	}
+	for _, file := range []string{"tunnel-client.crt.pem", "tunnel-client.key.pem", "frps-token"} {
+		if _, err := os.Stat(filepath.Join(nodeRes.TunnelMaterialDir, file)); err != nil {
+			t.Fatalf("missing expected tunnel material file %q: %v", file, err)
+		}
+	}
+
+	renewRes, err := renewLANTunnelIdentity(root, bootstrapDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !renewRes.OK || renewRes.TunnelClientFingerprint == nodeRes.TunnelClientFingerprint {
+		t.Fatalf("expected renewed fingerprint: %+v", renewRes)
+	}
+
+	var cliOut bytes.Buffer
+	nodeID2 := strings.Repeat("b", 64)
+	bootstrapDir2 := filepath.Join(t.TempDir(), "bootstrap2")
+	if err := runLANNode([]string{"add", "--state", root, "--name", "Desk2", "--node-id", nodeID2, "--node-bootstrap", bootstrapDir2}, &cliOut); err != nil {
+		t.Fatalf("runLANNode without address failed: %v", err)
+	}
+	var cliNodeRes entrance.NodeResult
+	if err := json.Unmarshal(cliOut.Bytes(), &cliNodeRes); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(cliNodeRes.NodeAddress, "127.0.0.1:") || cliNodeRes.NodeAddress == nodeRes.NodeAddress {
+		t.Fatalf("expected distinct loopback address, got %q (first was %q)", cliNodeRes.NodeAddress, nodeRes.NodeAddress)
+	}
+
+	var renewOut bytes.Buffer
+	if err := runLANTunnelRenew([]string{"--state", root, "--node-bootstrap", bootstrapDir2}, &renewOut); err != nil {
+		t.Fatalf("runLANTunnelRenew failed: %v", err)
+	}
+	var cliRenewRes entrance.TunnelRenewResult
+	if err := json.Unmarshal(renewOut.Bytes(), &cliRenewRes); err != nil {
+		t.Fatal(err)
+	}
+	if !cliRenewRes.OK || cliRenewRes.TunnelClientFingerprint == "" {
+		t.Fatalf("unexpected cli renew result: %+v", cliRenewRes)
+	}
+}
+
+// How a link reads is the operator's word when they give one, and this entrance's own
+// answer when they do not: a node it dials where it stands is local, one it carries
+// over its own tunnel is a tunnel.
+func TestLANNodeLinkFollowsTheOperatorsWord(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "lan-state")
+	if _, err := initializeLAN(root, "192.168.1.6", "", 30); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	node, err := nodecore.Initialize(t.TempDir(), "127.0.0.1")
+	if err != nil {
+		t.Fatalf("node init: %v", err)
+	}
+
+	direct, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "", filepath.Join(t.TempDir(), "bootstrap"))
+	if err != nil {
+		t.Fatalf("direct node: %v", err)
+	}
+	if direct.NodeLink != gatewaycore.NodeLinkLocal {
+		t.Fatalf("a node the entrance dials directly is %q", direct.NodeLink)
+	}
+
+	tunnelled, err := addLANNode(root, "Desk", node.NodeID, "", "", filepath.Join(t.TempDir(), "bootstrap"))
+	if err != nil {
+		t.Fatalf("tunnelled node: %v", err)
+	}
+	if tunnelled.NodeLink != gatewaycore.NodeLinkTunnel {
+		t.Fatalf("a node the entrance carries over its tunnel is %q", tunnelled.NodeLink)
+	}
+
+	declared, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "tunnel", filepath.Join(t.TempDir(), "bootstrap"))
+	if err != nil {
+		t.Fatalf("declared node: %v", err)
+	}
+	if declared.NodeLink != gatewaycore.NodeLinkTunnel {
+		t.Fatalf("the operator said tunnel and the entrance recorded %q", declared.NodeLink)
+	}
+
+	if _, err := addLANNode(root, "Desk", node.NodeID, node.ListenAddress, "maybe", filepath.Join(t.TempDir(), "bootstrap")); err == nil {
+		t.Fatal("a link outside the vocabulary was accepted")
+	}
+	state, err := loadLANState(root)
+	if err != nil {
+		t.Fatalf("state: %v", err)
+	}
+	if len(state.Nodes) != 1 || state.Nodes[0].Link != gatewaycore.NodeLinkTunnel {
+		t.Fatalf("the record kept %+v", state.Nodes)
 	}
 }

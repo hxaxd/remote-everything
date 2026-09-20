@@ -25,13 +25,27 @@
             "type": "string",
             "minLength": 1,
             "description": "What that node's operator calls it, which is what a client shows."
+          },
+          "link": {
+            "type": "string",
+            "enum": [
+              "local",
+              "tunnel"
+            ],
+            "description": "How the gateway that answered reaches this machine, in the two words a client shows a person: \"local\" when it dials the node where it stands, \"tunnel\" when its own tunnel carries it. The operator can declare it per node, because only they know what the link costs the person using it; absent means the gateway recorded nothing and the client judges by the address it dials."
           }
         },
-        "required": ["id", "name"],
+        "required": [
+          "id",
+          "name"
+        ],
         "additionalProperties": false
       }
     }
   },
-  "required": ["ok", "nodes"],
+  "required": [
+    "ok",
+    "nodes"
+  ],
   "additionalProperties": false
 }

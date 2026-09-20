@@ -1,0 +1,16 @@
+{
+  "appKey": "<nodeId>/<appId>",
+  "defaults": {
+    "orientation": "system",
+    "userAgent": "mobile"
+  },
+  "orientations": [
+    "system",
+    "portrait",
+    "landscape"
+  ],
+  "userAgents": [
+    "mobile",
+    "desktop"
+  ]
+}

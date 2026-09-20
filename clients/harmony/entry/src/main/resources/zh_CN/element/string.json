@@ -1,0 +1,568 @@
+{
+  "string": [
+    {
+      "name": "EntryAbility_desc",
+      "value": "远程万物"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "远程万物"
+    },
+    {
+      "name": "action_add_node",
+      "value": "添加节点"
+    },
+    {
+      "name": "action_back",
+      "value": "返回"
+    },
+    {
+      "name": "action_back_to_nodes",
+      "value": "返回节点列表"
+    },
+    {
+      "name": "action_cancel",
+      "value": "取消"
+    },
+    {
+      "name": "action_confirm",
+      "value": "确定"
+    },
+    {
+      "name": "action_copied",
+      "value": "已复制"
+    },
+    {
+      "name": "action_done",
+      "value": "完成"
+    },
+    {
+      "name": "action_retry",
+      "value": "重试"
+    },
+    {
+      "name": "action_start",
+      "value": "启动"
+    },
+    {
+      "name": "action_stop",
+      "value": "停止"
+    },
+    {
+      "name": "app_name",
+      "value": "远程万物"
+    },
+    {
+      "name": "app_open_failed",
+      "value": "无法打开此应用"
+    },
+    {
+      "name": "app_ready",
+      "value": "运行中"
+    },
+    {
+      "name": "app_starting",
+      "value": "启动中"
+    },
+    {
+      "name": "app_stopped",
+      "value": "已停止"
+    },
+    {
+      "name": "app_stopping",
+      "value": "停止中"
+    },
+    {
+      "name": "apps_empty_body",
+      "value": "这个节点上还没有可打开的应用。"
+    },
+    {
+      "name": "apps_empty_title",
+      "value": "没有应用"
+    },
+    {
+      "name": "camera_permission_reason",
+      "value": "用于扫描邀请二维码。"
+    },
+    {
+      "name": "device_category_default",
+      "value": "设备"
+    },
+    {
+      "name": "device_category_phone",
+      "value": "手机"
+    },
+    {
+      "name": "device_category_tablet",
+      "value": "平板"
+    },
+    {
+      "name": "empty_body",
+      "value": "扫描或粘贴邀请来添加节点。"
+    },
+    {
+      "name": "empty_title",
+      "value": "还没有节点"
+    },
+    {
+      "name": "error_app_gone",
+      "value": "此应用已不可用"
+    },
+    {
+      "name": "error_busy",
+      "value": "服务繁忙，请稍后再试。"
+    },
+    {
+      "name": "error_client",
+      "value": "出现错误，请稍后再试。"
+    },
+    {
+      "name": "error_control_failed",
+      "value": "操作未完成，请再试一次。"
+    },
+    {
+      "name": "error_credential_lost",
+      "value": "此连接的凭据已失效，请重新配对。"
+    },
+    {
+      "name": "error_network",
+      "value": "无法连接，请检查网络后重试。"
+    },
+    {
+      "name": "error_node_gone",
+      "value": "无法访问这个节点"
+    },
+    {
+      "name": "error_node_gone_body",
+      "value": "访问权限可能已被操作者移除。"
+    },
+    {
+      "name": "error_not_found",
+      "value": "未找到"
+    },
+    {
+      "name": "error_stop_failed",
+      "value": "停止失败，应用可能仍在运行。"
+    },
+    {
+      "name": "identity_needs_pairing",
+      "value": "请重新配对这台设备"
+    },
+    {
+      "name": "identity_needs_pairing_body",
+      "value": "此连接的凭据已不在本机，请重新配对。"
+    },
+    {
+      "name": "identity_needs_pairing_title",
+      "value": "需要重新配对"
+    },
+    {
+      "name": "identity_unauthorized",
+      "value": "无权访问这个节点"
+    },
+    {
+      "name": "internet_permission_reason",
+      "value": "用于连接你添加的网关与节点。"
+    },
+    {
+      "name": "language_en",
+      "value": "English"
+    },
+    {
+      "name": "language_zh",
+      "value": "中文"
+    },
+    {
+      "name": "module_desc",
+      "value": "远程万物"
+    },
+    {
+      "name": "node_current_lan",
+      "value": "当前为本地连接"
+    },
+    {
+      "name": "node_current_tunnel",
+      "value": "当前为隧道连接"
+    },
+    {
+      "name": "node_lan",
+      "value": "本地"
+    },
+    {
+      "name": "node_offline",
+      "value": "不在线"
+    },
+    {
+      "name": "node_offline_body",
+      "value": "它可能已关机、正在休眠，或连接已断开。"
+    },
+    {
+      "name": "node_offline_title",
+      "value": "这个节点不在线"
+    },
+    {
+      "name": "node_pending",
+      "value": "待批准"
+    },
+    {
+      "name": "node_tunnel",
+      "value": "隧道"
+    },
+    {
+      "name": "node_unknown",
+      "value": "未知"
+    },
+    {
+      "name": "nodes_select_hint",
+      "value": "选择一个节点"
+    },
+    {
+      "name": "nodes_title",
+      "value": "节点"
+    },
+    {
+      "name": "pair_action_join",
+      "value": "加入"
+    },
+    {
+      "name": "pair_bad_invitation",
+      "value": "这不是有效的邀请链接"
+    },
+    {
+      "name": "pair_confirm_body",
+      "value": "通过 %1$s 加入节点「%2$s」"
+    },
+    {
+      "name": "pair_denied",
+      "value": "邀请无效或已被使用"
+    },
+    {
+      "name": "pair_device_name",
+      "value": "设备名"
+    },
+    {
+      "name": "pair_device_name_hint",
+      "value": "其他设备能看到的名字"
+    },
+    {
+      "name": "pair_device_name_required",
+      "value": "请填写设备名"
+    },
+    {
+      "name": "pair_expired",
+      "value": "邀请已过期，请向操作者索取新邀请。"
+    },
+    {
+      "name": "pair_gateway_label",
+      "value": "网关"
+    },
+    {
+      "name": "pair_gateway_trouble",
+      "value": "网关暂时不可用，请联系操作者。"
+    },
+    {
+      "name": "pair_input_hint",
+      "value": "粘贴邀请链接"
+    },
+    {
+      "name": "pair_network",
+      "value": "无法连接，请检查网络后重试。"
+    },
+    {
+      "name": "pair_node_label",
+      "value": "节点"
+    },
+    {
+      "name": "pair_scan",
+      "value": "扫码"
+    },
+    {
+      "name": "pair_scan_body",
+      "value": "将摄像头对准邀请二维码。"
+    },
+    {
+      "name": "pair_scan_denied",
+      "value": "扫码需要相机权限，也可以直接粘贴链接。"
+    },
+    {
+      "name": "pair_scan_failed",
+      "value": "未识别到邀请二维码"
+    },
+    {
+      "name": "pair_title",
+      "value": "添加节点"
+    },
+    {
+      "name": "pair_waiting_approval",
+      "value": "正在等待操作者批准这台设备"
+    },
+    {
+      "name": "pair_working",
+      "value": "配对中…"
+    },
+    {
+      "name": "settings_about",
+      "value": "关于"
+    },
+    {
+      "name": "settings_appearance",
+      "value": "外观"
+    },
+    {
+      "name": "settings_appearance_dark",
+      "value": "深色"
+    },
+    {
+      "name": "settings_appearance_light",
+      "value": "浅色"
+    },
+    {
+      "name": "settings_appearance_system",
+      "value": "跟随系统"
+    },
+    {
+      "name": "settings_certificate_fingerprint",
+      "value": "证书指纹"
+    },
+    {
+      "name": "settings_device_name",
+      "value": "设备默认名称"
+    },
+    {
+      "name": "settings_forget",
+      "value": "忘记此连接"
+    },
+    {
+      "name": "settings_forget_confirm",
+      "value": "确定要忘记这个连接吗？"
+    },
+    {
+      "name": "settings_identities",
+      "value": "连接"
+    },
+    {
+      "name": "settings_language",
+      "value": "语言"
+    },
+    {
+      "name": "settings_language_system",
+      "value": "跟随系统"
+    },
+    {
+      "name": "settings_no_identities",
+      "value": "还没有连接"
+    },
+    {
+      "name": "settings_nodes_count",
+      "value": "节点"
+    },
+    {
+      "name": "settings_protocol_version",
+      "value": "通信协议版本"
+    },
+    {
+      "name": "settings_title",
+      "value": "设置"
+    },
+    {
+      "name": "settings_updates",
+      "value": "检查更新"
+    },
+    {
+      "name": "settings_updates_available",
+      "value": "有新版本 %1$s (%2$s)"
+    },
+    {
+      "name": "settings_updates_check",
+      "value": "检查更新"
+    },
+    {
+      "name": "settings_updates_checking",
+      "value": "检查中…"
+    },
+    {
+      "name": "settings_updates_current",
+      "value": "当前版本 %1$s (%2$s)"
+    },
+    {
+      "name": "settings_updates_failed",
+      "value": "无法检查更新，请稍后再试。"
+    },
+    {
+      "name": "settings_updates_none",
+      "value": "已是最新"
+    },
+    {
+      "name": "settings_updates_protocol",
+      "value": "新版本改变了连接方式，更新后需要重新配对。"
+    },
+    {
+      "name": "settings_updates_store_hint",
+      "value": "从应用商店安装新版本"
+    },
+    {
+      "name": "settings_version",
+      "value": "当前版本"
+    },
+    {
+      "name": "web_load_failed",
+      "value": "加载失败"
+    },
+    {
+      "name": "web_loading",
+      "value": "加载中…"
+    },
+    {
+      "name": "web_choose_file",
+      "value": "选择文件"
+    },
+    {
+      "name": "web_download_done",
+      "value": "下载完成"
+    },
+    {
+      "name": "web_download_failed",
+      "value": "下载失败"
+    },
+    {
+      "name": "web_download_open",
+      "value": "打开"
+    },
+    {
+      "name": "web_download_saved",
+      "value": "已保存到 %1$s"
+    },
+    {
+      "name": "web_downloads",
+      "value": "下载"
+    },
+    {
+      "name": "web_exit",
+      "value": "退出"
+    },
+    {
+      "name": "web_orientation",
+      "value": "屏幕方向"
+    },
+    {
+      "name": "web_orientation_landscape",
+      "value": "横屏"
+    },
+    {
+      "name": "web_orientation_portrait",
+      "value": "竖屏"
+    },
+    {
+      "name": "web_orientation_system",
+      "value": "跟随系统"
+    },
+    {
+      "name": "web_refresh",
+      "value": "刷新"
+    },
+    {
+      "name": "web_user_agent",
+      "value": "标识"
+    },
+    {
+      "name": "web_user_agent_desktop",
+      "value": "桌面"
+    },
+    {
+      "name": "web_user_agent_mobile",
+      "value": "移动"
+    },
+    {
+      "name": "microphone_permission_reason",
+      "value": "用于让应用使用麦克风"
+    },
+    {
+      "name": "location_permission_reason",
+      "value": "用于在应用打开时获取本机位置"
+    },
+    {
+      "name": "diag_attempts",
+      "value": "最近尝试"
+    },
+    {
+      "name": "diag_cause",
+      "value": "原因"
+    },
+    {
+      "name": "diag_cause_bad_answer",
+      "value": "网关的应答无法识别"
+    },
+    {
+      "name": "diag_cause_no_network",
+      "value": "手机当前没有网络"
+    },
+    {
+      "name": "diag_cause_refused",
+      "value": "网关拒绝了这个设备"
+    },
+    {
+      "name": "diag_cause_unknown",
+      "value": "未知原因"
+    },
+    {
+      "name": "diag_cause_unreachable",
+      "value": "连不上网关"
+    },
+    {
+      "name": "diag_client",
+      "value": "客户端"
+    },
+    {
+      "name": "diag_connection",
+      "value": "连接"
+    },
+    {
+      "name": "diag_failures",
+      "value": "连续失败 %1$s 次"
+    },
+    {
+      "name": "diag_last_answer",
+      "value": "最后应答 %1$s"
+    },
+    {
+      "name": "diag_machines",
+      "value": "节点"
+    },
+    {
+      "name": "diag_network",
+      "value": "网络"
+    },
+    {
+      "name": "diag_since",
+      "value": "从 %1$s 起"
+    },
+    {
+      "name": "diag_state",
+      "value": "状态"
+    },
+    {
+      "name": "diag_system",
+      "value": "系统"
+    },
+    {
+      "name": "diag_title",
+      "value": "连接诊断"
+    },
+    {
+      "name": "settings_copy_error",
+      "value": "复制错误信息"
+    },
+    {
+      "name": "diag_device_name",
+      "value": "设备名"
+    },
+    {
+      "name": "web_isolation_unavailable",
+      "value": "请更新系统网页组件后再打开应用。"
+    },
+    {
+      "name": "web_session_failed",
+      "value": "无法安全切换应用会话，请重启客户端后重试。"
+    }
+  ]
+}

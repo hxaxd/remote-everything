@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""Deployment acceptance for device trust, not a unit test: it pairs against a
+real, deployed gateway, pulls the client certificate out of the issued PKCS#12
+with openssl, checks the fingerprint, and then speaks mTLS with that
+certificate. CI only syntax-checks this file; running it needs a deployment
+(PUBLIC_ORIGIN, SERVER_STATE_ROOT, GATEWAY_BIN).
+
+Pairing and device records belong to internal/devicecore, so this script sits
+beside them rather than under any one entrypoint.
+"""
 import base64
 import hashlib
 import json

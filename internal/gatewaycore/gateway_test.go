@@ -12,6 +12,7 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/atomicfile"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 // The two nodes every test gateway serves: they have identities and control
@@ -72,8 +73,8 @@ func (fixture *nodeFixture) serveHTTP(t *testing.T, index int, writer http.Respo
 		}
 		fixture.record(command["action"] + "/" + command["id"])
 		if command["action"] == "list" {
-			apps := []ApplicationState{{ID: testApps[index], Name: "Demo", Description: "", Icon: "D", Accent: "#2563eb", ComputerConnected: true, Enabled: true, Running: true, Code: "ready"}}
-			WriteJSON(writer, http.StatusOK, ControlResponse{OK: true, ComputerConnected: true, Code: "ready", Apps: apps})
+			apps := []wire.ApplicationState{{ID: testApps[index], Name: "Demo", Description: "", Icon: "D", Accent: "#2563eb", ComputerConnected: true, Enabled: true, Running: true, Code: "ready"}}
+			WriteJSON(writer, http.StatusOK, wire.Catalog{OK: true, ComputerConnected: true, Code: "ready", Apps: apps})
 			return
 		}
 		WriteJSON(writer, http.StatusOK, map[string]any{"ok": true, "action": command["action"], "computer_connected": true, "enabled": true, "running": true, "code": "ready"})
@@ -632,5 +633,28 @@ func TestAClientCannotChooseAnApplicationItIsServed(t *testing.T) {
 	setRoutingCookie(request, "editor")
 	if carried := request.Header.Get("Cookie"); strings.Contains(carried, "something-else") {
 		t.Fatalf("the request carries %q", carried)
+	}
+}
+
+func TestApplicationNeverReceivesGatewaySessionCookies(t *testing.T) {
+	var captured string
+	gateway, cluster := newTestGateway(t, func(w http.ResponseWriter, r *http.Request) {
+		captured = r.Header.Get("Cookie")
+		w.Header().Add("Set-Cookie", proxysecurity.HostWebSessionCookieName+"=forged; Path=/; Secure")
+		w.Header().Add("Set-Cookie", proxysecurity.WebSessionCookieName+"=forged; Path=/")
+		w.Header().Add("Set-Cookie", "session=app; Path=/")
+		w.WriteHeader(200)
+	})
+	host, origin := appHost(t, 0, testApps[0])
+	r := httptest.NewRequest("GET", origin+"/", nil)
+	r.Host = host
+	r.Header.Set("Cookie", proxysecurity.HostWebSessionCookieName+"=protected; "+proxysecurity.WebSessionCookieName+"=unprefixed; session=app")
+	w := httptest.NewRecorder()
+	gateway.ServeApplication(cluster.id(0), testApps[0], w, r)
+	if strings.Contains(captured, "protected") || strings.Contains(captured, "unprefixed") || !strings.Contains(captured, "session=app") {
+		t.Fatalf("gateway credential leaked: %q", captured)
+	}
+	if cookies := w.Result().Cookies(); len(cookies) != 1 || cookies[0].Name != "session" {
+		t.Fatal("application overwrote gateway session")
 	}
 }

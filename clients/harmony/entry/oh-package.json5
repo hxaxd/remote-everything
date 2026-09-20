@@ -3,7 +3,10 @@
   "version": "3.5.0",
   "description": "Remote Everything entry module",
   "main": "",
-  "author": "",
+  "author": "Remote Everything Contributors",
   "license": "Apache-2.0",
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.28"
+  }
 }

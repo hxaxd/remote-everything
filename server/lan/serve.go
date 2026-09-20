@@ -14,6 +14,7 @@ import (
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/logline"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 // applicationHost is where this entrance's applications listen when nobody said:
@@ -25,6 +26,15 @@ const applicationHost = "0.0.0.0"
 // lanService is the LAN entrance: the state that describes where it is and whom
 // it serves, the device trust that decides which devices may reach the nodes, and
 // the gateway the trust reaches them through.
+//
+// This shape serves no web client, and that is a decision rather than a gap: its
+// applications are served on ports of the entrance's own host, and a browser
+// keeps cookies by host and not by port, so an application's page would share one
+// cookie jar with the entrance's own session — able to write cookies the entrance
+// receives and to read every one the entrance did not mark HttpOnly. A browser is
+// not a client of this shape; a device holding a certificate is. The public shape
+// serves one, at a host of its own with a cookie name the browser binds to that
+// host, and the trade is written down in `skills/remote-everything-app`.
 type lanService struct {
 	root  string
 	state lanState
@@ -39,16 +49,38 @@ type lanService struct {
 	applicationsMu sync.Mutex
 }
 
+// openLANTrust opens the device trust of this entrance over the gateway it is
+// given — the same gateway that serves, because which node a device may reach
+// and which node a request reaches are one decision. It is what serving and
+// the commands that edit what devices hold both go through.
+//
+// Nothing at this entrance's edges outlives a revoked device: what a gateway
+// keeps for one is its web sessions, and this shape keeps none.
+func openLANTrust(root string, state lanState, gateway *gatewaycore.Gateway) (*devicecore.Trust, error) {
+	certificate, err := loadLANCertificate(root, state)
+	if err != nil {
+		return nil, err
+	}
+	return devicecore.Open(devicecore.Config{
+		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
+		// If RequireApproval is false, this entrance hands its invitations over in person,
+		// so redeeming one is the whole of the admission. If RequireApproval is true,
+		// an operator must manually approve the device after redemption.
+		Certificate: certificate, ApproveOnRedemption: !state.RequireApproval, Node: gateway,
+		Log: logline.Log, Audit: logline.Audit,
+	})
+}
+
 func openLANService(root string) (*lanService, error) {
 	state, err := loadLANState(root)
 	if err != nil {
 		return nil, err
 	}
-	certificate, err := loadLANCertificate(root, state)
+	gateway, err := gatewaycore.New(state.State, root)
 	if err != nil {
 		return nil, err
 	}
-	gateway, err := gatewaycore.New(state.State, root)
+	trust, err := openLANTrust(root, state, gateway)
 	if err != nil {
 		return nil, err
 	}
@@ -59,17 +91,8 @@ func openLANService(root string) (*lanService, error) {
 	// This entrance serves its applications on ports of its own rather than as
 	// hosts under its origin, which is an address rather than a domain.
 	gateway.SetAppAddressing(service)
-	trust, err := devicecore.Open(devicecore.Config{
-		Root: root, InstallationID: state.InstallationID, Origin: state.Origin,
-		// This entrance hands its invitations over in person, so redeeming one is
-		// the whole of the admission, and the certificate it serves is its own.
-		Certificate: certificate, ApproveOnRedemption: true, Node: gateway,
-		Log: logline.Log, Audit: logline.Audit,
-	})
-	if err != nil {
-		return nil, err
-	}
 	service.trust = trust
+
 	return service, nil
 }
 
@@ -101,6 +124,8 @@ func (service *lanService) Surfaces() ([]entrance.Surface, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Whatever is asked for here, the answer is the trust's: this address serves a
+	// device holding a certificate, and a browser is not one.
 	server := gatewaycore.NewServer(listenAddress, devicecore.WithClientFingerprint(service.trust))
 	server.TLSConfig = configuration
 	surfaces := []entrance.Surface{{
@@ -156,8 +181,8 @@ func (service *lanService) applicationSurfaces(configuration *tls.Config) []entr
 // entrance terminates the TLS here too, so the certificate it verified is what
 // speaks for the device.
 func (service *lanService) applicationSurface(application lanApplication, address string, configuration *tls.Config, listener net.Listener) entrance.Surface {
-	handler := devicecore.WithClientFingerprint(service.trust.AppHandler(application.NodeID, application.AppID))
-	server := gatewaycore.NewServer(address, handler)
+	appHandler := devicecore.WithClientFingerprint(service.trust.AppHandler(application.NodeID, application.AppID))
+	server := gatewaycore.NewServer(address, appHandler)
 	server.TLSConfig = configuration
 	return entrance.Surface{
 		Address:  address,
@@ -173,7 +198,7 @@ func (service *lanService) applicationSurface(application lanApplication, addres
 // answers: an origin is handed to a client so that the client loads it, and one
 // that answers nothing would be a page that never loads.
 func (service *lanService) Origin(nodeID, appID string) (string, error) {
-	if !validSHA256.MatchString(nodeID) || !gatewaycore.ValidAppID(appID) {
+	if !validSHA256.MatchString(nodeID) || !wire.ValidAppID(appID) {
 		return "", errors.New("invalid application")
 	}
 	if _, ok := service.state.FindNode(nodeID); !ok {

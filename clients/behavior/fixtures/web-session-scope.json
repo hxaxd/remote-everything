@@ -1,0 +1,26 @@
+[
+  {
+    "gatewayOrigin": "https://gateway.example",
+    "appKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dsh",
+    "profile": "app-8dbcad6daca631a0c264610c4aed620a3d5bb4c5273a1c916b53b896b28455ae",
+    "uuid": "8dbcad6d-aca6-31a0-c264-610c4aed620a"
+  },
+  {
+    "gatewayOrigin": "https://gateway.example",
+    "appKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/sillytavern",
+    "profile": "app-d318b9e1842314b32b84b848e1cd65ec9a6eb262fd0f5d217f88dafb9946e19c",
+    "uuid": "d318b9e1-8423-14b3-2b84-b848e1cd65ec"
+  },
+  {
+    "gatewayOrigin": "https://gateway.example",
+    "appKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/dsh",
+    "profile": "app-5207cd3e87b85d66182c6837d8247b210d00a422ff0b99df5bad4534fe692006",
+    "uuid": "5207cd3e-87b8-5d66-182c-6837d8247b21"
+  },
+  {
+    "gatewayOrigin": "https://192.168.1.6:58626",
+    "appKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dsh",
+    "profile": "app-53ebfdd976b2597ca6d04f1d8409dff9d4e4db6c08999c7ba624079e5e500f8b",
+    "uuid": "53ebfdd9-76b2-597c-a6d0-4f1d8409dff9"
+  }
+]

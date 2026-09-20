@@ -15,19 +15,11 @@ let package = Package(
             name: "RemoteEverything",
             path: "RemoteEverything",
             exclude: ["Resources/Info.plist", "App/RemoteEverythingApp.swift"],
-            sources: [
-                "App/",
-                "Core/Models/",
-                "Core/Network/",
-                "Core/Security/",
-                "Core/Storage/",
-                "Core/Web/",
-                "Core/Update/",
-                "Features/Setup/",
-                "Features/Catalog/",
-                "Features/Connections/",
-                "Features/Settings/",
-                "Features/Remote/",
+            // Whole directories, so a new Core/ or App/ subdirectory is compiled
+            // instead of silently missing from the SwiftPM build.
+            sources: ["App", "Core"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
             ]
         ),
         .testTarget(

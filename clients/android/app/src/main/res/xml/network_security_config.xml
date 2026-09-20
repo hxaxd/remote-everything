@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the platform's own authorities are trusted. A user-installed root
+  certificate would otherwise be enough to read every gateway a device talks to,
+  and no deployment of this project needs one: a LAN gateway's self-signed
+  certificate is verified by the pin its invitation carried, not by an authority.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

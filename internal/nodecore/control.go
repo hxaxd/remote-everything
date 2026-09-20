@@ -10,25 +10,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
-
-type catalogResponse struct {
-	OK                bool               `json:"ok"`
-	ComputerConnected bool               `json:"computer_connected"`
-	Code              string             `json:"code"`
-	Apps              []applicationState `json:"apps"`
-}
-
-type actionResponse struct {
-	OK                bool              `json:"ok"`
-	Action            string            `json:"action,omitempty"`
-	ComputerConnected bool              `json:"computer_connected"`
-	Enabled           bool              `json:"enabled"`
-	Running           bool              `json:"running"`
-	Code              string            `json:"code"`
-	App               *applicationState `json:"app,omitempty"`
-	ErrorCode         string            `json:"error_code,omitempty"`
-}
 
 type controlErrorResponse struct {
 	OK   bool   `json:"ok"`
@@ -40,30 +24,30 @@ type controlRequest struct {
 	ID     string `json:"id,omitempty"`
 }
 
-func (node *Node) stateResponse(app AppDefinition, action string) actionResponse {
+func (node *Node) stateResponse(app AppDefinition, action string) wire.Action {
 	state := node.currentApplicationState(app)
-	return actionResponse{OK: true, Action: action, ComputerConnected: true, Enabled: state.Enabled, Running: state.Running, Code: state.Code, App: &state}
+	return wire.Action{OK: true, Action: action, ComputerConnected: true, Enabled: state.Enabled, Running: state.Running, Code: state.Code, App: &state}
 }
 
-func (node *Node) listApps() catalogResponse {
+func (node *Node) listApps() wire.Catalog {
 	value, err := node.loadRegistry()
 	if err != nil {
-		return catalogResponse{OK: false, ComputerConnected: true, Code: "registry_unavailable", Apps: []applicationState{}}
+		return wire.Catalog{OK: false, ComputerConnected: true, Code: "registry_unavailable", Apps: []wire.ApplicationState{}}
 	}
-	apps := make([]applicationState, 0, len(value.Apps))
+	apps := make([]wire.ApplicationState, 0, len(value.Apps))
 	for _, app := range value.Apps {
 		apps = append(apps, node.currentApplicationState(app))
 	}
-	return catalogResponse{OK: true, ComputerConnected: true, Code: "ready", Apps: apps}
+	return wire.Catalog{OK: true, ComputerConnected: true, Code: "ready", Apps: apps}
 }
 
-func (node *Node) startApp(id string) actionResponse {
+func (node *Node) startApp(id string) wire.Action {
 	app, err := node.findApp(id)
 	if err != nil {
-		return actionResponse{OK: false, Action: "start", ComputerConnected: true, Code: "app_not_found"}
+		return wire.Action{OK: false, Action: "start", ComputerConnected: true, Code: "app_not_found"}
 	}
 	if err := os.WriteFile(node.enabledPath(id), []byte("enabled\n"), 0o600); err != nil {
-		return actionResponse{OK: false, Action: "start", ComputerConnected: true, Code: "state_update_failed"}
+		return wire.Action{OK: false, Action: "start", ComputerConnected: true, Code: "state_update_failed"}
 	}
 	// Give the supervisor (2s poll cycle) a window to notice the enabled flag and
 	// either relaunch the process or confirm the port is already open, so the
@@ -72,13 +56,13 @@ func (node *Node) startApp(id string) actionResponse {
 	return node.stateResponse(app, "start")
 }
 
-func (node *Node) stopApp(id string) actionResponse {
+func (node *Node) stopApp(id string) wire.Action {
 	app, err := node.findApp(id)
 	if err != nil {
-		return actionResponse{OK: false, Action: "stop", ComputerConnected: true, Code: "app_not_found"}
+		return wire.Action{OK: false, Action: "stop", ComputerConnected: true, Code: "app_not_found"}
 	}
 	if err := os.Remove(node.enabledPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return actionResponse{OK: false, Action: "stop", ComputerConnected: true, Code: "state_update_failed"}
+		return wire.Action{OK: false, Action: "stop", ComputerConnected: true, Code: "state_update_failed"}
 	}
 	var stopErr error
 	if app.StopCommand != "" {
@@ -100,10 +84,10 @@ func (node *Node) stopApp(id string) actionResponse {
 	return result
 }
 
-func (node *Node) statusApp(id string) actionResponse {
+func (node *Node) statusApp(id string) wire.Action {
 	app, err := node.findApp(id)
 	if err != nil {
-		return actionResponse{OK: false, Action: "status", ComputerConnected: true, Code: "app_not_found"}
+		return wire.Action{OK: false, Action: "status", ComputerConnected: true, Code: "app_not_found"}
 	}
 	return node.stateResponse(app, "status")
 }
@@ -152,15 +136,15 @@ func (node *Node) localControlHandler(writer http.ResponseWriter, request *http.
 			result = node.listApps()
 		}
 	case "status":
-		if validID.MatchString(input.ID) {
+		if wire.ValidAppID(input.ID) {
 			result = node.statusApp(input.ID)
 		}
 	case "start":
-		if validID.MatchString(input.ID) {
+		if wire.ValidAppID(input.ID) {
 			result = node.startApp(input.ID)
 		}
 	case "stop":
-		if validID.MatchString(input.ID) {
+		if wire.ValidAppID(input.ID) {
 			result = node.stopApp(input.ID)
 		}
 	}

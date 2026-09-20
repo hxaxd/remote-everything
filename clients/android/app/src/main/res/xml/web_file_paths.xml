@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The one directory a page's camera capture may write to: a cache the file
+     provider hands out as a content URI, and nothing else. -->
+<paths>
+    <cache-path name="uploads" path="uploads/" />
+</paths>

@@ -61,4 +61,13 @@ require(api_level(product["compatibleSdkVersion"]) == minimum_harmony, "HarmonyO
 require(api_level(product["compileSdkVersion"]) >= minimum_harmony, "HarmonyOS compile API is too old")
 require(api_level(product["targetSdkVersion"]) >= minimum_harmony, "HarmonyOS target API is too old")
 
+# The protocol version is the one thing not in the bundle; HarmonyOS keeps it in
+# BuildInfo.ets, and it must move with the manifest like every other number.
+build_info = (ROOT / "harmony" / "entry" / "src" / "main" / "ets" / "app" / "BuildInfo.ets").read_text(encoding="utf-8")
+expected_protocol = RELEASE["protocolVersion"]
+match = re.search(r"PROTOCOL_VERSION\s*:\s*number\s*=\s*(\d+)", build_info)
+require(match is not None, "HarmonyOS BuildInfo.ets does not declare PROTOCOL_VERSION")
+require(int(match.group(1)) == expected_protocol,
+    f"HarmonyOS protocol version {match.group(1)} differs from release.json ({expected_protocol})")
+
 print(f"All client versions match {VERSION} ({BUILD}); protocol {RELEASE['protocolVersion']}.")

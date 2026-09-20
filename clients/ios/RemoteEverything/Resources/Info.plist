@@ -3,9 +3,14 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh_CN</string>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleDisplayName</key>
-	<string>远程万物</string>
+	<string>Remote Everything</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,14 +25,36 @@
 	<string>3.5.0</string>
 	<key>CFBundleVersion</key>
 	<string>28</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.remoteeverything.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>remote-everything</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- What a page downloads lands in the app's own Documents (App/Web): the two
+	     keys below are what makes that folder visible in Files and openable there,
+	     which is this platform's answer to "where did the file go". -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>用于扫描 setup 二维码以及远程网页明确请求的拍照或视频输入</string>
+	<string>Scan the invitation QR code, and let an application use the camera. / 用于扫描邀请二维码，以及让应用使用摄像头。</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>用于远程网页明确请求的语音输入和通话</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于在远程网页明确请求上传图片或视频时选择媒体</string>
+	<string>Let an application use the microphone. / 用于让应用使用麦克风。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Let an application know where this device is while it is open. / 用于在应用打开时获取本机位置。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Reach a gateway on the local network. / 用于接入局域网内的网关。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

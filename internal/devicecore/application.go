@@ -10,6 +10,7 @@ import (
 
 	"github.com/hxaxd/remote-everything/internal/gatewaycore"
 	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 // TLSAskPath is where the entrance in front of a public gateway asks, before it
@@ -92,7 +93,7 @@ func (service *Trust) applicationHostIsServed(host string) bool {
 	if !connected {
 		return false
 	}
-	var catalog gatewaycore.ControlResponse
+	var catalog wire.Catalog
 	if json.Unmarshal(apps, &catalog) != nil {
 		return false
 	}

@@ -15,14 +15,12 @@ import (
 	"strings"
 
 	"github.com/hxaxd/remote-everything/internal/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 const registrySchema = 1
 
-var (
-	validID     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
-	validAccent = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-)
+var validAccent = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
 
 type AppDefinition struct {
 	ID             string   `json:"id"`
@@ -108,7 +106,7 @@ func (node *Node) validateRegistry(value Registry) error {
 		if err != nil {
 			return errors.New("invalid application proxy_url")
 		}
-		if !validID.MatchString(app.ID) {
+		if !wire.ValidAppID(app.ID) {
 			return errors.New("invalid application id")
 		}
 		if !validMetadata(app.Name, 80, false) {
@@ -285,7 +283,7 @@ func (node *Node) setApp(definition string, output io.Writer) error {
 }
 
 func (node *Node) removeApp(id string, output io.Writer) error {
-	if !validID.MatchString(id) {
+	if !wire.ValidAppID(id) {
 		return errors.New("invalid application id")
 	}
 	value, err := node.loadRegistry()
