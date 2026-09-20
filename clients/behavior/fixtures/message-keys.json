@@ -121,6 +121,7 @@
   "web.download_saved",
   "web.downloads",
   "web.exit",
+  "web.isolation_unavailable",
   "web.load_failed",
   "web.loading",
   "web.orientation",
@@ -128,6 +129,7 @@
   "web.orientation_portrait",
   "web.orientation_system",
   "web.refresh",
+  "web.session_failed",
   "web.user_agent",
   "web.user_agent_desktop",
   "web.user_agent_mobile"

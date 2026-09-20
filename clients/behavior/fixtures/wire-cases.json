@@ -66,6 +66,22 @@
       "reason": "nodes[].name has minLength 1, so an empty name is refused."
     },
     {
+      "name": "nodes-reject-unknown-link",
+      "kind": "nodes",
+      "payload": {
+        "ok": true,
+        "nodes": [
+          {
+            "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "name": "客厅电脑",
+            "link": "wifi"
+          }
+        ]
+      },
+      "expect": "reject",
+      "reason": "nodes[].link is the closed set of local and tunnel; a value outside it is not a way in this client can name, so the whole answer is refused rather than guessed at."
+    },
+    {
       "name": "catalog-accept-valid",
       "kind": "catalog",
       "payload": {
@@ -820,6 +836,88 @@
       },
       "expect": "reject",
       "reason": "pending_expires_at is an RFC 3339 UTC instant; prose is not a timestamp and the pending window cannot be computed from it."
+    },
+    {
+      "name": "pairing-reject-device-name-control",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone\nline",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:00Z"
+      },
+      "expect": "reject",
+      "reason": "The name is shown; a control character in it is not a sentence this client renders, so a pairing answer carrying one is refused."
+    },
+    {
+      "name": "pairing-reject-leap-second",
+      "kind": "pairing",
+      "payload": {
+        "ok": true,
+        "device_name": "phone",
+        "certificate_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "credential_format": "pkcs12",
+        "credential_pkcs12": "MIIB",
+        "pending_expires_at": "2026-09-17T10:00:60Z"
+      },
+      "expect": "reject",
+      "reason": "An instant with a leap second is not one this client accepts: the pending window is computed from the epoch, and the clients must agree on the same instants."
+    },
+    {
+      "name": "setup-accept-valid",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "accept",
+      "reason": "A fully formed setup link: 64-hex node, percent-encoded Chinese name, HTTPS origin with port, 43-char invitation, and the pin halves together."
+    },
+    {
+      "name": "setup-accept-ipv6-origin",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=phone&origin=https://[::1]&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "accept",
+      "reason": "An IPv6 literal origin with no port is a valid authority: the brackets are the host, and there is nothing after them to be a port."
+    },
+    {
+      "name": "setup-reject-empty-query-segment",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&&node_name=phone&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "An empty segment between ampersands is not a parameter; the strict side refuses it rather than reading around it."
+    },
+    {
+      "name": "setup-reject-raw-space",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=phone&origin=https://192.168.1.5 8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "A bare space is not a character a URI may carry; a link with one is refused before its parameters are read."
+    },
+    {
+      "name": "setup-reject-encoded-parameter-name",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?%6eode=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=phone&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "A parameter name is compared as it arrived: %6eode decodes to node but is not the name node, so it is an unknown parameter."
+    },
+    {
+      "name": "setup-reject-unicode-raw",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=客厅电脑&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "A name that is not percent-encoded is not a character a URI may carry; the link is refused before its parameters are read."
     },
     {
       "name": "error-accept-unauthorized",
