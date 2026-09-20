@@ -1,13 +1,17 @@
 package com.remoteeverything.app.web
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.remoteeverything.app.R
 
 /**
@@ -37,7 +41,14 @@ class WebDownloadNotice(private val context: Context) {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .build()
-        runCatching { manager.notify(request, notification) }
+        // 33 asks the person for this, and a refusal is an answer rather than a
+        // failure: the file is saved either way, so the receipt is what is given up.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        manager.notify(request, notification)
     }
 
     /** Where the file actually is, named the way the phone's own folder is named. */
