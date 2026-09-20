@@ -15,12 +15,20 @@
 
 import { util } from '@kit.ArkTS';
 import { ServerPin } from '../model/Models';
-import { Sandbox } from '../store/Sandbox';
+import { AtomicFile } from '../store/AtomicFile';
 import { CertificateVault } from './CertificateVault';
-import { CredentialError, CredentialPresence } from './CredentialError';
-import { utf8Hex, wipe } from '../model/Digest';
+import { CredentialError } from '../model/Errors';
+import { sha256HexOfText, utf8Hex, wipe } from '../model/Digest';
 import { HuksVault, SealedCredential } from './HuksVault';
 import { openCredential, OpenedCredential } from './Pkcs12';
+
+/** What state one gateway's credential is in, as far as this device can tell. */
+export enum CredentialPresence {
+  /** Both halves are there and the certificate is installed. */
+  Present = 'present',
+  /** A credential was recorded but cannot be read: pairing is needed again. */
+  Missing = 'missing'
+}
 
 /** What a completed import leaves behind: the certificate reference, and its fingerprint. */
 export class StoredCredential {
@@ -64,11 +72,19 @@ export class IdentityVault {
   private readonly certificates: CertificateVault = new CertificateVault();
 
   private static sealAlias(origin: string): string {
+    // Hashed, not the origin itself: the first 32 hex of SHA-256, so no two
+    // gateways share a sealing key even when their origins share a prefix —
+    // the way the certificate manager's own alias is derived (CertificateVault).
+    return `remote_everything_credential_${sha256HexOfText(origin).substring(0, 32)}`;
+  }
+
+  /** The alias earlier builds sealed under: the origin's own UTF-8 bytes. */
+  private static legacySealAlias(origin: string): string {
     return `remote_everything_credential_${utf8Hex(origin).substring(0, 32)}`;
   }
 
   private static sealedFile(origin: string): string {
-    return `identity/${Sandbox.originKey(origin)}.sealed`;
+    return `identity/${AtomicFile.originKey(origin)}.sealed`;
   }
 
   /** The name this gateway's credential is installed under in the certificate manager. */
@@ -89,6 +105,10 @@ export class IdentityVault {
     try {
       opened = await openCredential(base64Pkcs12, credentialPassword, expectedFingerprint);
       const alias: string = IdentityVault.certificateAlias(origin);
+      // A re-pair replaces: the entry that may still be under this alias from an
+      // earlier pairing is removed first, so a platform that refuses the new
+      // archive cannot leave the old entry looking like the new one.
+      await this.certificates.uninstallAlias(alias);
       let keyUri: string;
       try {
         keyUri = await this.certificates.install(alias, opened.original, opened.originalPassword);
@@ -97,8 +117,8 @@ export class IdentityVault {
       }
       const sealed: Uint8Array = await this.huks.seal(IdentityVault.sealAlias(origin),
         this.associatedData(origin), opened.devicePassword, opened.reencoded);
-      Sandbox.ensureDirectory('identity');
-      Sandbox.writeBytesAtomic(IdentityVault.sealedFile(origin), sealed);
+      AtomicFile.ensureDirectory('identity');
+      AtomicFile.writeBytesAtomic(IdentityVault.sealedFile(origin), sealed);
       return new StoredCredential(keyUri, opened.fingerprint);
     } finally {
       if (opened !== null) {
@@ -130,13 +150,31 @@ export class IdentityVault {
   /** The archive and password for an API request. The caller wipes what it gets. */
   async material(origin: string): Promise<CredentialMaterial> {
     const file: string = IdentityVault.sealedFile(origin);
-    const sealed: Uint8Array | null = Sandbox.readBytes(file);
+    const sealed: Uint8Array | null = AtomicFile.readBytes(file);
     if (sealed === null) {
       throw new CredentialError('this gateway has no credential on this device');
     }
-    const unwrapped: SealedCredential = await this.huks.unseal(IdentityVault.sealAlias(origin),
-      this.associatedData(origin), sealed);
+    const unwrapped: SealedCredential = await this.openSealed(origin, sealed);
     return new CredentialMaterial(unwrapped.archive, unwrapped.password);
+  }
+
+  /** Opens a sealed credential, migrating it from the old alias scheme if need be. */
+  private async openSealed(origin: string, sealed: Uint8Array): Promise<SealedCredential> {
+    const alias: string = IdentityVault.sealAlias(origin);
+    try {
+      return await this.huks.unseal(alias, this.associatedData(origin), sealed);
+    } catch (error) {
+      // An earlier build sealed under the origin's own bytes. A credential that
+      // will not open under the hashed alias is tried under the old one, and
+      // resealed where it now belongs — a device that already paired survives
+      // the change without pairing a second time.
+      const legacy: string = IdentityVault.legacySealAlias(origin);
+      const unwrapped: SealedCredential = await this.huks.unseal(legacy, this.associatedData(origin), sealed);
+      const resealed: Uint8Array = await this.huks.seal(alias, this.associatedData(origin),
+        unwrapped.password, unwrapped.archive);
+      AtomicFile.writeBytesAtomic(IdentityVault.sealedFile(origin), resealed);
+      return unwrapped;
+    }
   }
 
   /** Whether this gateway's credential can still be read at all. */
@@ -157,8 +195,11 @@ export class IdentityVault {
    */
   async forget(origin: string): Promise<void> {
     await this.certificates.uninstallAlias(IdentityVault.certificateAlias(origin));
+    // Both aliases: a sealing key still under the old scheme is a key this
+    // gateway's file no longer opens, and it must not outlive the forgetting.
     await this.huks.destroy(IdentityVault.sealAlias(origin));
-    Sandbox.removeWithTemporary(IdentityVault.sealedFile(origin));
+    await this.huks.destroy(IdentityVault.legacySealAlias(origin));
+    AtomicFile.removeWithTemporary(IdentityVault.sealedFile(origin));
   }
 
   /** A gateway's name, bound into every sealing operation so a file cannot be moved between them. */

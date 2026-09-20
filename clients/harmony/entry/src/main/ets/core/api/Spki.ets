@@ -231,6 +231,45 @@ function dnsNameMatches(pattern: string, host: string): boolean {
   return !prefix.includes('.');
 }
 
+/** The 16 bytes of an iPAddress SAN, as the eight groups an IPv6 text is compared as. */
+function ipv6FromBytes(bytes: Uint8Array, start: number): string {
+  const groups: string[] = [];
+  for (let i = 0; i < 8; i++) {
+    const hi = bytes[start + i * 2];
+    const lo = bytes[start + i * 2 + 1];
+    groups.push(((hi << 8) | lo).toString(16).padStart(4, '0'));
+  }
+  return groups.join(':');
+}
+
+/** An IPv6 address as its full eight groups, or null when it is not one. */
+function ipv6Expanded(text: string): string | null {
+  const t: string = text.toLowerCase();
+  if (t.includes('.')) {
+    return null; // IPv4-embedded forms are not matched here
+  }
+  let parts: string[];
+  const doubleColon: number = t.indexOf('::');
+  if (doubleColon >= 0) {
+    const left: string[] = t.substring(0, doubleColon).split(':').filter(s => s.length > 0);
+    const right: string[] = t.substring(doubleColon + 2).split(':').filter(s => s.length > 0);
+    if (left.length + right.length > 7) {
+      return null;
+    }
+    const missing: number = 8 - left.length - right.length;
+    parts = [...left, ...new Array<string>(missing).fill('0'), ...right];
+  } else {
+    parts = t.split(':');
+    if (parts.length !== 8) {
+      return null;
+    }
+  }
+  if (parts.some(p => !/^[0-9a-f]{1,4}$/.test(p))) {
+    return null;
+  }
+  return parts.map(p => p.padStart(4, '0')).join(':');
+}
+
 /**
  * Whether a certificate covers a given host via SubjectAlternativeName (DNS / IP)
  * or Subject CommonName fallback.
@@ -239,7 +278,11 @@ export function certificateCoversHost(certificate: Uint8Array, host: string): bo
   if (!host || host.trim() === '') {
     return true;
   }
-  const wanted = host.trim().toLowerCase();
+  const wanted: string = host.trim().toLowerCase();
+  // The host a transport reports for an IPv6 origin keeps its brackets; a SAN
+  // never does. The plain form is what an address is matched as.
+  const wantedPlain: string = wanted.startsWith('[') && wanted.endsWith(']')
+    ? wanted.substring(1, wanted.length - 1) : wanted;
   try {
     const outer: Element = readElement(certificate, 0);
     if (outer.tag !== 0x30) return false;
@@ -283,6 +326,8 @@ export function certificateCoversHost(certificate: Uint8Array, host: string): bo
                         if (ipLen === 4) {
                           const ip = `${certificate[gn.contentStart]}.${certificate[gn.contentStart + 1]}.${certificate[gn.contentStart + 2]}.${certificate[gn.contentStart + 3]}`;
                           names.push(ip);
+                        } else if (ipLen === 16) {
+                          names.push(ipv6FromBytes(certificate, gn.contentStart));
                         }
                       }
                     }
@@ -296,7 +341,9 @@ export function certificateCoversHost(certificate: Uint8Array, host: string): bo
     }
 
     if (hasSan) {
-      return names.some(n => dnsNameMatches(n, wanted) || n === wanted);
+      const expandedWanted: string | null = wantedPlain.includes(':') ? ipv6Expanded(wantedPlain) : null;
+      return names.some((n: string) => dnsNameMatches(n, wantedPlain) || n === wantedPlain ||
+        (expandedWanted !== null && n.includes(':') && ipv6Expanded(n) === expandedWanted));
     }
 
     // Fallback: CommonName in Subject (tbs[index + 4])

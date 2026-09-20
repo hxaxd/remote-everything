@@ -4,8 +4,8 @@
 // and to application origins served under that gateway's origin or domain.
 // An unexpected host never receives the certificate.
 
-import { belongsToGateway } from '../api/ProtocolClient';
-import { DEFAULT_TLS_PORT, hostOf, portOf } from '../api/Origins';
+import { belongsToGateway } from './ProtocolClient';
+import { DEFAULT_TLS_PORT, hostOf, portOf } from './Origins';
 
 export const PORT_UNKNOWN = 0;
 export const PORT_OMITTED = -1;

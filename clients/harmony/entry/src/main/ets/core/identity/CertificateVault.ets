@@ -15,7 +15,7 @@
 
 import { certificateManager } from '@kit.DeviceCertificateKit';
 import { sha256HexOfText } from '../model/Digest';
-import { CredentialError } from './CredentialError';
+import { CredentialError } from '../model/Errors';
 
 export class CertificateVault {
   /** The alias one gateway's credential is installed under. */

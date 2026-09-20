@@ -20,7 +20,7 @@
 
 import { cert } from '@kit.DeviceCertificateKit';
 import { base64Decode, base64Encode, randomBytes, sha256Hex, wipe } from '../model/Digest';
-import { CredentialError } from './CredentialError';
+import { CredentialError } from '../model/Errors';
 
 /** The certificate manager's documented ceiling for one credential, in bytes. */
 export const MAX_CREDENTIAL_BYTES = 20480;
