@@ -1,446 +1,133 @@
 package main
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/entrancetest"
 	"github.com/hxaxd/remote-everything/internal/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/webclient"
 )
 
-// webTestClient returns an http.Client configured with a cookie jar and trusting
-// the entrance's self-signed TLS certificate.
-func newWebTestClient(t *testing.T, pinnedCert *x509.Certificate) (*http.Client, *cookiejar.Jar) {
+// This entrance serves no web client, and that is a decision rather than a gap: its
+// applications are served on ports of the entrance's own host, and a browser keeps
+// cookies by host and not by port, so a browser session here would share one cookie
+// jar with every application it can open — an application's page could write cookies
+// this entrance receives, and read every cookie of it that is not HttpOnly. A
+// browser is not a client of this shape; a device holding a certificate is.
+//
+// What is pinned here is that it stays that way: the web client's own paths answer
+// the trust's refusal, no session cookie is ever handed out, and a cookie admits
+// nothing. The trade itself is written down in `skills/remote-everything-app`.
+
+// browserClient is a browser seen from this entrance: it trusts the certificate the
+// entrance pinned, keeps no cookie jar, and reads a redirect as the answer rather
+// than following it. What a browser is refused does not depend on it remembering
+// anything.
+func browserClient(t *testing.T, pinned *x509.Certificate) *http.Client {
 	t.Helper()
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tlsConfig := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		RootCAs:    x509.NewCertPool(),
-	}
-	tlsConfig.RootCAs.AddCert(pinnedCert)
-
-	client := &http.Client{
-		Jar: jar,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
-		},
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-		Timeout: 5 * time.Second,
-	}
-	return client, jar
-}
-
-// TestLANWebClient_StaticAssets verifies the embedded SPA static assets are correctly served.
-func TestLANWebClient_StaticAssets(t *testing.T) {
-	harness := startLANEntrance(t)
-	client, _ := newWebTestClient(t, harness.pinned)
-
-	tests := []struct {
-		path        string
-		wantStatus  int
-		wantContent string
-	}{
-		{"/", http.StatusOK, "<title>Remote Everything</title>"},
-		{"/index.html", http.StatusOK, "id=\"view-pair\""},
-		{"/style.css", http.StatusOK, "--canvas"},
-		{"/app.js", http.StatusOK, "CryptoVault"},
-		{"/favicon.ico", http.StatusNoContent, ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			resp, err := client.Get(harness.origin + tt.path)
-			if err != nil {
-				t.Fatalf("GET %s failed: %v", tt.path, err)
-			}
-			defer resp.Body.Close()
-
-			if resp.StatusCode != tt.wantStatus {
-				t.Fatalf("GET %s status = %d; want %d", tt.path, resp.StatusCode, tt.wantStatus)
-			}
-			body, _ := io.ReadAll(resp.Body)
-			if tt.wantContent != "" && !strings.Contains(string(body), tt.wantContent) {
-				t.Fatalf("GET %s content does not contain %q", tt.path, tt.wantContent)
-			}
-		})
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: x509.NewCertPool()}
+	tlsConfig.RootCAs.AddCert(pinned)
+	return &http.Client{
+		Transport:     &http.Transport{TLSClientConfig: tlsConfig},
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		Timeout:       5 * time.Second,
 	}
 }
 
-// TestLANWebClient_EndToEndFlow verifies the full Web client lifecycle:
-// pairing -> nodes query -> apps query -> open app with ticket -> logout.
-func TestLANWebClient_EndToEndFlow(t *testing.T) {
+// refused is the answer an entrance gives a request that is not a device's: the
+// trust's own refusal, which is a body a client reads rather than a page a browser
+// renders.
+func refused(t *testing.T, response *http.Response, body []byte) {
+	t.Helper()
+	if response.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d (body: %s); want %d", response.StatusCode, body, http.StatusUnauthorized)
+	}
+	if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "application/json") {
+		t.Fatalf("Content-Type = %q; want a refusal rather than a page", contentType)
+	}
+	var refusal struct {
+		OK   bool   `json:"ok"`
+		Code string `json:"code"`
+	}
+	if json.Unmarshal(body, &refusal) != nil || refusal.Code != "unauthorized" {
+		t.Fatalf("body = %q; want the unauthorized refusal", body)
+	}
+}
+
+// TestLANEntranceServesNoWebClient asks for the web client where it would be: the
+// page itself, the assets it loads, and the same assets under the path the public
+// entrance serves them at.
+func TestLANEntranceServesNoWebClient(t *testing.T) {
 	harness := startLANEntrance(t)
-	client, jar := newWebTestClient(t, harness.pinned)
-
-	// 1. Unauthenticated request to /nodes should return 401
-	resp, err := client.Get(harness.origin + "/__remote_everything/nodes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated /nodes status = %d; want %d", resp.StatusCode, http.StatusUnauthorized)
-	}
-
-	// 2. Issue invitation on the entrance
-	var inviteOut bytes.Buffer
-	if err := harness.service.trust.RunCLI([]string{"invite", "--name", "Test Web Browser", "--node", entrancetest.NodeIDs[0], "--ttl", "10m"}, &inviteOut); err != nil {
-		t.Fatalf("failed to issue invitation: %v", err)
-	}
-	var inviteResult struct {
-		Invitation string `json:"invitation"`
-	}
-	if err := json.Unmarshal(inviteOut.Bytes(), &inviteResult); err != nil {
-		t.Fatalf("failed to decode invitation: %v", err)
-	}
-
-	// 3. Web pair request
-	pairReqBody, _ := json.Marshal(map[string]string{
-		"client_id":   "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
-		"device_name": "Test Web Browser",
-	})
-	pairReq, err := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_pair", bytes.NewReader(pairReqBody))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pairReq.Header.Set("Authorization", "Invitation "+inviteResult.Invitation)
-	pairReq.Header.Set("Content-Type", "application/json")
-
-	pairResp, err := client.Do(pairReq)
-	if err != nil {
-		t.Fatalf("pair request failed: %v", err)
-	}
-	defer pairResp.Body.Close()
-
-	if pairResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(pairResp.Body)
-		t.Fatalf("pair request status = %d (body: %s); want %d", pairResp.StatusCode, string(body), http.StatusOK)
-	}
-
-	var pairData struct {
-		OK           bool     `json:"ok"`
-		DeviceName   string   `json:"device_name"`
-		Fingerprint  string   `json:"fingerprint"`
-		SessionToken string   `json:"session_token"`
-		RevokeToken  string   `json:"revoke_token"`
-		UnlockToken  string   `json:"unlock_token"`
-		Status       string   `json:"status"`
-		Nodes        []string `json:"nodes"`
-	}
-	if err := json.NewDecoder(pairResp.Body).Decode(&pairData); err != nil {
-		t.Fatalf("failed to decode pair response: %v", err)
-	}
-	if !pairData.OK || pairData.Status != "approved" || pairData.SessionToken == "" {
-		t.Fatalf("unexpected pair result: %+v", pairData)
-	}
-
-	// Verify cookie was saved in jar
-	u, _ := url.Parse(harness.origin)
-	cookies := jar.Cookies(u)
-	hasWebCookie := false
-	for _, c := range cookies {
-		if c.Name == webclient.SessionCookieName && c.Value == pairData.SessionToken {
-			hasWebCookie = true
-			break
+	client := browserClient(t, harness.pinned)
+	paths := []string{"/", "/index.html", "/style.css", "/app.js", "/favicon.ico", "/web/", "/web/app.js", "/web/icon.svg"}
+	for _, path := range paths {
+		response, err := client.Get(harness.origin + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("GET %s status = %d (body: %s); want %d", path, response.StatusCode, body, http.StatusUnauthorized)
+		}
+		if len(response.Cookies()) != 0 {
+			t.Fatalf("GET %s handed out a cookie: %+v", path, response.Cookies())
+		}
+		if strings.Contains(string(body), "<!DOCTYPE") || strings.Contains(string(body), "Remote Everything") {
+			t.Fatalf("GET %s served a page: %s", path, body)
 		}
 	}
-	if !hasWebCookie {
-		t.Fatal("cookie jar missing session cookie after pairing")
-	}
+}
 
-	// 4. Query /__remote_everything/nodes with web session cookie
-	nodesResp, err := client.Get(harness.origin + "/__remote_everything/nodes")
-	if err != nil {
-		t.Fatal(err)
+// TestLANEntranceRefusesWebPairing pairs, activates and ends a web session where the
+// web client would: a browser cannot become a device of this shape, whatever the
+// invitation it holds.
+func TestLANEntranceRefusesWebPairing(t *testing.T) {
+	harness := startLANEntrance(t)
+	client := browserClient(t, harness.pinned)
+	paths := []string{
+		"/__remote_everything_web_pair",
+		"/__remote_everything_web_activate",
+		"/__remote_everything_web_unlock",
+		"/__remote_everything_web_lock",
+		"/__remote_everything_web_logout",
 	}
-	defer nodesResp.Body.Close()
-	if nodesResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(nodesResp.Body)
-		t.Fatalf("/nodes status = %d (body: %s); want %d", nodesResp.StatusCode, string(body), http.StatusOK)
-	}
-	var nodesList struct {
-		OK    bool `json:"ok"`
-		Nodes []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"nodes"`
-	}
-	if err := json.NewDecoder(nodesResp.Body).Decode(&nodesList); err != nil {
-		t.Fatalf("failed to parse nodes response: %v", err)
-	}
-	if len(nodesList.Nodes) == 0 {
-		t.Fatal("nodes list is empty")
-	}
-	if nodesList.Nodes[0].ID != entrancetest.NodeIDs[0] {
-		t.Fatalf("expected node %s, got %v", entrancetest.NodeIDs[0], nodesList.Nodes[0].ID)
-	}
-
-	// 5. Query /__remote_everything/apps for the node
-	appsReq, _ := http.NewRequest(http.MethodGet, harness.origin+"/__remote_everything/apps", nil)
-	appsReq.Header.Set(proxysecurity.NodeHeader, entrancetest.NodeIDs[0])
-	appsResp, err := client.Do(appsReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer appsResp.Body.Close()
-	if appsResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(appsResp.Body)
-		t.Fatalf("/apps status = %d (body: %s); want %d", appsResp.StatusCode, string(body), http.StatusOK)
-	}
-	var appsData struct {
-		Apps []struct {
-			ID string `json:"id"`
-		} `json:"apps"`
-	}
-	if err := json.NewDecoder(appsResp.Body).Decode(&appsData); err != nil {
-		t.Fatalf("failed to decode apps data: %v", err)
-	}
-	if len(appsData.Apps) == 0 || appsData.Apps[0].ID != "editor" {
-		t.Fatalf("expected app editor, got %+v", appsData.Apps)
-	}
-
-	// 6. Open application: GET /__remote_everything/open/editor
-	openReq, _ := http.NewRequest(http.MethodGet, harness.origin+"/__remote_everything/open/editor", nil)
-	openReq.Header.Set(proxysecurity.NodeHeader, entrancetest.NodeIDs[0])
-	openResp, err := client.Do(openReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer openResp.Body.Close()
-	if openResp.StatusCode != http.StatusFound {
-		t.Fatalf("open app status = %d; want %d", openResp.StatusCode, http.StatusFound)
-	}
-	location := openResp.Header.Get("Location")
-	if location == "" {
-		t.Fatal("open app redirect missing Location header")
-	}
-	if !strings.Contains(location, webclient.TicketQueryParam+"=") {
-		t.Fatalf("expected Location to contain ticket query param %q, got: %s", webclient.TicketQueryParam, location)
-	}
-
-	// 7. Follow redirect to app origin using ticket
-	appReq, err := http.NewRequest(http.MethodGet, location, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	appResp, err := client.Do(appReq)
-	if err != nil {
-		t.Fatalf("visiting application origin failed: %v", err)
-	}
-	if appResp.StatusCode != http.StatusSeeOther {
-		t.Fatalf("handoff: %d", appResp.StatusCode)
-	}
-	cleanLocation := appResp.Header.Get("Location")
-	appResp.Body.Close()
-	cleanURL, _ := url.Parse(location)
-	cleanPath, _ := url.Parse(cleanLocation)
-	cleanURL = cleanURL.ResolveReference(cleanPath)
-	if cleanURL.Query().Has(webclient.TicketQueryParam) {
-		t.Fatal("handoff credential left in URL")
-	}
-	appResp, err = client.Get(cleanURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer appResp.Body.Close()
-	if appResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(appResp.Body)
-		t.Fatalf("application origin returned status %d (body: %s); want %d", appResp.StatusCode, string(body), http.StatusOK)
-	}
-
-	// Management credentials are separate; cookies cannot unlock the connection.
-	check := func(path, header, credential string, want int) []byte {
-		t.Helper()
-		req, _ := http.NewRequest(http.MethodPost, harness.origin+path, nil)
-		req.Host = ""
-		if header != "" {
-			req.Header.Set(header, credential)
+	for _, path := range paths {
+		response, err := client.Post(harness.origin+path, "application/json", strings.NewReader(`{"client_id":"a1b2c3","device_name":"Browser"}`))
+		if err != nil {
+			t.Fatalf("POST %s: %v", path, err)
 		}
-		response, err := client.Do(req)
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		refused(t, response, body)
+	}
+}
+
+// TestLANEntranceDoesNotAdmitAWebCookie presents the session cookie itself — both the
+// name the public entrance issues and the un-prefixed one this deployment owns — on a
+// request that would be authorized if a cookie were a credential here.
+func TestLANEntranceDoesNotAdmitAWebCookie(t *testing.T) {
+	harness := startLANEntrance(t)
+	client := browserClient(t, harness.pinned)
+	names := []string{proxysecurity.HostWebSessionCookieName, proxysecurity.WebSessionCookieName}
+	for _, name := range names {
+		request, err := http.NewRequest(http.MethodGet, harness.origin+"/__remote_everything/nodes", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer response.Body.Close()
-		body, _ := io.ReadAll(response.Body)
-		if response.StatusCode != want {
-			t.Fatalf("%s status %d, want %d: %s", path, response.StatusCode, want, body)
+		request.AddCookie(&http.Cookie{Name: name, Value: strings.Repeat("a", 64)})
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatalf("GET /__remote_everything/nodes with %s: %v", name, err)
 		}
-		return body
-	}
-	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.SessionToken, 401)
-	check("/__remote_everything_web_lock", "", "", 401)
-	check("/__remote_everything_web_lock", webclient.RevokeHeaderName, pairData.RevokeToken, 200)
-	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
-	body := check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 200)
-	var unlocked struct {
-		Token string `json:"session_token"`
-	}
-	if err := json.Unmarshal(body, &unlocked); err != nil {
-		t.Fatal(err)
-	}
-	if unlocked.Token == "" || unlocked.Token == pairData.SessionToken {
-		t.Fatal("unlock must replace access token")
-	}
-	check("/__remote_everything_web_activate", webclient.SessionHeaderName, unlocked.Token, 200)
-	check("/__remote_everything_web_activate", webclient.SessionHeaderName, pairData.SessionToken, 401)
-	pairData.SessionToken = unlocked.Token
-	oldApp, err := client.Get(cleanURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldApp.Body.Close()
-	// LAN cookies are shared across ports, so the fresh gateway cookie works here.
-	if oldApp.StatusCode != 200 {
-		t.Fatalf("unlocked LAN app: %d", oldApp.StatusCode)
-	}
-
-	// 8. Logout
-	logoutReq, _ := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_logout", nil)
-	logoutReq.Header.Set(webclient.RevokeHeaderName, pairData.RevokeToken)
-	logoutResp, err := client.Do(logoutReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer logoutResp.Body.Close()
-	if logoutResp.StatusCode != http.StatusOK {
-		t.Fatalf("logout status = %d; want %d", logoutResp.StatusCode, http.StatusOK)
-	}
-
-	check("/__remote_everything_web_unlock", webclient.UnlockHeaderName, pairData.UnlockToken, 401)
-
-	oldApp, err = client.Get(cleanURL.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	oldApp.Body.Close()
-	if oldApp.StatusCode != 401 {
-		t.Fatalf("logged-out app: %d", oldApp.StatusCode)
-	}
-	// Subsequent /nodes call without session should fail with 401
-	afterResp, err := client.Get(harness.origin + "/__remote_everything/nodes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	afterResp.Body.Close()
-	if afterResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("after logout /nodes status = %d; want %d", afterResp.StatusCode, http.StatusUnauthorized)
-	}
-}
-
-// TestLANWebClient_RequireApprovalFlow verifies that web devices undergo manual approval
-// when --require-approval is enabled on the entrance.
-func TestLANWebClient_RequireApprovalFlow(t *testing.T) {
-	harness := startLANEntrance(t, WithRequireApproval(true))
-	client, _ := newWebTestClient(t, harness.pinned)
-
-	// 1. Issue invitation
-	var inviteOut bytes.Buffer
-	if err := harness.service.trust.RunCLI([]string{"invite", "--name", "Pending Web Browser", "--node", entrancetest.NodeIDs[0], "--ttl", "10m"}, &inviteOut); err != nil {
-		t.Fatalf("failed to issue invitation: %v", err)
-	}
-	var inviteResult struct {
-		Invitation string `json:"invitation"`
-	}
-	if err := json.Unmarshal(inviteOut.Bytes(), &inviteResult); err != nil {
-		t.Fatalf("failed to decode invitation: %v", err)
-	}
-
-	// 2. Web pair
-	pairReqBody, _ := json.Marshal(map[string]string{
-		"client_id":   "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
-		"device_name": "Pending Web Browser",
-	})
-	pairReq, _ := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_pair", bytes.NewReader(pairReqBody))
-	pairReq.Header.Set("Authorization", "Invitation "+inviteResult.Invitation)
-	pairReq.Header.Set("Content-Type", "application/json")
-
-	pairResp, err := client.Do(pairReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pairResp.Body.Close()
-
-	if pairResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(pairResp.Body)
-		t.Fatalf("pair status = %d (body: %s); want 200", pairResp.StatusCode, string(body))
-	}
-
-	var pairData struct {
-		Status      string `json:"status"`
-		Fingerprint string `json:"fingerprint"`
-	}
-	_ = json.NewDecoder(pairResp.Body).Decode(&pairData)
-	if pairData.Status != "pending" {
-		t.Fatalf("pair status = %q; want pending", pairData.Status)
-	}
-
-	// 3. Activation polling before approval returns 202 Accepted
-	activateReq, _ := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_activate", nil)
-	activateResp, err := client.Do(activateReq)
-	if err != nil {
-		t.Fatal(err)
-	}
-	activateResp.Body.Close()
-	if activateResp.StatusCode != http.StatusAccepted {
-		t.Fatalf("activate before approval status = %d; want %d", activateResp.StatusCode, http.StatusAccepted)
-	}
-
-	// 4. Accessing /nodes before approval returns 401 Unauthorized
-	nodesResp, err := client.Get(harness.origin + "/__remote_everything/nodes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	nodesResp.Body.Close()
-	if nodesResp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("/nodes before approval status = %d; want %d", nodesResp.StatusCode, http.StatusUnauthorized)
-	}
-
-	// 5. Operator approves the device
-	var approveOut bytes.Buffer
-	if err := harness.service.trust.RunCLI([]string{"approve", pairData.Fingerprint}, &approveOut); err != nil {
-		t.Fatalf("operator approve failed: %v", err)
-	}
-
-	// 6. Activation polling after approval returns 200 OK
-	activateReq2, _ := http.NewRequest(http.MethodPost, harness.origin+"/__remote_everything_web_activate", nil)
-	activateResp2, err := client.Do(activateReq2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer activateResp2.Body.Close()
-	if activateResp2.StatusCode != http.StatusOK {
-		t.Fatalf("activate after approval status = %d; want %d", activateResp2.StatusCode, http.StatusOK)
-	}
-	var activeData struct {
-		Status string `json:"status"`
-	}
-	_ = json.NewDecoder(activateResp2.Body).Decode(&activeData)
-	if activeData.Status != "approved" {
-		t.Fatalf("active status = %q; want approved", activeData.Status)
-	}
-
-	// 7. Accessing /nodes after approval succeeds
-	nodesResp2, err := client.Get(harness.origin + "/__remote_everything/nodes")
-	if err != nil {
-		t.Fatal(err)
-	}
-	nodesResp2.Body.Close()
-	if nodesResp2.StatusCode != http.StatusOK {
-		t.Fatalf("/nodes after approval status = %d; want %d", nodesResp2.StatusCode, http.StatusOK)
+		body, _ := io.ReadAll(response.Body)
+		response.Body.Close()
+		refused(t, response, body)
 	}
 }

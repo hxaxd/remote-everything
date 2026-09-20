@@ -173,6 +173,5 @@ func openPublicService(root string) (*publicService, error) {
 	if err != nil {
 		return nil, err
 	}
-	webHandler.UseHostCookiePrefix()
 	return &publicService{state: state, trust: trust, webHandler: webHandler}, nil
 }

@@ -127,7 +127,7 @@ func TestWebHandler_StaticAndSessionMiddleware(t *testing.T) {
 
 	// Case A: With Cookie
 	reqAuth := httptest.NewRequest("GET", "/__remote_everything/apps", nil)
-	reqAuth.AddCookie(&http.Cookie{Name: SessionCookieName, Value: session.Token})
+	reqAuth.AddCookie(&http.Cookie{Name: HostSessionCookieName, Value: session.Token})
 	recAuth := httptest.NewRecorder()
 	wrapped.ServeHTTP(recAuth, reqAuth)
 	if capturedFingerprint != fp {

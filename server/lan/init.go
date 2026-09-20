@@ -631,7 +631,7 @@ func (nodes *lanNodes) Trust() (*devicecore.Trust, error) {
 	if err != nil {
 		return nil, err
 	}
-	return openLANTrust(nodes.root, state, gateway, nil)
+	return openLANTrust(nodes.root, state, gateway)
 }
 
 // PlaceNode is where a node of this entrance lives: where the operator points

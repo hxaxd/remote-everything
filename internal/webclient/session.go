@@ -18,6 +18,10 @@ import (
 )
 
 const (
+	// SessionCookieName is the name this deployment owns and never issues: the
+	// browser binds a session to one host through the `__Host-` prefix, so the
+	// un-prefixed name is only ever something an application tried to write, and
+	// it is dropped rather than read.
 	SessionCookieName     = proxysecurity.WebSessionCookieName
 	HostSessionCookieName = proxysecurity.HostWebSessionCookieName
 	SessionHeaderName     = "X-Remote-Everything-Web-Token"

@@ -128,7 +128,6 @@ func TestSVGTypeIndependentOfSystemAssociation(t *testing.T) {
 
 func TestHostCookiePrefixPolicy(t *testing.T) {
 	h := &Handler{}
-	h.UseHostCookiePrefix()
 	session := Session{Token: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(time.Hour).UTC().Format(time.RFC3339)}
 	for _, current := range []Session{session, {}} {
 		w := httptest.NewRecorder()

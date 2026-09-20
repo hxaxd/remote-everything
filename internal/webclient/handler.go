@@ -49,11 +49,18 @@ type webPairResponse struct {
 }
 
 // Handler serves the gateway-hosted web client SPA and handles web pairing/session endpoints.
+//
+// A handler serves exactly one cookie policy: the session rides under the
+// `__Host-` prefixed name, which the browser binds to the one host that set it,
+// refuses from any other origin, and refuses to let a script overwrite. The
+// softer name is not offered as an option, because the entrance that would need
+// it — applications on ports of the gateway's own host — is the one where an
+// application could write the session of the browser that opened it; that shape
+// serves no web client at all (`skills/remote-everything-app`).
 type Handler struct {
-	trust            *devicecore.Trust
-	sessions         *SessionManager
-	fileServer       http.Handler
-	hostCookiePrefix bool
+	trust      *devicecore.Trust
+	sessions   *SessionManager
+	fileServer http.Handler
 }
 
 // NewHandler creates a new webclient Handler.
@@ -69,15 +76,7 @@ func NewHandler(trust *devicecore.Trust, sessions *SessionManager) (*Handler, er
 	}, nil
 }
 
-// UseHostCookiePrefix binds browser-enforced session cookies to one HTTPS host.
-// Select the public entrance's cookie policy before serving requests.
-func (h *Handler) UseHostCookiePrefix() { h.hostCookiePrefix = true }
-func (h *Handler) sessionCookieName() string {
-	if h.hostCookiePrefix {
-		return HostSessionCookieName
-	}
-	return SessionCookieName
-}
+func (h *Handler) sessionCookieName() string { return HostSessionCookieName }
 
 // Sessions returns the underlying SessionManager.
 func (h *Handler) Sessions() *SessionManager {

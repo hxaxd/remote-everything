@@ -248,7 +248,7 @@ func TestLockClosesStreamingAndUpgradedConnections(t *testing.T) {
 			if upgrade {
 				headers = "Connection: Upgrade\r\nUpgrade: websocket\r\n"
 			}
-			_, _ = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+u.Host+"\r\nCookie: "+SessionCookieName+"="+c.Token+"\r\n"+headers+"\r\n")
+			_, _ = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: "+u.Host+"\r\nCookie: "+HostSessionCookieName+"="+c.Token+"\r\n"+headers+"\r\n")
 			reader := bufio.NewReader(conn)
 			resp, err := http.ReadResponse(reader, nil)
 			if err != nil {
