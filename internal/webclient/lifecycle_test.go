@@ -109,13 +109,19 @@ func TestConnectionLockUnlockLogout(t *testing.T) {
 
 func TestExpiryAndDeviceRevocation(t *testing.T) {
 	m, _ := NewSessionManager(t.TempDir())
-	c, _ := m.Pair(strings.Repeat("3", 64), "browser", 30*time.Millisecond)
+	// What this asserts is that an access held across the moment its session expires
+	// ends there — not that a machine can call two methods inside thirty
+	// milliseconds, which is what a slower runner was being asked for.
+	c, _ := m.Pair(strings.Repeat("3", 64), "browser", 250*time.Millisecond)
 	ticket, _ := m.IssueTicket(c.Token)
-	_, ctx, done, _ := m.Acquire(context.Background(), c.Token)
+	_, ctx, done, ok := m.Acquire(context.Background(), c.Token)
+	if !ok {
+		t.Fatal("session expired before it could be acquired")
+	}
 	defer done()
 	select {
 	case <-ctx.Done():
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("active access survived expiry")
 	}
 	if _, ok := m.ValidateSession(c.Token); ok {
@@ -129,7 +135,10 @@ func TestExpiryAndDeviceRevocation(t *testing.T) {
 	}
 	c, _ = m.Pair(strings.Repeat("3", 64), "browser", time.Hour)
 	ticket, _ = m.IssueTicket(c.Token)
-	_, ctx, done2, _ := m.Acquire(context.Background(), c.Token)
+	_, ctx, done2, ok2 := m.Acquire(context.Background(), c.Token)
+	if !ok2 {
+		t.Fatal("paired session could not be acquired")
+	}
 	defer done2()
 	if err := m.RevokeFingerprint(c.Fingerprint); err != nil {
 		t.Fatal(err)
