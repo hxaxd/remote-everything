@@ -32,11 +32,6 @@ forbidden = {
     r"forceDarkAccess\s*\(\s*true": "the web content is never force-inverted (pitfalls §2.5)",
     r"clearClientAuthenticationCache": "clearing the client-auth cache before navigating "
                                        "times the challenge out (pitfalls §1.3)",
-    r"setPreferredOrientation": "every screen follows the system (ui-contract §6)",
-    r"WebCookieManager\.(setCookie|configCookie)": "the client never writes cookies: an "
-                                                   "application's origin is its isolation (architecture §6.2)",
-    r"WebCookieManager\.clearAllCookiesSync|WebStorage\.deleteAllData": "forgetting a gateway never wipes "
-                                                                        "every gateway's web state (behavior README)",
     # Language escapes the ArkTS subset does not have.
     r"as\s+any\b": "ArkTS any escape",
     r"(?i)//\s*(stub|todo|placeholder)\b": "unfinished implementation marker",
@@ -48,6 +43,46 @@ for path in sorted(SOURCE.rglob("*.ets")):
     for pattern, reason in forbidden.items():
         if re.search(pattern, text):
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
+    if path != SOURCE / "app" / "web" / "WebSessions.ets" and re.search(
+        r"WebCookieManager\.(setCookie|configCookie|clearAllCookies)|WebStorage\.deleteAllData", text
+    ):
+        failures.append(f"{path.relative_to(ROOT)}: only the serial web-session owner may replace browser cookies")
+
+
+# One screen may hold the screen: an application's own panel decides its orientation
+# while that application is open (ui-contract §6, revised), and the web host is the
+# only place that asks for one. A preferred orientation anywhere else would be a
+# screen that ignores the device's own setting.
+orientation_holders = {"app/web/WebScreen.ets", "app/WindowLayout.ets"}
+for path in sorted(SOURCE.rglob("*.ets")):
+    if not re.search(r"setPreferredOrientation", path.read_text(encoding="utf-8")):
+        continue
+    relative = str(path.relative_to(SOURCE)).replace("\\", "/")
+    if relative not in orientation_holders:
+        failures.append(
+            f"{path.relative_to(ROOT)}: only the web host holds the screen's orientation"
+        )
+
+
+# CI has no ArkTS compiler, and the one class of breakage regexes above cannot see is
+# an import that no longer resolves — a module renamed or moved without its importers
+# updated compiles nowhere and audits green. Every relative import in app and test
+# sources must name a .ets file that exists.
+for directory in (SOURCE, TESTS):
+    for path in sorted(directory.rglob("*.ets")):
+        text = path.read_text(encoding="utf-8")
+        for specifier in re.findall(r"""from\s+['"](\.[^'"]+)['"]""", text):
+            candidate = (path.parent / specifier).resolve()
+            if not candidate.is_file() and candidate.suffix != ".ets":
+                # A specifier may name a module whose file is `X.ets`, or one whose
+                # own stem already carries a dot (`UnitTests.test.ets`): appending
+                # is the only faithful resolution here, because `with_suffix`
+                # would replace the `.test` instead of adding to it.
+                candidate = candidate.parent / f"{candidate.name}.ets"
+            if not candidate.is_file():
+                failures.append(
+                    f"{path.relative_to(ROOT)}: import '{specifier}' resolves to nothing"
+                )
 
 
 def read(relative: str) -> str:
