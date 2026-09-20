@@ -138,16 +138,6 @@ func (state lanState) applicationsHost() (string, error) {
 	return host, nil
 }
 
-// repair moves the entrance's listener to a new port and keeps everything else.
-func (state lanState) repair() (lanState, error) {
-	shared, err := state.State.Repair(map[string]int{listenerName: listenerPort})
-	if err != nil {
-		return lanState{}, err
-	}
-	state.State = shared
-	return state, nil
-}
-
 // ensureFRPS reserves and records an FRPS listener if one is not already present.
 func (state *lanState) ensureFRPS() error {
 	for _, l := range state.Listeners {
