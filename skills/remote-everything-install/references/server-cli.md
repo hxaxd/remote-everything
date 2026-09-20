@@ -38,7 +38,9 @@ LAN 入口是独立服务，和节点可以不在同一台机器上，只要求�
 
 **无域名公网部署（No-Domain Remote LAN with Tunnel）**：当需要在公网服务器或远端主机上部署、但**没有独立域名**时，直接使用带隧道的 LAN 形态：`remote-everything-lan-server init --state PATH --host <公网IP> --tunnel --require-approval`。该形态既拥有公网服务器的全球可达性与 FRP 隧道穿透能力，又彻底免除了域名购买、DNS 解析配置、商业 CA 证书签发与 Caddy 反代门槛；移动端通过 SPKI 公钥钉扎免受自签名告警困扰，安全性与公网 mTLS 严格等价。
 
-**内置通用 Web 客户端 (Gateway-hosted Web Client SPA)**：网关通过 Go embed 自带轻量单页面 Web 客户端，用户在任何现代浏览器中打开 `https://<host>:<port>/` 即可直接加载。前端通过 WebCrypto API（PBKDF2 + AES-GCM + IndexedDB）构建零知识加密保险箱。配对时生成 `sha256("web:" + client_id)` 指纹并签发 HttpOnly Session Cookie；网关中间件将有效会话透明映射为内部客户端指纹，完全复用后端路由与设备准入机制。当打开应用时（`open` 端点返回 302），网关在重定向 URL 中自动附带单次有效短寿命 Ticket（`_reticket=<token>`），确保不同端口间平滑完成跨域跨端口授权。
+**内置通用 Web 客户端 (Gateway-hosted Web Client SPA)**：网关通过 Go embed 自带轻量单页面 Web 客户端，**公网形态**在免客户端证书的高端口（默认 8443）提供，浏览器打开 `https://<host>:<port>/` 即可直接加载。前端通过 WebCrypto API（PBKDF2 + AES-GCM + IndexedDB）构建零知识加密保险箱。配对时生成 `sha256("web:" + client_id)` 指纹并签发 HttpOnly Session Cookie，名字带 `__Host-` 前缀——浏览器强制这个名字只能由设置它的那个主机读写、网页脚本覆盖不了，这是它能在「应用是网关子域」的布局下站得住的原因；网关中间件将有效会话透明映射为内部客户端指纹，完全复用后端路由与设备准入机制。当打开应用时（`open` 端点返回 302），网关在重定向 URL 中自动附带单次有效短寿命 Ticket（`_reticket=<token>`），确保跨主机间平滑完成授权。
+
+**这个客户端只属于公网形态，且在公网形态里也是「允许但不推荐」。** 局域网形态不提供它：应用与入口是同一主机的不同端口，而 Cookie 不按端口分隔，浏览器入口会让每个应用页面与入口共享一个 Cookie 罐，所以 LAN 入口只服务持证书的设备——页面与静态资源不提供，Web 客户端独有的 `_web_pair` / `_web_activate` / `_web_lock` / `_web_unlock` / `_web_logout` 端点一律 `401 unauthorized`。公网形态残留的风险（应用页面里的脚本仍可写父域 Cookie）与部署前提见[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
 
 LAN 的应用**各占一个端口**：第一次 `open` 某个应用时入口让系统分配一个端口、立即监听、并把 `(节点, 应用) → 端口` 写进 `lan.json`，之后这个应用就一直在这个 origin 上（重启时按记录重新监听；端口被别人占了就丢掉这条记录，下次 `open` 重新分配一个）。一个证书覆盖入口的所有端口（客户端钉的是证书，不是 origin），每个端口后面的信任层与入口自身一致。`/__remote_everything/open` 还是控制面上带着节点头的那一个请求；端口只是把结果落到实处。
 

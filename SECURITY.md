@@ -22,6 +22,7 @@
 - **Web 配对端点与 mTLS 配对端点共用同一套限流**（每 IP / 全局窗口、并发上限、失败延迟），不存在未设防的门。
 - **应用 origin 的跨域跳转用一次性票据**（1 分钟、单次使用）：票据只把"这台浏览器是哪个设备"从协议 origin 带到应用 origin，兑换即作废。
 - **Web 会话 Cookie 属于网关而非应用**：它在代理转发前被剥离，应用永远看不到；应用也无法改写它（响应侧同名单剥离）。
+- **Web 客户端只在公网形态提供，局域网形态不提供**。Cookie 的作用范围按主机而不按端口：LAN 形态下应用与入口是同一主机的不同端口，一个浏览器入口会让每个应用页面与入口共享同一个 Cookie 罐——应用页面能写入口会收到的 Cookie，也能读入口未标 HttpOnly 的 Cookie。公网形态下应用是网关域的子域，会话 Cookie 以 `__Host-` 前缀下发（浏览器强制这个名字只能由设置它的主机读写、网页脚本覆盖不了），网关另会剥掉应用自己下发 Cookie 的域范围；残留的、网关无法消除的风险是应用页面里的脚本仍可写父域 Cookie，因此公网形态的 Web 客户端是**允许但不推荐**，且只应接入可信应用。
 - 撤销边界与证书设备一致：`device revoke` 拒绝设备本体；`--node` 只收回单台节点，会话保留。
 
 **已经声明的边界，不作为漏洞受理**：LAN 形态里网关与节点之间的那段链路按可信网络对待（控制令牌与应用流量都在这张网上，节点自身的应用数据面不再另做鉴权），见 [README 安全模型](README.md#安全模型)。这不是待修的缺口而是有意的取舍：要跨不可信网络就用公网形态，那条路上离开机器的每一跳都是 TLS。想改变这个决定，请开普通 Issue 讨论。
@@ -48,6 +49,7 @@ The gateway-hosted browser client shares one device store and one admission with
 - **The web pairing endpoint shares one rate-limit budget with the mTLS pairing endpoint** (per-IP and global windows, a concurrency cap, and a delay before a refusal); no door to pairing is left unguarded.
 - **Cross-origin handoff to an application origin uses a one-time ticket** (1 minute, single use): the ticket carries only which device this browser is, from the protocol origin to the application origin, and is consumed on redemption.
 - **The web session cookie belongs to the gateway and not to any application**: it is stripped before an application is proxied to, and an application cannot write it either.
+- **The web client is served in public mode only, never in LAN mode.** Cookies are kept by host and not by port: in LAN mode an application and the entrance are ports of one host, so a browser entrance would give every application page one cookie jar shared with the entrance — an application page could write cookies the entrance receives and read every cookie of the entrance's that is not HttpOnly. In public mode an application is a subdomain of the gateway's domain, the session cookie is issued under the `__Host-` prefix (the browser binds that name to the one host that set it and refuses to let a script overwrite it), and the gateway strips the domain from cookies an application sets itself; what remains, and what the gateway cannot remove, is that a script on an application page can still write a parent-domain cookie — so the public-mode web client is **allowed but not recommended**, and only trusted applications should be reached through it.
 - Revocation boundaries match certificate devices: `device revoke` refuses the device itself; `--node` withdraws one node and leaves the session.
 
 **Declared boundaries, not accepted as vulnerabilities**: in LAN mode the Gateway–Node path is treated as a trusted network — the control token and application traffic both travel on it, and the node's own application data plane carries no further authentication. See the [security model](README_EN.md#security-model). That is a deliberate trade-off rather than a gap waiting to be closed: to cross an untrusted network, use public mode, where every hop that leaves a machine is TLS. To change that decision, open an ordinary Issue.

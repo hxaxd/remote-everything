@@ -23,7 +23,6 @@
 ```text
 移动客户端(手机/平板) ── HTTPS(SPKI钉扎) ────┐
                                            ├── LAN入口端口 ── [本地回环 或 隧道端口] ── 节点
-普通Web浏览器(PC/手机) ─ HTTPS(WebSession) ──┘
 每台节点(家/公司电脑) ──── TLS/FRPC 隧道 ─────── LAN内置FRPS端口 ── 回环隧道端口
 ```
 
@@ -31,7 +30,7 @@
 - **节点接入**：在网关上 `remote-everything-lan-server node add --state PATH --name <名字> --node-id <NODE_ID> --node-bootstrap <目录>`（省略 `--node-address`，网关自动分配隧道端口并输出 `frpc/` 材料）；节点端导入身份并启动 FRPC 隧道连接网关的 FRPS 监听端口。
 - **免域名高安全**：
   - **移动端**：原生 App（Android / iOS / HarmonyOS）直接钉扎入口自签证书的 SPKI，无需公共商业 CA 证书，防中间人窃听与伪造，不产生任何证书红脸。
-  - **Web 浏览器**：普通浏览器访问 `https://<IP>:<port>/`，利用网关内置的纯前端单页面应用（SPA）与 WebCrypto 加密保险箱，通过 HttpOnly Cookie 建立经过管理员人工审批（`device approve`）的安全会话。
+  - **没有 Web 客户端**：这个形态只服务持证书的设备，浏览器入口一律是信任层自己的拒绝（`401 unauthorized`），不提供 SPA、配对与会话端点。原因是 Cookie 的作用范围按主机而不按端口：应用与入口在同一主机的不同端口上，浏览器入口会让每个应用页面与入口共享一个 Cookie 罐，应用能写入口会收到的 Cookie、也能读入口没标 HttpOnly 的 Cookie。要浏览器入口就得选公网形态（见 §3）。
   - **应用地址与存储**：各应用由 LAN 网关在远端分配独立端口（`https://<IP>:<app_port>/`），浏览器同源策略隔离页面、LocalStorage 与 IndexedDB，无需子域名泛解析；Cookie 不按端口隔离，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
 
 ## 3. Linux 域名公网服务器（Public 443）
@@ -52,6 +51,8 @@ Web浏览器 ─── HTTPS(8443) ── 8443入口 ── 网关状态端口 �
 ### 域名选型与 Origin 隔离策略（自由可选，非强制绑定）
 
 Public 形态为**每个应用分配独立 Web Origin**（形如 `https://<appID>.<nodePrefix>.<domain>/`），浏览器同源策略限制跨应用的页面及 LocalStorage、SessionStorage、IndexedDB 访问。Cookie 不遵循相同的隔离边界：当前同父域布局仍允许应用脚本写父域 Cookie，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
+
+Web 客户端（`https://<public_host>:8443/`）**公网形态提供，但不推荐**：它是探索与应急的入口，不是首选客户端。会话 Cookie 以 `__Host-` 前缀下发，浏览器强制它只能由设置它的那个主机读写，应用域既写不进也覆盖不了；网关还会剥掉应用自己下发的 Cookie 的域范围。残留的、无法由网关消除的风险是应用页面里的脚本可以写父域 Cookie，因此只有接入可信应用时才可以开这个入口。
 
 为了支撑多级子域名隔离，Remote Everything 提供完全自由、非强制绑定的域名选型路径：
 
@@ -78,4 +79,4 @@ Public 形态为**每个应用分配独立 Web Origin**（形如 `https://<appID
    - **实现方案**：执行 `remote-everything-lan-server init --host <公网IP> --tunnel --require-approval`。
    - **隔离与信任模型**：
      - 移动端 App 通过 SPKI 公钥强钉扎直接与云端自签证书通信，零外部 CA 依赖；
-     - Web 客户端与受管应用在云端分配独立高端口（如 `https://<IP>:8443/`、`https://<IP>:9001/`），浏览器以「协议+主机+端口」为维度隔离页面与本地存储，Cookie 不按端口隔离；不需任何子域名解析。
+     - 受管应用在云端分配独立端口（如 `https://<IP>:9001/`），浏览器以「协议+主机+端口」为维度隔离页面与本地存储；Cookie 不按端口隔离，而**这个形态没有也不提供 Web 客户端**——入口与应用同主机不同端口，浏览器入口会让应用与入口共用一个 Cookie 罐，因此这里只有持证书的设备，浏览器访问入口端口得到的是 `401 unauthorized`。需要浏览器入口请改用 §3 的公网形态。

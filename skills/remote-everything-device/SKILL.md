@@ -1,6 +1,6 @@
 ---
 name: remote-everything-device
-description: 管理 Remote Everything 客户端信任（移动客户端与通用 Web 客户端）。用于在各种拓扑下创建或取消邀请、列出和人工审批设备、吊销权限、原地续期设备证书或入口证书，并验证授权变化。
+description: 管理 Remote Everything 客户端信任（移动客户端与公网形态的通用 Web 客户端）。用于在各种拓扑下创建或取消邀请、列出和人工审批设备、吊销权限、原地续期设备证书或入口证书，并验证授权变化。
 ---
 
 读取 [server-cli.md](../remote-everything-install/references/server-cli.md)，从服务器 `runtime.json` 定位网关、状态目录和 systemd unit，从 unit 的 `User` 读取服务账户；网关 CLI（含 `device invite`）以该账户执行。root 发码会产生 gateway 读不到的邀请文件。
@@ -10,7 +10,7 @@ description: 管理 Remote Everything 客户端信任（移动客户端与通用
 - 发邀请：用户可操作时执行 `device invite --name <设备显示名> --node <节点的 id 或名字> --ttl 10m [--qr <本次邀请唯一的绝对路径>]`，交付二维码、setup URI 或邀请码并说明失效时间。一条邀请开的是**一台节点**的门，`--node` 就是那一台（`node list` 看当前有哪些）；入口的 origin 在 `init` 时就写进状态了，发邀请不需要再给地址。不覆盖旧二维码路径，不保存或复用邀请明文；状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
 - 追加授权：同一台设备还要进这个网关下的另一台节点时执行 `device grant --node <那台> <指纹>`，立即生效，不需要重新发码；收回其中一台用 `device revoke --node <那台> <指纹>`。
 - 批准：公网邀请跨网旅行，以及 LAN 网关开启了 `--require-approval` 时（例如无域名公网穿透拓扑或不受信网络），必须由人确认——客户端申请后从 `device list` 取设备名与完整指纹，用户确认后 `device approve <指纹>`。默认未开启审批的直连 LAN 邀请是操作者当面交出去的，兑换即批准，不需要人工确认。
-- Web 客户端准入：通用浏览器配对生成专属设备指纹（格式为 `sha256("web:" + client_id)`），在 `device list` 中作为正式设备记录同构展示，完全兼容 `device approve` 审批、`device grant` 授权追加与 `device revoke` 吊销。
+- Web 客户端准入（**只发生在公网形态**）：通用浏览器配对生成专属设备指纹（格式为 `sha256("web:" + client_id)`），在 `device list` 中作为正式设备记录同构展示，完全兼容 `device approve` 审批、`device grant` 授权追加与 `device revoke` 吊销。局域网入口不提供 Web 客户端，因此那里的 `device list` 不会有 `web:` 开头的记录；**如果一条 LAN 记录里出现了这种指纹（旧版本留下的），它已经没有任何入口可用，用 `device revoke` 清掉**。
 - 邀请：`device invitation list`；取消用 `invitation cancel`（按 hash）。
 - 查看：`device list`（设备名、完整指纹、状态、时间，以及它持有的 `nodes`）。
 - 公网续期：`device renew --node <它已有的一台> ... <旧指纹>`，同安装 ID 新指纹 approved、旧指纹 revoked 后删临时码。续期只换证书、不改它能进哪些节点，所以 `--node` 只能是它已经持有的那一台。
