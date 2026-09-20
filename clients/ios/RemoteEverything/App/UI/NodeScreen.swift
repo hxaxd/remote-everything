@@ -49,7 +49,7 @@ struct NodeScreen: View {
         guard let node else {
             MessagePage(
                 title: l10n(MessageKeys.ERROR_NODE_GONE),
-                body: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                message: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
                 actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
                 action: {
                     model.selectedNodeID = nil
@@ -68,7 +68,7 @@ struct NodeScreen: View {
             if apps.isEmpty {
                 MessagePage(
                     title: l10n(MessageKeys.APPS_EMPTY_TITLE),
-                    body: l10n(MessageKeys.APPS_EMPTY_BODY),
+                    message: l10n(MessageKeys.APPS_EMPTY_BODY),
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
                     action: { Task { await model.loadCatalog(nodeID: nodeID) } }
                 )
@@ -91,14 +91,14 @@ struct NodeScreen: View {
         case .some(.offline):
             MessagePage(
                 title: l10n(MessageKeys.NODE_OFFLINE_TITLE),
-                body: l10n(MessageKeys.NODE_OFFLINE_BODY),
+                message: l10n(MessageKeys.NODE_OFFLINE_BODY),
                 actionTitle: l10n(MessageKeys.ACTION_RETRY),
                 action: { Task { await model.loadCatalog(nodeID: nodeID) } }
             )
         case .some(.unauthorized):
             MessagePage(
                 title: l10n(MessageKeys.ERROR_NODE_GONE),
-                body: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
+                message: l10n(MessageKeys.ERROR_NODE_GONE_BODY),
                 actionTitle: l10n(MessageKeys.ACTION_BACK_TO_NODES),
                 action: {
                     model.selectedNodeID = nil
@@ -109,14 +109,14 @@ struct NodeScreen: View {
         case .some(.unreachable):
             MessagePage(
                 title: ErrorText.network,
-                body: !node.paths.isEmpty ? pathNames(node) : nil,
+                message: !node.paths.isEmpty ? pathNames(node) : nil,
                 actionTitle: l10n(MessageKeys.ACTION_RETRY),
                 action: { Task { await model.loadCatalog(nodeID: nodeID) } }
             )
         case .some(.refused(let error)):
             MessagePage(
                 title: ErrorText.text(for: error.code),
-                body: nil,
+                message: nil,
                 actionTitle: l10n(MessageKeys.ACTION_RETRY),
                 action: { Task { await model.loadCatalog(nodeID: nodeID) } }
             )

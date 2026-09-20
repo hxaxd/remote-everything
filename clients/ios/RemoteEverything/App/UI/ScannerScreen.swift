@@ -35,7 +35,7 @@ struct ScannerScreen: View {
                 default:
                     MessagePage(
                         title: l10n(MessageKeys.PAIR_SCAN_DENIED),
-                        body: l10n(MessageKeys.PAIR_SCAN_BODY),
+                        message: l10n(MessageKeys.PAIR_SCAN_BODY),
                         actionTitle: nil,
                         action: nil
                     )

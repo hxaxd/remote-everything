@@ -139,7 +139,7 @@ struct AppRootView: View {
         } else {
             MessagePage(
                 title: l10n(MessageKeys.NODES_SELECT_HINT),
-                body: nil,
+                message: nil,
                 actionTitle: nil,
                 action: nil
             )

@@ -165,7 +165,9 @@ struct LoadingLine: View {
 /// one button.
 struct EmptyStateView: View {
     let title: String
-    let body: String
+    // Not `body`: a stored property of a View may not be named for the one the
+    // protocol already asks for.
+    let message: String
     let actionTitle: String
     let action: () -> Void
 
@@ -183,7 +185,7 @@ struct EmptyStateView: View {
                 .font(Theme.headline)
                 .foregroundStyle(theme.textPrimary)
                 .multilineTextAlignment(.center)
-            Text(body)
+            Text(message)
                 .font(Theme.body)
                 .foregroundStyle(theme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -207,7 +209,7 @@ struct EmptyStateView: View {
 /// page both use it.
 struct MessagePage: View {
     let title: String
-    let body: String?
+    let message: String?
     let actionTitle: String?
     let action: (() -> Void)?
 
@@ -220,8 +222,8 @@ struct MessagePage: View {
                 .font(Theme.headline)
                 .foregroundStyle(theme.textPrimary)
                 .multilineTextAlignment(.center)
-            if let body {
-                Text(body)
+            if let message {
+                Text(message)
                     .font(Theme.body)
                     .foregroundStyle(theme.textSecondary)
                     .multilineTextAlignment(.center)

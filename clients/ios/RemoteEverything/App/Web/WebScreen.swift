@@ -125,7 +125,7 @@ struct WebScreen: View {
     private func failurePage(_ theme: Theme) -> some View {
         MessagePage(
             title: openFailure ?? l10n(MessageKeys.WEB_LOAD_FAILED),
-            body: nil,
+            message: nil,
             actionTitle: l10n(MessageKeys.ACTION_RETRY),
             action: { Task { await resolve() } }
         )

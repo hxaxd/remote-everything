@@ -77,7 +77,7 @@ struct HomeScreen: View {
                 ScrollView {
                     EmptyStateView(
                         title: l10n(MessageKeys.EMPTY_TITLE),
-                        body: l10n(MessageKeys.EMPTY_BODY),
+                        message: l10n(MessageKeys.EMPTY_BODY),
                         actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
                         action: { model.beginAddNode() }
                     )
@@ -91,7 +91,7 @@ struct HomeScreen: View {
                 ScrollView {
                     EmptyStateView(
                         title: l10n(MessageKeys.EMPTY_TITLE),
-                        body: l10n(MessageKeys.EMPTY_BODY),
+                        message: l10n(MessageKeys.EMPTY_BODY),
                         actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
                         action: { model.beginAddNode() }
                     )
