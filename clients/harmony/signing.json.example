@@ -1,0 +1,12 @@
+{
+  "type": "HarmonyOS",
+  "material": {
+    "certpath": "/absolute/path/to/your.cer",
+    "keyAlias": "debugKey",
+    "keyPassword": "<this machine's encrypted password>",
+    "profile": "/absolute/path/to/your.p7b",
+    "signAlg": "SHA256withECDSA",
+    "storeFile": "/absolute/path/to/your.p12",
+    "storePassword": "<this machine's encrypted password>"
+  }
+}

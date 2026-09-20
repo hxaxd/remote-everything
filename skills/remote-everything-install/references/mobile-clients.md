@@ -22,6 +22,6 @@ Agent 可以检查源码、生成工程和指导构建，但不得索取、生�
 
 - **Android**：`./gradlew :app:testDebugUnitTest`（夹具 + 契约 + 选路），`:app:assembleDebug` 出包；正式签名包走 `scripts/release-local.ps1`。
 - **iOS**：**只能在 macOS 上编译与测试**——`xcodegen generate` 之后 `xcodebuild test`（模拟器）+ `xcodebuild analyze`。没有 mac 就不要说“已验证”。
-- **HarmonyOS**：`hvigorw assembleHap --mode module -p product=default -p module=entry@default --no-daemon --type-check`，**再加一次 `-p module=entry@ohosTest`**——改过 `Dto`/导出面之后，只编主模块会漏掉测试模块里的构造调用（同一个编译还不算完，两个 target 都要过）。套件在 `entry/src/ohosTest`，是插桩测试，要真机或模拟器；hvigor 自带的 `test` 任务是宿主侧模式，需要本仓库没有的 `entry/src/test/`，不要用它。
+- **HarmonyOS**：`hvigorw assembleHap --mode module -p product=default -p module=entry@default --no-daemon --type-check`，**再加一次 `-p module=entry@ohosTest`**——改过 `Dto`/导出面之后，只编主模块会漏掉测试模块里的构造调用（同一个编译还不算完，两个 target 都要过）。套件在 `entry/src/ohosTest`，是插桩测试，要真机或模拟器；hvigor 自带的 `test` 任务是宿主侧模式，需要本仓库没有的 `entry/src/test/`，不要用它。**签名材料不进仓库**：`clients/harmony/build-profile.json5` 只放工程配置，本机签名材料写在同目录的 `signing.json`（git 忽略，模板见 `signing.json.example`），由工程级 `hvigorfile.ts` 通过 `overrides.signingConfig` 注入；没有该文件的机器照常构建，只出未签名包。
 
 两条界面约定（都踩过）：Android targetSdk 36 起强制 edge-to-edge，自绘界面的控件必须吃 window insets，否则状态栏那一条的触摸归通知栏、按钮点不到；Android 13+ 不要指望系统剪贴板提示（部分 ROM 不弹），复制反馈一律由应用自己给。

@@ -6,6 +6,8 @@
 *.jks
 *.keystore
 remote-everything.properties
+# 鸿蒙签名材料：本机凭据，由 hvigorfile.ts 注入（见 signing.json.example）
+clients/harmony/signing.json
 AGENTS.local.md
 local.properties
 .trae/
