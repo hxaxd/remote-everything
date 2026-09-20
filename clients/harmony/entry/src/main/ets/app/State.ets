@@ -1,9 +1,18 @@
 // The shared state classes and value types for the application layer.
 
-import { AppInfo, GatewayPath, Node, NodeStatus, ServerPin } from '../core/model/Models';
+import { AppInfo, GatewayPath, LinkKind, Node, NodeStatus, ServerPin } from '../core/model/Models';
 import { ErrorCode } from '../core/model/Errors';
-import { PairingStage } from '../core/pairing/PairingMachine';
+import { palette } from './ui/Components';
 import { SetupUri } from '../core/setup/SetupUri';
+
+/** The stage machine of ui-contract §2/S2, exactly as the screen can show it. */
+export enum PairingStage {
+  Input = 'input',
+  Confirm = 'confirm',
+  Pairing = 'pairing',
+  WaitingApproval = 'waitingApproval',
+  Done = 'done'
+}
 
 export enum CatalogPhase {
   Loading = 'loading',
@@ -29,6 +38,20 @@ export class NodeRow {
 
   get isOnline(): boolean {
     return this.status === NodeStatus.OnlineLan || this.status === NodeStatus.OnlineTunnel;
+  }
+
+  /** Whether the way in use right now is one of these two kinds. */
+  isUsing(kind: LinkKind): boolean {
+    const path: GatewayPath | null = this.chosen;
+    return this.isOnline && path !== null && path.link === kind;
+  }
+
+  /** The colour one kind of link is drawn in: in use, or merely available. */
+  linkTone(kind: LinkKind, dark: boolean): string {
+    if (!this.isUsing(kind)) {
+      return palette(dark).textTertiary;
+    }
+    return kind === LinkKind.Local ? palette(dark).ok : palette(dark).warn;
   }
 
   /** The path a request for this node takes: routing leaves the chosen one first. */
@@ -80,18 +103,24 @@ export class CatalogState {
   }
 }
 
-/** S2's screen state, mirroring the stage machine of ui-contract §2/S2. */
+/** S2's screen state, mirroring the stage machine of ui-contract §2/S2.
+ * `nodeName` rides along for the states that name a node while it works or waits —
+ * the home screen's pending banner and the pairing screen's two busy stages —
+ * because by then the setup may already be gone. */
 export class PairingState {
   readonly stage: PairingStage;
   readonly setup: SetupUri | null;
   readonly deviceName: string;
   readonly errorKey: string | null;
+  readonly nodeName: string;
 
-  constructor(stage: PairingStage, setup: SetupUri | null, deviceName: string, errorKey: string | null) {
+  constructor(stage: PairingStage, setup: SetupUri | null, deviceName: string, errorKey: string | null,
+    nodeName: string = '') {
     this.stage = stage;
     this.setup = setup;
     this.deviceName = deviceName;
     this.errorKey = errorKey;
+    this.nodeName = nodeName;
   }
 
   static idle(): PairingState {
@@ -99,7 +128,7 @@ export class PairingState {
   }
 
   withStage(stage: PairingStage, errorKey: string | null): PairingState {
-    return new PairingState(stage, this.setup, this.deviceName, errorKey);
+    return new PairingState(stage, this.setup, this.deviceName, errorKey, this.nodeName);
   }
 }
 

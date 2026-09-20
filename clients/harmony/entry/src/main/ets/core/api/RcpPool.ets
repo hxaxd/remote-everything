@@ -1,11 +1,11 @@
 import { rcp } from '@kit.RemoteCommunicationKit';
 
 /**
- * Manages the lifecycle of RCP sessions and in-flight requests per gateway origin.
+ * Manages the lifecycle of RCP sessions per gateway origin: one session each, and
+ * the old one is closed the moment a new one takes its place.
  */
 export class RcpPool {
   private readonly sessions: Map<string, rcp.Session> = new Map<string, rcp.Session>();
-  private readonly inflight: Map<string, rcp.Request> = new Map<string, rcp.Request>();
 
   has(origin: string): boolean {
     return this.sessions.has(origin);
@@ -31,33 +31,11 @@ export class RcpPool {
       // Ignore release errors
     }
     this.sessions.delete(origin);
-    this.inflight.delete(origin);
   }
 
   closeAll(): void {
     for (const origin of Array.from(this.sessions.keys())) {
       this.close(origin);
-    }
-  }
-
-  setInflight(origin: string, request: rcp.Request): void {
-    this.inflight.set(origin, request);
-  }
-
-  clearInflight(origin: string): void {
-    this.inflight.delete(origin);
-  }
-
-  cancelInflight(origin: string): void {
-    const session = this.sessions.get(origin);
-    const request = this.inflight.get(origin);
-    if (session !== undefined && request !== undefined) {
-      try {
-        session.cancel(request);
-      } catch (error) {
-        // Request may already have finished
-      }
-      this.inflight.delete(origin);
     }
   }
 }

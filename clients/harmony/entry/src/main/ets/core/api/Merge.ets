@@ -1,5 +1,5 @@
-import { GatewayPath, Identity, Node } from '../model/Models';
-import { NodeSummary } from './Dto';
+import { GatewayPath, Identity, LinkKind, Node } from '../model/Models';
+import { NodeSummary, NodesAnswer } from './Dto';
 import { ClientError } from '../model/Errors';
 import { hostnameOf } from './Origins';
 
@@ -20,7 +20,7 @@ export class OriginProbe {
     this.failure = failure;
   }
 
-  static answer(origin: string, latencyMs: number, answer: { nodes: NodeSummary[] }): OriginProbe {
+  static answer(origin: string, latencyMs: number, answer: NodesAnswer): OriginProbe {
     return new OriginProbe(origin, true, latencyMs, answer.nodes, null);
   }
 
@@ -80,7 +80,13 @@ export function mergeNodes(probes: OriginProbe[], identities: Identity[], previo
     }
     for (const summary of probe.nodes) {
       const path: GatewayPath = new GatewayPath(probe.origin, identity.credentialRef, true, probe.latencyMs,
-        isPrivateHost(hostnameOf(probe.origin)), Date.now());
+        isPrivateHost(hostnameOf(probe.origin)), null,
+        // A gateway that declared how it reaches the node is believed; one that said
+        // nothing leaves the client to judge by the address it dials. Either way a
+        // path that leaves the local network reads as a tunnel, because that is what
+        // it costs the person using it.
+        summary.link === 'tunnel' || !isPrivateHost(hostnameOf(probe.origin))
+          ? LinkKind.Tunnel : LinkKind.Local);
       const existing: GatewayPath[] | undefined = pathsByNode.get(summary.id);
       if (existing === undefined) {
         pathsByNode.set(summary.id, [path]);

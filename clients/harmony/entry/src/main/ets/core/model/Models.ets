@@ -76,26 +76,41 @@ export class Identity {
 }
 
 /** One way to reach one node: an origin this device holds a credential for. */
+/** The two words a link is shown in: a local one, or one over a tunnel. */
+export enum LinkKind {
+  Local = 'local',
+  Tunnel = 'tunnel'
+}
+
 export class GatewayPath {
   readonly origin: string;
   readonly identityRef: string;
   readonly reachable: boolean | null;
   readonly latencyMs: number | null;
+  /** Whether this address is on a private network: the *preference*, not the label. */
   readonly isPrivate: boolean;
   readonly lastCheckedAt: number | null;
+  /**
+   * What the link is *called*, which is not the same question: a gateway may declare
+   * that it carries this node over its own tunnel even though the phone reaches the
+   * gateway at home, and a person reading "本地" while their traffic crosses the
+   * internet is being told the wrong thing.
+   */
+  readonly link: LinkKind;
 
   constructor(origin: string, identityRef: string, reachable: boolean | null, latencyMs: number | null,
-    isPrivate: boolean, lastCheckedAt: number | null) {
+    isPrivate: boolean, lastCheckedAt: number | null, link: LinkKind | null = null) {
     this.origin = origin;
     this.identityRef = identityRef;
     this.reachable = reachable;
     this.latencyMs = latencyMs;
     this.isPrivate = isPrivate;
     this.lastCheckedAt = lastCheckedAt;
+    this.link = link === null ? (isPrivate ? LinkKind.Local : LinkKind.Tunnel) : link;
   }
 
   withProbe(reachable: boolean, latencyMs: number, at: number): GatewayPath {
-    return new GatewayPath(this.origin, this.identityRef, reachable, latencyMs, this.isPrivate, at);
+    return new GatewayPath(this.origin, this.identityRef, reachable, latencyMs, this.isPrivate, at, this.link);
   }
 }
 

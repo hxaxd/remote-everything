@@ -31,12 +31,6 @@ export class Cadence {
   static readonly approvalPollMs: number = 5000;
   static readonly approvalPollTimeoutMs: number = 600000;
 
-  /**
-   * How long a staged pairing is treated as alive when the gateway's own expiry
-   * could not be read: the invitation lifetime it hands out by default.
-   */
-  static readonly pendingFallbackMs: number = 600000;
-
   /** How long a path is given to answer while it is being probed. */
   static readonly probeTimeoutMs: number = 2000;
 

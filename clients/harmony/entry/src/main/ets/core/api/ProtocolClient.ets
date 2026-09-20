@@ -11,15 +11,22 @@
 import { ServerPin } from '../model/Models';
 import { Cadence } from '../model/Cadence';
 import { CredentialMaterial, IdentityVault } from '../identity/IdentityVault';
-import { CredentialError } from '../identity/CredentialError';
+import { ClientError, ErrorCode, FailureSide } from '../model/Errors';
 import { CatalogAnswer, ControlAnswer, decodeCatalog, decodeControl, decodeNodes, decodePairing, failureCode,
   NodesAnswer, PairingAnswer } from './Dto';
-import { ClientError, ErrorCode } from './Errors';
+import { validateActivation } from './Wire';
 import { ApiReply, ApiRequest, SessionIdentity, Transport } from './Transport';
 
 const PAIR_PATH = '/__remote_everything_pair';
 const ACTIVATE_PATH = '/__remote_everything_activate';
 const NODES_PATH = '/__remote_everything/nodes';
+
+/**
+ * The read budget for a stop. Stopping is the one control the gateway itself waits
+ * on — it can spend up to twenty seconds shutting an application down — so this
+ * outlives the gateway's own patience rather than cutting it off.
+ */
+const STOP_READ_TIMEOUT_MS: number = 30000;
 
 /** What an activation answered: admitted, still waiting, or refused. */
 export class Activation {
@@ -46,19 +53,7 @@ export class Activation {
   }
 }
 
-/** Which gateway and node a request is for: the identity names both. */
-export class GatewayTarget {
-  readonly origin: string;
-  readonly nodeId: string;
-  readonly serverPin: ServerPin | null;
-
-  constructor(origin: string, nodeId: string, serverPin: ServerPin | null) {
-    this.origin = origin;
-    this.nodeId = nodeId;
-    this.serverPin = serverPin;
-  }
-}
-
+/** The protocol client: one session per origin, and every endpoint there is. */
 export class ProtocolClient {
   private readonly transport: Transport = new Transport();
   private readonly vault: IdentityVault;
@@ -89,10 +84,6 @@ export class ProtocolClient {
     this.transport.closeAll();
   }
 
-  cancel(origin: string): void {
-    this.transport.cancel(origin);
-  }
-
   /** Redeems an invitation. The one request that carries no credential. */
   async pair(origin: string, invitation: string, deviceName: string, credentialPassword: string,
     serverPin: ServerPin | null): Promise<PairingAnswer> {
@@ -113,13 +104,21 @@ export class ProtocolClient {
     const reply: ApiReply = await this.transport.send(origin,
       new ApiRequest('POST', ACTIVATE_PATH, nodeId, null, Cadence.requestTimeoutMs));
     if (reply.status === 202) {
-      const code: ErrorCode | null = failureCode(reply.body);
-      if (code === ErrorCode.ApprovalPending) {
-        return Activation.waiting();
-      }
-      return Activation.refused(this.failure(reply, code));
+      // A 202 is the gateway holding the door half open: waiting, whatever the
+      // body says — the same reading every client gives it.
+      return Activation.waiting();
     }
-    return Activation.admitted(this.answer(reply, 'the activation answer', (text: string) => decodeCatalog(text)));
+    const catalog: CatalogAnswer =
+      this.answer(reply, 'the activation answer', (text: string) => decodeCatalog(text));
+    try {
+      // A 200 is the connected catalog and nothing else: the same conclusion the
+      // behaviour fixtures state for an activation that answers while the computer
+      // is away or its registry is not ready.
+      validateActivation(catalog.computerConnected, catalog.code);
+    } catch (error) {
+      throw ClientError.client('the activation answer is not a connected catalog');
+    }
+    return Activation.admitted(catalog);
   }
 
   /**
@@ -160,7 +159,9 @@ export class ProtocolClient {
   async open(origin: string, nodeId: string, appId: string): Promise<string> {
     const reply: ApiReply = await this.transport.send(origin,
       new ApiRequest('GET', `/__remote_everything/open/${appId}`, nodeId, null, Cadence.requestTimeoutMs));
-    if (reply.status !== 302) {
+    // A redirect is a redirect: any 3xx that names a place is followed, the way
+    // every client follows it. What the place may be is checked below.
+    if (reply.status < 300 || reply.status > 399) {
       const code: ErrorCode | null = failureCode(reply.body);
       throw this.failure(reply, code);
     }
@@ -177,8 +178,9 @@ export class ProtocolClient {
 
   private async control(origin: string, nodeId: string, appId: string, action: string): Promise<ControlAnswer> {
     const method: string = action === 'status' ? 'GET' : 'POST';
+    const timeout: number = action === 'stop' ? STOP_READ_TIMEOUT_MS : Cadence.requestTimeoutMs;
     const reply: ApiReply = await this.transport.send(origin,
-      new ApiRequest(method, `/__remote_everything/apps/${appId}/${action}`, nodeId, null, Cadence.requestTimeoutMs));
+      new ApiRequest(method, `/__remote_everything/apps/${appId}/${action}`, nodeId, null, timeout));
     return this.answer(reply, 'the control answer', (text: string) => decodeControl(text));
   }
 
@@ -216,9 +218,14 @@ export class ProtocolClient {
   }
 
   private failure(reply: ApiReply, code: ErrorCode | null): ClientError {
-    const resolved: ErrorCode = code === null ? ErrorCode.Network : code;
     const retryAfter: number = reply.retryAfterSeconds > 0 ? reply.retryAfterSeconds * 1000 : 0;
-    return new ClientError(resolved, reply.status, 'the gateway refused the request', retryAfter);
+    // A code the client could not read stays unread: a transport failure is
+    // `null`, and forging a wire code for one would be a worse lie than the
+    // missing name (Errors.ets — nineteen codes, none invented). When the wire
+    // did answer — there is an HTTP status — an unreadable refusal is the
+    // client's side (BadAnswer), not the wire's (Unreachable).
+    const side: FailureSide = code === null && reply.status > 0 ? FailureSide.Client : FailureSide.Wire;
+    return new ClientError(code, reply.status, 'the gateway refused the request', retryAfter, side);
   }
 }
 
@@ -280,12 +287,4 @@ function firstIndexOf(text: string, needles: string[]): number {
     }
   }
   return found;
-}
-
-/** Turns a credential failure into the same typed error the wire's refusals use. */
-export function credentialFailure(error: Object): ClientError {
-  if (error instanceof CredentialError) {
-    return ClientError.client(error.detail);
-  }
-  return ClientError.client('the credential could not be used');
 }

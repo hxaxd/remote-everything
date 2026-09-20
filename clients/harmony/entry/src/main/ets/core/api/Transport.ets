@@ -1,10 +1,9 @@
-// Talking to a gateway: RCP, one session per origin, cancellation that cancels.
+// Talking to a gateway: RCP, one session per origin.
 //
 // RCP is used rather than `http` for two reasons the old clients paid for: a request
-// can actually be cancelled (`session.cancel`, error 1007900992) and it carries a
-// client certificate with a pinning rule of its own. The session is per origin —
-// which is also where the certificate belongs — so two gateways cannot share a
-// connection pool or a key.
+// can actually be cancelled (session.cancel) and it carries a client certificate with
+// a pinning rule of its own. The session is per origin — which is also where the
+// certificate belongs — so two gateways cannot share a connection pool or a key.
 //
 // The archive is opened into memory (HuksVault), handed to RCP as `content` (an ArrayBuffer, never a
 // file path), and this client's copy of it is wiped immediately after the session
@@ -12,23 +11,18 @@
 // gateway, a 401, a network change, the app going to the background — so the material
 // does not sit in memory for longer than it is needed.
 //
-// Server certificates:
-//   * a gateway that signs its own certificate (a LAN entrance) is verified against
-//     the pin its invitation carried: the public key the platform pins, and this
-//     client's own check of the public key or the certificate fingerprint. Nothing
-//     else is accepted, and there is no way to continue past a mismatch.
-//   * a gateway with a domain uses the platform's own verification, and carries no
-//     pin: its certificate is renewed by whoever signs it, and pinning a CA is how a
-//     client locks itself out.
+// What makes a session safe to open — the pin a LAN gateway's invitation carried, the
+// platform's own verification for a gateway with a domain — lives beside this file in
+// core/api/SessionSecurity, next to the pinning decision it builds on.
 
 import { rcp } from '@kit.RemoteCommunicationKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
-import { cert } from '@kit.DeviceCertificateKit';
 import { ServerPin } from '../model/Models';
 import { Cadence } from '../model/Cadence';
-import { certificateMatchesPin } from '../identity/Pinning';
-import { ClientError } from './Errors';
+import { ClientError } from '../model/Errors';
+import { anonymousSecurity, lastPinFailureReason, pinnedSecurity } from './SessionSecurity';
+import { RcpPool } from './RcpPool';
 
 const CANCELED = 1007900992;
 const SESSION_CLOSED = 1007900993;
@@ -81,80 +75,6 @@ export class SessionIdentity {
   }
 }
 
-interface PinnedDecision {
-  readonly accepted: boolean;
-  readonly reason: string;
-}
-
-function pemToDer(pem: string): Uint8Array | null {
-  const begin: number = pem.indexOf('-----BEGIN CERTIFICATE-----');
-  const end: number = pem.indexOf('-----END CERTIFICATE-----');
-  if (begin < 0 || end < 0 || end <= begin) {
-    return null;
-  }
-  const body: string = pem.substring(begin + '-----BEGIN CERTIFICATE-----'.length, end).replace(/\s+/g, '');
-  try {
-    const helper: util.Base64Helper = new util.Base64Helper();
-    return helper.decodeSync(body, util.Type.BASIC);
-  } catch (error) {
-    return null;
-  }
-}
-
-/**
- * A pinned gateway's certificate, checked against what its invitation said. The
- * decision itself lives in core/identity/Pinning so the API plane and the WebView
- * cannot disagree about it.
- */
-export function pinDecision(chainPem: string[], pin: ServerPin, host?: string): PinnedDecision {
-  if (chainPem.length === 0) {
-    return { accepted: false, reason: 'the gateway presented no certificate' };
-  }
-  const leaf: Uint8Array | null = pemToDer(chainPem[0]);
-  if (leaf === null) {
-    return { accepted: false, reason: 'the gateway certificate could not be read' };
-  }
-  if (certificateMatchesPin(leaf, pin, host)) {
-    return { accepted: true, reason: 'the certificate this device was told to expect' };
-  }
-  return { accepted: false, reason: 'the gateway presents a certificate this device was not told to expect' };
-}
-
-/** The platform's own validity strings are `YYYYMMDDHHMMSSZ`, which sorts as text. */
-function utcStampNow(): string {
-  const now: Date = new Date();
-  const pad = (value: number): string => value < 10 ? `0${value}` : `${value}`;
-  return `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
-    `${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-}
-
-function withinValidity(notBefore: string, notAfter: string): boolean {
-  const now: string = utcStampNow();
-  return now >= notBefore && now <= notAfter;
-}
-
-/**
- * Whether one self-signed gateway's certificate may be used: the key the invitation
- * named or the certificate it named, and — when the platform hands over a readable
- * validity window — that the certificate is current.
- */
-function pinnedAccepted(chainPem: string[], chain: cert.X509Cert[], pin: ServerPin, host?: string): boolean {
-  if (!pinDecision(chainPem, pin, host).accepted) {
-    return false;
-  }
-  if (chain.length === 0) {
-    return true;
-  }
-  try {
-    return withinValidity(chain[0].getNotBeforeTime(), chain[0].getNotAfterTime());
-  } catch (error) {
-    // The window could not be read; the pin still stands.
-    return true;
-  }
-}
-
-import { RcpPool } from './RcpPool';
-
 export class Transport {
   private readonly pool: RcpPool = new RcpPool();
 
@@ -171,7 +91,8 @@ export class Transport {
     try {
       const host: string = hostOf(origin);
       const session: rcp.Session = rcp.createSession(
-        this.sessionConfiguration(this.requestConfiguration(Cadence.requestTimeoutMs, this.security(identity, host))));
+        this.sessionConfiguration(this.requestConfiguration(Cadence.requestTimeoutMs,
+          this.security(identity, host))));
       this.pool.set(origin, session);
     } catch (error) {
       throw ClientError.client('the transport refused to open a session');
@@ -185,11 +106,6 @@ export class Transport {
 
   closeAll(): void {
     this.pool.closeAll();
-  }
-
-  /** Cancels whatever is in flight for one origin. The call itself returns at once. */
-  cancel(origin: string): void {
-    this.pool.cancelInflight(origin);
   }
 
   async send(origin: string, request: ApiRequest): Promise<ApiReply> {
@@ -210,14 +126,11 @@ export class Transport {
       transfer: { autoRedirect: false, timeout: { connectMs: request.timeoutMs, transferMs: request.timeoutMs } }
     };
     rcpRequest.configuration = configuration;
-    this.pool.setInflight(origin, rcpRequest);
     try {
       const response: rcp.Response = await session.fetch(rcpRequest);
       return this.replyOf(response);
     } catch (error) {
       throw this.translate(error);
-    } finally {
-      this.pool.clearInflight(origin);
     }
   }
 
@@ -226,7 +139,7 @@ export class Transport {
     extraHeaders: Record<string, string> = {}): Promise<ApiReply> {
     const host: string = hostOf(origin);
     const sessionConfiguration: rcp.SessionConfiguration =
-      this.sessionConfiguration(this.requestConfiguration(request.timeoutMs, this.anonymousSecurity(pin, host)));
+      this.sessionConfiguration(this.requestConfiguration(request.timeoutMs, anonymousSecurity(pin, host)));
     let probe: rcp.Session;
     try {
       probe = rcp.createSession(sessionConfiguration);
@@ -265,7 +178,7 @@ export class Transport {
   async fetchDocument(url: string, timeoutMs: number): Promise<string> {
     const noPin: ServerPin | null = null;
     const sessionConfiguration: rcp.SessionConfiguration =
-      this.sessionConfiguration(this.requestConfiguration(timeoutMs, this.anonymousSecurity(noPin)));
+      this.sessionConfiguration(this.requestConfiguration(timeoutMs, anonymousSecurity(noPin)));
     let session: rcp.Session;
     try {
       session = rcp.createSession(sessionConfiguration);
@@ -319,14 +232,7 @@ export class Transport {
     return configuration;
   }
 
-  private anonymousSecurity(pin: ServerPin | null, host?: string): rcp.SecurityConfiguration {
-    if (pin === null) {
-      const plain: rcp.SecurityConfiguration = { remoteValidation: 'system' };
-      return plain;
-    }
-    return this.pinnedSecurity(pin, host);
-  }
-
+  /** One origin's own security: the device certificate, and the pin when there is one. */
   private security(identity: SessionIdentity, host?: string): rcp.SecurityConfiguration {
     const certificate: rcp.ClientCertificate = {
       content: identity.certificate,
@@ -339,28 +245,9 @@ export class Transport {
       const verified: rcp.SecurityConfiguration = { remoteValidation: 'system', certificate: certificate };
       return verified;
     }
-    const pinned: rcp.SecurityConfiguration = this.pinnedSecurity(identity.serverPin, host);
+    const pinned: rcp.SecurityConfiguration = pinnedSecurity(identity.serverPin, host);
     pinned.certificate = certificate;
     return pinned;
-  }
-
-  /**
-   * A self-signed gateway's security: the platform pins the public key the invitation
-   * named, and this client's own validation accepts that key or the certificate's
-   * fingerprint. The system's trust store has never heard of this gateway, so the CA
-   * chain is not what decides here.
-   */
-  private pinnedSecurity(pin: ServerPin, host?: string): rcp.SecurityConfiguration {
-    const pinning: rcp.CertificatePinning[] = [
-      { kind: 'public-key', publicKeyHash: pin.publicKeyPin, hashAlgorithm: 'SHA-256' }
-    ];
-    const validate: rcp.ValidationCallback = (context: rcp.ValidationContext): boolean =>
-      pinnedAccepted(context.pemCerts, context.x509Certs, pin, host);
-    const security: rcp.SecurityConfiguration = {
-      remoteValidation: validate,
-      certificatePinning: pinning
-    };
-    return security;
   }
 
   /**
@@ -421,11 +308,46 @@ export class Transport {
       return ClientError.transport('the request was cancelled');
     }
     if (code === PIN_MISMATCH) {
-      return ClientError.transport('the gateway did not present the certificate this device expects');
+      const reason: string | null = lastPinFailureReason();
+      return ClientError.transport(reason !== null
+        ? `the gateway certificate does not match: ${reason}`
+        : 'the gateway did not present the certificate this device expects');
     }
     if (code !== undefined) {
       return ClientError.transport(`the request failed with ${code}`);
     }
     return ClientError.transport('the request failed');
   }
+}
+
+function hostOf(url: string): string {
+  const scheme: number = url.indexOf('://');
+  if (scheme < 0) {
+    return '';
+  }
+  let authority: string = url.substring(scheme + 3);
+  const stop: number = firstIndexOf(authority, ['/', '?', '#']);
+  if (stop >= 0) {
+    authority = authority.substring(0, stop);
+  }
+  if (authority.includes('@')) {
+    authority = authority.substring(authority.indexOf('@') + 1);
+  }
+  if (authority.startsWith('[')) {
+    const close: number = authority.indexOf(']');
+    return close < 0 ? '' : authority.substring(0, close + 1);
+  }
+  const colon: number = authority.lastIndexOf(':');
+  return colon < 0 ? authority : authority.substring(0, colon);
+}
+
+function firstIndexOf(text: string, needles: string[]): number {
+  let found: number = -1;
+  for (const needle of needles) {
+    const at: number = text.indexOf(needle);
+    if (at >= 0 && (found < 0 || at < found)) {
+      found = at;
+    }
+  }
+  return found;
 }

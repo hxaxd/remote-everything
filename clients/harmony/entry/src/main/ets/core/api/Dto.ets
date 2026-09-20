@@ -1,19 +1,21 @@
 // The wire's documents, read strictly.
 //
 // Every answer a gateway gives is decoded here into classes the rest of the client
-// uses, and every rule the schemas state is enforced: required fields must be there,
-// unknown fields are refused, an unknown enum value is refused rather than defaulted,
-// and the cross-field constraints the schemas describe — a catalog that says `ready`
-// while `computer_connected` is false, an app whose `code` contradicts its
-// `enabled`+`running` — are refused too. That is the trust boundary: a substituted
-// gateway or a proxy rewriting answers is exactly what a lenient reader would let in.
+// uses. The layers are the ones clients/README.md gives: this file reads the shape —
+// required fields present, unknown fields refused, enum values known — and each
+// value satisfies the rules in core/json/Strict; the rules between fields, a catalog
+// that says `ready` while `computer_connected` is false, an app whose `code`
+// contradicts its `enabled`+`running`, live in core/api/Wire and are called once the
+// document is in hand. That is the trust boundary: a substituted gateway or a proxy
+// rewriting answers is exactly what a lenient reader would let in.
 
 import { JsonError, JsonReader, codePoints, hasNoControlCharacters, isBase64, isLaunchFragment, isRfc3339 } from
   '../json/Strict';
 import { AppInfo, AppState } from '../model/Models';
-import { ClientError, ErrorCode, parseErrorCode } from './Errors';
+import { ClientError, ErrorCode, parseErrorCode } from '../model/Errors';
+import { validateAppDto, validateCatalog, validateControl } from './Wire';
 
-const ID_PATTERN = new RegExp('^[a-z0-9][a-z0-9._-]{0,63}$');
+const ID_PATTERN = new RegExp('^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$');
 const NODE_ID_PATTERN = new RegExp('^[a-f0-9]{64}$');
 const ACCENT_PATTERN = new RegExp('^#[0-9A-Fa-f]{6}$');
 const FINGERPRINT_PATTERN = new RegExp('^[a-f0-9]{64}$');
@@ -21,15 +23,17 @@ const FINGERPRINT_PATTERN = new RegExp('^[a-f0-9]{64}$');
 export class NodeSummaryDto {
   readonly id: string;
   readonly name: string;
+  /** How the answering gateway reaches it, when the operator or the gateway said. */
+  readonly link: string;
 
-  constructor(id: string, name: string) {
+  constructor(id: string, name: string, link: string = '') {
     this.id = id;
     this.name = name;
+    this.link = link;
   }
 }
 
 export type NodeSummary = NodeSummaryDto;
-export const NodeSummary = NodeSummaryDto;
 
 export class AppDto {
   readonly id: string;
@@ -70,7 +74,6 @@ export class NodesResponse {
 }
 
 export type NodesAnswer = NodesResponse;
-export const NodesAnswer = NodesResponse;
 
 export class CatalogResponse {
   readonly ok: boolean;
@@ -87,7 +90,6 @@ export class CatalogResponse {
 }
 
 export type CatalogAnswer = CatalogResponse;
-export const CatalogAnswer = CatalogResponse;
 
 /** The status codes a control answer may carry, `computer_offline` included. */
 export enum ControlCode {
@@ -133,7 +135,6 @@ export class ControlResponse {
 }
 
 export type ControlAnswer = ControlResponse;
-export const ControlAnswer = ControlResponse;
 
 export class PairingResponse {
   readonly deviceName: string;
@@ -151,7 +152,6 @@ export class PairingResponse {
 }
 
 export type PairingAnswer = PairingResponse;
-export const PairingAnswer = PairingResponse;
 
 /** The state code an app's enabled/running pair has to agree with. */
 function appStateOf(enabled: boolean, running: boolean): AppState {
@@ -191,10 +191,7 @@ export function decodeAppDto(reader: JsonReader): AppDto {
   const enabled: boolean = reader.bool('enabled');
   const running: boolean = reader.bool('running');
   const code: string = reader.enumValue('code', ['ready', 'starting', 'stopping', 'stopped']);
-  const expected: AppState = appStateOf(enabled, running);
-  if (code !== expected) {
-    throw new JsonError(`${reader.context()}.code contradicts enabled and running`);
-  }
+  validateAppDto(id, code, enabled, running);
   return new AppDto(id, name, description, icon, accent, launchFragment, enabled, running, code);
 }
 
@@ -221,14 +218,18 @@ export function decodeNodes(text: string): NodesAnswer {
     const nodes: NodeSummary[] = [];
     for (const entry of reader.array('nodes')) {
       const node: JsonReader = JsonReader.of(entry, 'the nodes answer');
-      node.rejectUnknown(['id', 'name']);
+      node.rejectUnknown(['id', 'name', 'link']);
       const name: string = node.string('name');
       if (name.length === 0) {
         throw new JsonError('the nodes answer names a node with an empty name');
       }
-      nodes.push(new NodeSummary(node.pattern('id', NODE_ID_PATTERN), name));
+      const link: string = node.optionalString('link') ?? '';
+      if (link !== '' && link !== 'local' && link !== 'tunnel') {
+        throw new JsonError('the nodes answer declares a link that is neither local nor tunnel');
+      }
+      nodes.push(new NodeSummaryDto(node.pattern('id', NODE_ID_PATTERN), name, link));
     }
-    return new NodesAnswer(nodes);
+    return new NodesResponse(nodes);
   } catch (error) {
     throw ClientError.client(`the nodes answer is not one this client reads: ${(error as Error).message}`);
   }
@@ -244,23 +245,14 @@ export function decodeCatalog(text: string): CatalogAnswer {
     }
     const connected: boolean = reader.bool('computer_connected');
     const code: string = reader.enumValue('code', ['ready', 'computer_offline']);
-    if (connected !== (code === 'ready')) {
-      throw new JsonError('the catalog code contradicts computer_connected');
-    }
     const apps: AppInfo[] = [];
-    const seen: Set<string> = new Set<string>();
     for (const entry of reader.array('apps')) {
       const app: AppInfo = decodeApp(JsonReader.of(entry, 'the catalog answer'));
-      if (seen.has(app.id)) {
-        throw new JsonError(`the catalog answer lists the application ${app.id} twice`);
-      }
-      seen.add(app.id);
       apps.push(app);
     }
-    if (!connected && apps.length > 0) {
-      throw new JsonError('an offline catalog still lists applications');
-    }
-    return new CatalogAnswer(true, connected, code, apps);
+    const answer: CatalogAnswer = new CatalogResponse(true, connected, code, apps);
+    validateCatalog(connected, code, apps);
+    return answer;
   } catch (error) {
     throw ClientError.client(`the catalog answer is not one this client reads: ${(error as Error).message}`);
   }
@@ -281,15 +273,8 @@ export function decodeControl(text: string): ControlAnswer {
     const appReader: JsonReader | null = reader.optionalObject('app');
     const app: AppInfo | null = appReader === null ? null : decodeApp(appReader);
     const errorCode: string | null = reader.optionalString('error_code');
-    if (errorCode !== null && errorCode !== 'stop_command_failed') {
-      throw new JsonError('the control answer names an error this client does not know');
-    }
-    if (code === 'ready' || code === 'starting' || code === 'stopping' || code === 'stopped') {
-      if (code !== appStateOf(enabled, running)) {
-        throw new JsonError('the control code contradicts enabled and running');
-      }
-    }
-    return new ControlAnswer(ok, action, connected, enabled, running, code as ControlCode, app, errorCode);
+    validateControl(code, enabled, running, errorCode);
+    return new ControlResponse(ok, action, connected, enabled, running, code as ControlCode, app, errorCode);
   } catch (error) {
     throw ClientError.client(`the control answer is not one this client reads: ${(error as Error).message}`);
   }
@@ -305,6 +290,11 @@ export function decodePairing(text: string): PairingAnswer {
       throw new JsonError('the pairing answer is not ok');
     }
     const deviceName: string = reader.string('device_name');
+    // The name is shown: an empty one the schema forbids, and a control character
+    // in it is not a sentence this client renders.
+    if (deviceName.length === 0 || !hasNoControlCharacters(deviceName)) {
+      throw new JsonError('the pairing answer names a device this client cannot show');
+    }
     const fingerprint: string = reader.pattern('certificate_fingerprint', FINGERPRINT_PATTERN);
     const format: string = reader.string('credential_format');
     if (format !== 'pkcs12') {
@@ -318,7 +308,7 @@ export function decodePairing(text: string): PairingAnswer {
     if (!isRfc3339(expires)) {
       throw new JsonError('the pairing answer carries an expiry that is not an instant');
     }
-    return new PairingAnswer(deviceName, fingerprint, pkcs12, expires);
+    return new PairingResponse(deviceName, fingerprint, pkcs12, expires);
   } catch (error) {
     throw ClientError.client(`the pairing answer is not one this client reads: ${(error as Error).message}`);
   }

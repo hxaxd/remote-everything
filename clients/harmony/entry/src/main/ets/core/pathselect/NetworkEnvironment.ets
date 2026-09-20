@@ -17,6 +17,9 @@ export class NetworkEnvironment {
   private generation: number = 0;
   private listener: connection.NetConnection | null = null;
 
+  /** Told whenever the platform reports the network changed. */
+  onNetworkChange?: () => void;
+
   /** Starts watching: every report of a change turns the generation over. */
   start(): void {
     if (this.listener !== null) {
@@ -26,6 +29,9 @@ export class NetworkEnvironment {
       const listener: connection.NetConnection = connection.createNetConnection();
       const changed = (): void => {
         this.generation += 1;
+        if (this.onNetworkChange !== undefined) {
+          this.onNetworkChange();
+        }
       };
       listener.on('netAvailable', changed);
       listener.on('netLost', changed);
@@ -56,6 +62,39 @@ export class NetworkEnvironment {
     return `${netId}.${this.generation}`;
   }
 
+  /** Nothing to send on at all: every connection fails the same way, and this says why. */
+  offline(): boolean {
+    try {
+      return !connection.hasDefaultNetSync();
+    } catch (error) {
+      // A platform that will not answer the question is not one to claim offline on.
+      return false;
+    }
+  }
+
+  /**
+   * The network as a report should print it. Tokens rather than prose, because a
+   * reader who has the device in hand reads `wifi · internet ✓ · vpn ✗` faster
+   * than a sentence — and the marks do not need translating.
+   */
+  describe(): string {
+    if (this.defaultNetworkId() <= 0) {
+      return 'offline';
+    }
+    let capabilities: connection.NetCapabilities | null = null;
+    try {
+      capabilities = connection.getNetCapabilitiesSync(connection.getDefaultNetSync());
+    } catch (error) {
+      capabilities = null;
+    }
+    if (capabilities === null) {
+      return 'unknown';
+    }
+    return `${bearerName(capabilities.bearerTypes)} · internet ${capabilityMark(capabilities.networkCap,
+      connection.NetCap.NET_CAPABILITY_VALIDATED)} · vpn ${bearerMark(capabilities.bearerTypes,
+      connection.NetBearType.BEARER_VPN)}`;
+  }
+
   private defaultNetworkId(): number {
     try {
       const handle: connection.NetHandle = connection.getDefaultNetSync();
@@ -64,4 +103,37 @@ export class NetworkEnvironment {
       return -1;
     }
   }
+}
+
+/** The transport this network uses, in one word. */
+function bearerName(bearers: connection.NetBearType[]): string {
+  if (bearers.includes(connection.NetBearType.BEARER_WIFI)) {
+    return 'wifi';
+  }
+  if (bearers.includes(connection.NetBearType.BEARER_CELLULAR)) {
+    return 'cellular';
+  }
+  if (bearers.includes(connection.NetBearType.BEARER_ETHERNET)) {
+    return 'ethernet';
+  }
+  if (bearers.includes(connection.NetBearType.BEARER_VPN)) {
+    return 'vpn';
+  }
+  return 'other';
+}
+
+/** Whether the network carries this, as a mark that needs no translating. */
+function capabilityMark(values: connection.NetCap[] | undefined, value: connection.NetCap): string {
+  if (values === undefined) {
+    return '✗';
+  }
+  return values.includes(value) ? '✓' : '✗';
+}
+
+/** Whether the network is carried over this bearer, as a mark that needs no translating. */
+function bearerMark(values: connection.NetBearType[] | undefined, value: connection.NetBearType): string {
+  if (values === undefined) {
+    return '✗';
+  }
+  return values.includes(value) ? '✓' : '✗';
 }

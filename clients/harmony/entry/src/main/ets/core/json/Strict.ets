@@ -78,9 +78,15 @@ export class JsonReader {
     return value;
   }
 
+  /**
+   * The optional family reads "there is nothing here" two ways: a key the wire
+   * left out, and a key it sent as null. The contract's other clients read both as
+   * absent — a path with no latency has nothing to report — so a null is not a type
+   * error here. A value of the wrong type still is.
+   */
   optionalString(name: string): string | null {
     const value: Object | undefined = this.record[name];
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return null;
     }
     if (typeof value !== 'string') {
@@ -99,7 +105,7 @@ export class JsonReader {
 
   optionalBool(name: string): boolean | null {
     const value: Object | undefined = this.record[name];
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return null;
     }
     if (typeof value !== 'boolean') {
@@ -118,7 +124,7 @@ export class JsonReader {
 
   optionalNumber(name: string): number | null {
     const value: Object | undefined = this.record[name];
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return null;
     }
     if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -137,7 +143,7 @@ export class JsonReader {
 
   optionalArray(name: string): Object[] | null {
     const value: Object | undefined = this.record[name];
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return null;
     }
     if (!Array.isArray(value)) {
@@ -156,7 +162,7 @@ export class JsonReader {
 
   optionalObject(name: string): JsonReader | null {
     const value: Object | undefined = this.record[name];
-    if (value === undefined) {
+    if (value === undefined || value === null) {
       return null;
     }
     if (!isJsonObject(value)) {
@@ -219,9 +225,63 @@ export function isBase64(value: string): boolean {
   return /^[A-Za-z0-9+/]*={0,2}$/.test(value);
 }
 
-/** An expiry is an RFC 3339 UTC instant, because the pending window is computed from it. */
+/** An expiry is an RFC 3339 date-time, because the pending window is computed from it. */
+const RFC3339 = new RegExp(
+  '^(\\d{4})-(\\d{2})-(\\d{2})[Tt](\\d{2}):(\\d{2}):(\\d{2})(\\.\\d+)?([Zz]|[+-]\\d{2}:\\d{2})$');
+
+/**
+ * Reads an RFC 3339 date-time as the epoch milliseconds it names: a full date, T,
+ * a time of day, and an offset of Z or ±hh:mm, with optional fractional seconds.
+ * Anything else — a bare date, a missing zone, a leap second, a day that does not
+ * exist in its month — is not an instant: the same verdict `Instant.parse` gives
+ * on the other two clients.
+ */
+export function rfc3339EpochMs(value: string): number {
+  const matched = RFC3339.exec(value);
+  if (matched === null) {
+    throw new JsonError('the value is not an RFC 3339 date-time');
+  }
+  const year: number = Number.parseInt(matched[1], 10);
+  const month: number = Number.parseInt(matched[2], 10);
+  const day: number = Number.parseInt(matched[3], 10);
+  const hour: number = Number.parseInt(matched[4], 10);
+  const minute: number = Number.parseInt(matched[5], 10);
+  const second: number = Number.parseInt(matched[6], 10);
+  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) {
+    throw new JsonError('the date-time names a time that does not exist');
+  }
+  // Day 0 of the following month is this month's last day, so the month's own
+  // length — leap years included — is what bounds the day.
+  const daysInMonth: number = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) {
+    throw new JsonError('the date-time names a day that does not exist');
+  }
+  let offsetMs: number = 0;
+  const zone: string = matched[8];
+  if (zone !== 'Z' && zone !== 'z') {
+    const offsetHours: number = Number.parseInt(zone.substring(1, 3), 10);
+    const offsetMinutes: number = Number.parseInt(zone.substring(4, 6), 10);
+    if (offsetHours > 23 || offsetMinutes > 59) {
+      throw new JsonError('the date-time names an offset that does not exist');
+    }
+    offsetMs = (offsetHours * 3600 + offsetMinutes * 60) * 1000;
+    if (zone.startsWith('-')) {
+      offsetMs = -offsetMs;
+    }
+  }
+  const fractionMs: number =
+    matched[7] === undefined ? 0 : Math.round(Number.parseFloat(`0${matched[7]}`) * 1000);
+  return Date.UTC(year, month - 1, day, hour, minute, second) + fractionMs - offsetMs;
+}
+
+/** An expiry is an RFC 3339 date-time, because the pending window is computed from it. */
 export function isRfc3339(value: string): boolean {
-  return !Number.isNaN(Date.parse(value));
+  try {
+    rfc3339EpochMs(value);
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 /** A launch fragment is empty or starts with #, at most 2048 code points. */

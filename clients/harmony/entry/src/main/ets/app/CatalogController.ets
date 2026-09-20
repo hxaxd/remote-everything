@@ -4,14 +4,14 @@ import { AppInfo, AppState, GatewayPath, Identity, ServerPin } from '../core/mod
 import { CatalogPhase, CatalogState, NodeRow, WebSession } from './State';
 import { CatalogOutcome, CatalogOutcomeKind } from '../core/api/CatalogOutcome';
 import { CatalogAnswer, ControlAnswer, ControlCode } from '../core/api/Dto';
-import { ClientError, ErrorCode } from '../core/model/Errors';
+import { ClientError, CredentialError, ErrorCode } from '../core/model/Errors';
 import { ProtocolClient } from '../core/api/ProtocolClient';
 import { IdentityVault } from '../core/identity/IdentityVault';
 import { NodesController } from './NodesController';
+import { PathSelector } from '../core/pathselect/PathSelector';
 import { Cadence } from '../core/model/Cadence';
 import { MessageKeys } from '../core/model/MessageKeys';
 import { hostOf } from '../core/api/Origins';
-import { CredentialError } from '../core/identity/CredentialError';
 
 @ObservedV2
 export class CatalogController {
@@ -25,6 +25,7 @@ export class CatalogController {
   @Trace web: WebSession | null = null;
   @Trace webFailed: string = '';
 
+  private readonly selector: PathSelector;
   private catalogTimer: number = -1;
   private statusTimer: number = -1;
 
@@ -34,6 +35,7 @@ export class CatalogController {
     this.client = client;
     this.vault = vault;
     this.nodesController = nodesController;
+    this.selector = nodesController.selectorForCatalog();
   }
 
   startCatalogRefresh(nodeId: string): void {
@@ -72,27 +74,65 @@ export class CatalogController {
     return null;
   }
 
+  /**
+   * One node's applications, asked for down every road that answers.
+   *
+   * The chosen road goes first, and a road that stopped answering is a reason to
+   * try the one behind it — a phone that still holds a tunnel must not be told its
+   * machine is gone because the Wi-Fi it was on is gone. A refusal is different:
+   * it is the gateway's answer, and another road would answer the same.
+   */
   async loadCatalog(nodeId: string): Promise<void> {
-    const path: GatewayPath | null = this.chosenPath(nodeId);
-    if (path === null) {
+    const roads: GatewayPath[] = this.roads(nodeId);
+    if (roads.length === 0) {
       this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], null, '');
       return;
     }
-    try {
-      const answer: CatalogAnswer = await this.client.catalog(path.origin, nodeId, Cadence.requestTimeoutMs);
-      const outcome: CatalogOutcome = CatalogOutcome.forAnswer(answer);
-      if (outcome.kind === CatalogOutcomeKind.Apps) {
-        this.catalog = new CatalogState(CatalogPhase.Ready, nodeId, outcome.apps, null, '');
-      } else {
-        this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], ErrorCode.ComputerOffline, '');
+    let failure: Object | null = null;
+    for (const path of roads) {
+      try {
+        const answer: CatalogAnswer = await this.client.apps(path.origin, nodeId);
+        const outcome: CatalogOutcome = CatalogOutcome.forAnswer(answer);
+        if (outcome.kind === CatalogOutcomeKind.Apps) {
+          this.catalog = new CatalogState(CatalogPhase.Ready, nodeId, outcome.apps, null, '');
+        } else {
+          this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], ErrorCode.ComputerOffline, '');
+        }
+        return;
+      } catch (error) {
+        failure = error;
+        if (error instanceof ClientError
+          && CatalogOutcome.forRefusal(error).kind !== CatalogOutcomeKind.Offline) {
+          break;
+        }
+        // This road is not answering: the next one gets the turn, and the choice
+        // stops pointing here.
+        this.selector.forget(nodeId);
       }
-    } catch (error) {
-      this.catalog = this.catalogFailure(nodeId, error);
     }
+    this.catalog = this.catalogFailure(nodeId, failure ?? ClientError.transport('every road failed'));
+  }
+
+  /** The roads to this node, the chosen one first: what answers, best first. */
+  private roads(nodeId: string): GatewayPath[] {
+    const row: NodeRow | null = this.nodesController.nodeRow(nodeId);
+    if (row === null) {
+      return [];
+    }
+    const chosen: GatewayPath | null = this.chosenPath(nodeId);
+    const rest: GatewayPath[] = row.node.paths.filter((path: GatewayPath) =>
+      path.reachable === true && (chosen === null || path.origin !== chosen.origin));
+    return (chosen === null ? [] : [chosen]).concat(rest);
   }
 
   private catalogFailure(nodeId: string, error: Object): CatalogState {
     if (error instanceof ClientError) {
+      if (error.code === null) {
+        // No answer at all, or an answer this client could not read, is a node
+        // that is not reachable — not a gateway that is in trouble. The other
+        // clients read it the same way.
+        return new CatalogState(CatalogPhase.Offline, nodeId, [], null, '');
+      }
       const outcome: CatalogOutcome = CatalogOutcome.forRefusal(error);
       if (outcome.kind === CatalogOutcomeKind.Unauthorized) {
         return new CatalogState(CatalogPhase.Unauthorized, nodeId, [], error.code, '');
@@ -123,18 +163,20 @@ export class CatalogController {
       const answer: ControlAnswer = starting
         ? await this.client.start(path.origin, nodeId, app.id)
         : await this.client.stop(path.origin, nodeId, app.id);
-      if (answer.code === ControlCode.NotFound) {
+      if (answer.code === ControlCode.AppNotFound) {
         this.onToast?.(MessageKeys.ERROR_APP_GONE);
         await this.loadCatalog(nodeId);
         return;
       }
-      if (answer.code === ControlCode.Offline) {
+      if (answer.code === ControlCode.ComputerOffline) {
         this.onToast?.(MessageKeys.forError(ErrorCode.ComputerOffline));
         this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], ErrorCode.ComputerOffline, '');
         return;
       }
-      if (answer.errorCode !== null) {
-        this.onToast?.(MessageKeys.ERROR_CONTROL_FAILED);
+      if (answer.code === ControlCode.StateUpdateFailed) {
+        // The state could not move: that is a stop that failed, and it is named
+        // for what it is — the same word every client says here.
+        this.onToast?.(MessageKeys.ERROR_STOP_FAILED);
       }
       this.pollUntilSettled(nodeId, app, path, targetCode);
     } catch (error) {
@@ -160,12 +202,12 @@ export class CatalogController {
       }
       try {
         const answer: ControlAnswer = await this.client.status(path.origin, nodeId, app.id);
-        if (answer.code === ControlCode.Offline) {
+        if (answer.code === ControlCode.ComputerOffline) {
           this.statusTimer = -1;
           this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], ErrorCode.ComputerOffline, '');
           return;
         }
-        if (answer.code === ControlCode.NotFound) {
+        if (answer.code === ControlCode.AppNotFound) {
           this.statusTimer = -1;
           this.onToast?.(MessageKeys.ERROR_APP_GONE);
           await this.loadCatalog(nodeId);
@@ -180,25 +222,17 @@ export class CatalogController {
           }
         }
       } catch (error) {
-        // Retry until deadline
+        // One failed status ask ends the polling — the next catalog refresh tells
+        // the truth anyway, and a deadline of retries against a dead road is noise.
+        this.statusTimer = -1;
+        this.catalog = this.catalog.withBusy('');
+        return;
       }
       intervalMs = Math.min(intervalMs * Cadence.controlPollFactor, Cadence.controlPollCeilingMs);
       this.statusTimer = setTimeout(ask, intervalMs);
     };
 
     this.statusTimer = setTimeout(ask, intervalMs);
-  }
-
-  async startForOpen(nodeId: string, app: AppInfo): Promise<void> {
-    const path: GatewayPath | null = this.chosenPath(nodeId);
-    if (path === null || app.code === AppState.Ready) {
-      return;
-    }
-    try {
-      await this.client.start(path.origin, nodeId, app.id);
-    } catch (error) {
-      // WebView will handle
-    }
   }
 
   async beginWeb(nodeId: string, app: AppInfo): Promise<void> {

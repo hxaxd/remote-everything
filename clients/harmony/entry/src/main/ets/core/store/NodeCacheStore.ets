@@ -8,7 +8,7 @@
 
 import { JsonReader } from '../json/Strict';
 import { CachedNodes, GatewayPath, Node } from '../model/Models';
-import { Sandbox } from './Sandbox';
+import { AtomicFile } from './AtomicFile';
 
 const SCHEMA = 1;
 const FINGERPRINT = new RegExp('^[a-f0-9]{64}$');
@@ -34,11 +34,11 @@ function decodeNode(reader: JsonReader): Node {
 
 export class NodeCacheStore {
   private file(origin: string): string {
-    return `cache/nodes/${Sandbox.originKey(origin)}.json`;
+    return `cache/nodes/${AtomicFile.originKey(origin)}.json`;
   }
 
   read(origin: string, credentialRef?: string): CachedNodes | null {
-    const text: string | null = Sandbox.readText(this.file(origin));
+    const text: string | null = AtomicFile.readText(this.file(origin));
     if (text === null) {
       return null;
     }
@@ -70,18 +70,18 @@ export class NodeCacheStore {
 
   /** Replaces one gateway's cached answer with the one just received. */
   write(origin: string, nodes: Node[], fetchedAt: number): void {
-    Sandbox.ensureDirectory('cache/nodes');
+    AtomicFile.ensureDirectory('cache/nodes');
     const encoded: string[] = [];
     for (const node of nodes) {
       encoded.push(this.encodeNode(node));
     }
     const document: string = `{"schema":${SCHEMA},"origin":${JSON.stringify(origin)},` +
       `"fetched_at":${fetchedAt},"nodes":[${encoded.join(',')}]}`;
-    Sandbox.writeAtomic(this.file(origin), document);
+    AtomicFile.writeAtomic(this.file(origin), document);
   }
 
   remove(origin: string): void {
-    Sandbox.removeWithTemporary(this.file(origin));
+    AtomicFile.removeWithTemporary(this.file(origin));
   }
 
   private encodeNode(node: Node): string {

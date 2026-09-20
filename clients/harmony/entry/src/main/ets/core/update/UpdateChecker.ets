@@ -75,8 +75,16 @@ export function decodeRelease(text: string): ReleaseManifest {
   if (buildNumber < 1 || protocolVersion < 1) {
     throw new Error('the release manifest is not a monotone build');
   }
+  // The three platforms are all required, exactly as the other two clients decode
+  // them: an SDK number, and the two version strings.
   const platforms: JsonReader = reader.object('minimumPlatforms');
   platforms.rejectUnknown(['androidSdk', 'ios', 'harmonyApi']);
+  const androidSdk: number = platforms.number('androidSdk');
+  if (!Number.isInteger(androidSdk)) {
+    throw new Error('the release manifest names a fractional Android SDK');
+  }
+  platforms.string('ios');
+  platforms.string('harmonyApi');
   return new ReleaseManifest(versionName, buildNumber, protocolVersion);
 }
 

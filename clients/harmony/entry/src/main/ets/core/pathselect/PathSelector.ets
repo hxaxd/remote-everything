@@ -9,19 +9,6 @@
 //     route.
 
 import { GatewayPath, Node } from '../model/Models';
-export { OriginProbe, isPrivateHost, isPrivateOrigin, mergeNodes } from '../api/Merge';
-export { hostnameOf } from '../api/Origins';
-
-/** A node and the path a request for it should take. */
-export class RoutedNode {
-  readonly node: Node;
-  readonly chosen: GatewayPath | null;
-
-  constructor(node: Node, chosen: GatewayPath | null) {
-    this.node = node;
-    this.chosen = chosen;
-  }
-}
 
 /** Pure path selector: picks preferred path and tracks network-scoped cache. */
 export class PathSelector {
@@ -52,12 +39,18 @@ export class PathSelector {
     if (best === null) {
       return null;
     }
-    // A choice made in this network environment is kept while it still works.
+    // A choice made in this network environment is kept while it still works and
+    // while it is still the best class there is: remembering is what stops a poll
+    // from flapping between two tunnels, but it is not a reason to keep going out
+    // to the internet after the phone has walked into the same room as the gateway.
     const rememberedOrigin: string | undefined = this.remembered.get(node.id);
     if (rememberedOrigin !== undefined && rememberedOrigin !== best.origin) {
       for (const path of node.paths) {
         if (path.origin === rememberedOrigin && path.reachable === true) {
-          return path;
+          if (path.isPrivate === best.isPrivate) {
+            return path;
+          }
+          break;
         }
       }
     }
@@ -73,7 +66,14 @@ export class PathSelector {
     if (candidateLatency !== currentLatency) {
       return candidateLatency < currentLatency;
     }
-    return candidate.origin < current.origin;
+    // A tie keeps the road that came first in the list, the way the other
+    // clients read the same paths — an origin's name is not a route.
+    return false;
+  }
+
+  /** Forgets which road one node was on: it stopped answering, or the network moved. */
+  forget(nodeId: string): void {
+    this.remembered.delete(nodeId);
   }
 
   /** Records the choices this environment settled on. */
@@ -83,16 +83,6 @@ export class PathSelector {
         this.remembered.set(node.id, node.paths[0].origin);
       }
     }
-  }
-
-  /** Invalidate the choice for a single node (e.g. after a request failure). */
-  invalidate(nodeId: string): void {
-    this.remembered.delete(nodeId);
-  }
-
-  /** Reset all cached choices. */
-  reset(): void {
-    this.remembered.clear();
   }
 
   /**
@@ -106,9 +96,5 @@ export class PathSelector {
     }
     this.environment = key;
     this.remembered = new Map<string, string>();
-  }
-
-  environmentKey(): string {
-    return this.environment;
   }
 }

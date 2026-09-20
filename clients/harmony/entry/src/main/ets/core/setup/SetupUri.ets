@@ -47,11 +47,6 @@ export class SetupUri {
     this.invitation = invitation;
     this.serverPin = serverPin;
   }
-
-  /** Whether this gateway signs its own certificate and therefore has to be pinned. */
-  get isPinned(): boolean {
-    return this.serverPin !== null;
-  }
 }
 
 const SCHEME_PREFIX = 'remote-everything://';
@@ -80,13 +75,17 @@ function parseQuery(query: string): Map<string, string> {
   const pairs: string[] = query.split('&');
   for (const pair of pairs) {
     if (pair === '') {
-      continue;
+      // An empty segment between ampersands is not a parameter; the strict side
+      // of the contract refuses it rather than reading around it.
+      throw new SetupError(SetupErrorReason.Malformed, '', 'setup query carries an empty segment');
     }
     const separator: number = pair.indexOf('=');
     if (separator <= 0) {
       throw new SetupError(SetupErrorReason.Malformed, pair, 'setup parameter has no value');
     }
-    const name: string = decodeComponent(pair.substring(0, separator), pair);
+    // The name is compared as it arrived: a percent-encoded parameter name is not
+    // one of the known names, no matter what it decodes to.
+    const name: string = pair.substring(0, separator);
     if (!KNOWN_PARAMETERS.includes(name)) {
       throw new SetupError(SetupErrorReason.UnknownParameter, name, `unknown setup parameter ${name}`);
     }
@@ -167,6 +166,13 @@ function checked(value: string, expression: RegExp, name: string): string {
  */
 export function parseSetupUri(raw: string): SetupUri {
   const trimmed: string = raw.trim();
+  // A URI is ASCII, and a specific ASCII at that: a bare space, a control
+  // character, or a non-ASCII character (a Chinese name not percent-encoded, for
+  // example) is not a link this client reads — the same refusal the platform URI
+  // parser gives on the other clients.
+  if (/[^A-Za-z0-9\-._~!$&'()*+,;=:@/?%#\[\]]/.test(trimmed)) {
+    throw new SetupError(SetupErrorReason.Malformed, '', 'a setup link carries a character a URI cannot');
+  }
   if (!trimmed.toLowerCase().startsWith(SCHEME_PREFIX)) {
     throw new SetupError(SetupErrorReason.UnsupportedScheme, '', 'not a remote-everything setup link');
   }

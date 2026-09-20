@@ -78,6 +78,33 @@ export class WireProtocolError extends Error {
 }
 
 /**
+ * A failure in this client's own credential handling: opening, installing or
+ * reading the certificate a pairing left behind. It carries no user-facing text —
+ * the app layer maps a failure to a resource key, the same way it does for the
+ * wire's codes.
+ */
+export class CredentialError extends Error {
+  readonly detail: string;
+
+  constructor(detail: string) {
+    super(detail);
+    this.detail = detail;
+  }
+}
+
+/**
+ * Which side of the request failed: the wire, which answered nothing, or this
+ * client, which could not make sense of what came back. Neither side leaves a
+ * code or a status behind, so the two look alike in the error itself — and the
+ * difference is what a person reading a report acts on, because one of them is
+ * the deployment and the other is this build.
+ */
+export enum FailureSide {
+  Wire = 'wire',
+  Client = 'client'
+}
+
+/**
  * A refusal from the wire: the code drives presentation, never prose.
  * Matches contracts/schemas/errors.schema.json.
  */
@@ -85,13 +112,16 @@ export class ClientError extends Error {
   readonly code: ErrorCode | null;
   readonly httpStatus: number;
   readonly retryAfterMs: number;
+  readonly side: FailureSide;
 
-  constructor(code: ErrorCode | null, httpStatus: number, detail: string, retryAfterMs: number = 0) {
+  constructor(code: ErrorCode | null, httpStatus: number, detail: string, retryAfterMs: number = 0,
+              side: FailureSide = FailureSide.Wire) {
     super(detail);
     this.name = 'ClientError';
     this.code = code;
     this.httpStatus = httpStatus;
     this.retryAfterMs = retryAfterMs;
+    this.side = side;
   }
 
   /** A transport failure below HTTP or at connection time. */
@@ -106,7 +136,7 @@ export class ClientError extends Error {
 
   /** A client-side decoding failure. Does not forge ErrorCode.InvalidBody. */
   static client(detail: string): ClientError {
-    return new ClientError(null, 0, detail);
+    return new ClientError(null, 0, detail, 0, FailureSide.Client);
   }
 
   get isTransport(): boolean {

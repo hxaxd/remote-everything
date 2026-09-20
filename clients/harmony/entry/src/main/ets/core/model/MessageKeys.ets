@@ -10,7 +10,7 @@
 // character a platform resource name may not carry.
 
 import { AppState, NodeStatus } from './Models';
-import { ErrorCode } from './Errors';
+import { ClientError, CredentialError, ErrorCode } from './Errors';
 
 export class MessageKeys {
   // Actions
@@ -19,6 +19,7 @@ export class MessageKeys {
   static readonly ACTION_BACK_TO_NODES: string = 'action.back_to_nodes';
   static readonly ACTION_CANCEL: string = 'action.cancel';
   static readonly ACTION_CONFIRM: string = 'action.confirm';
+  static readonly ACTION_COPIED: string = 'action.copied';
   static readonly ACTION_DONE: string = 'action.done';
   static readonly ACTION_RETRY: string = 'action.retry';
   static readonly ACTION_START: string = 'action.start';
@@ -38,6 +39,26 @@ export class MessageKeys {
   static readonly DEVICE_CATEGORY_DEFAULT: string = 'device.category_default';
   static readonly DEVICE_CATEGORY_PHONE: string = 'device.category_phone';
   static readonly DEVICE_CATEGORY_TABLET: string = 'device.category_tablet';
+
+  // The report a person copies out of a connection that will not answer
+  static readonly DIAG_ATTEMPTS: string = 'diag.attempts';
+  static readonly DIAG_CAUSE: string = 'diag.cause';
+  static readonly DIAG_CAUSE_BAD_ANSWER: string = 'diag.cause_bad_answer';
+  static readonly DIAG_CAUSE_NO_NETWORK: string = 'diag.cause_no_network';
+  static readonly DIAG_CAUSE_REFUSED: string = 'diag.cause_refused';
+  static readonly DIAG_CAUSE_UNREACHABLE: string = 'diag.cause_unreachable';
+  static readonly DIAG_CAUSE_UNKNOWN: string = 'diag.cause_unknown';
+  static readonly DIAG_CLIENT: string = 'diag.client';
+  static readonly DIAG_CONNECTION: string = 'diag.connection';
+  static readonly DIAG_DEVICE_NAME: string = 'diag.device_name';
+  static readonly DIAG_FAILURES: string = 'diag.failures';
+  static readonly DIAG_LAST_ANSWER: string = 'diag.last_answer';
+  static readonly DIAG_MACHINES: string = 'diag.machines';
+  static readonly DIAG_NETWORK: string = 'diag.network';
+  static readonly DIAG_SINCE: string = 'diag.since';
+  static readonly DIAG_STATE: string = 'diag.state';
+  static readonly DIAG_SYSTEM: string = 'diag.system';
+  static readonly DIAG_TITLE: string = 'diag.title';
 
   // The screen with nothing in it yet
   static readonly EMPTY_BODY: string = 'empty.body';
@@ -66,6 +87,8 @@ export class MessageKeys {
   static readonly LANGUAGE_ZH: string = 'language.zh';
 
   // Node states and the node list
+  static readonly NODE_CURRENT_LAN: string = 'node.current_lan';
+  static readonly NODE_CURRENT_TUNNEL: string = 'node.current_tunnel';
   static readonly NODE_LAN: string = 'node.lan';
   static readonly NODE_OFFLINE: string = 'node.offline';
   static readonly NODE_OFFLINE_BODY: string = 'node.offline_body';
@@ -105,6 +128,7 @@ export class MessageKeys {
   static readonly SETTINGS_APPEARANCE_LIGHT: string = 'settings.appearance_light';
   static readonly SETTINGS_APPEARANCE_SYSTEM: string = 'settings.appearance_system';
   static readonly SETTINGS_CERTIFICATE_FINGERPRINT: string = 'settings.certificate_fingerprint';
+  static readonly SETTINGS_COPY_ERROR: string = 'settings.copy_error';
   static readonly SETTINGS_DEVICE_NAME: string = 'settings.device_name';
   static readonly SETTINGS_FORGET: string = 'settings.forget';
   static readonly SETTINGS_FORGET_CONFIRM: string = 'settings.forget_confirm';
@@ -127,8 +151,25 @@ export class MessageKeys {
   static readonly SETTINGS_VERSION: string = 'settings.version';
 
   // The web view
+  static readonly WEB_CHOOSE_FILE: string = 'web.choose_file';
+  static readonly WEB_DOWNLOAD_DONE: string = 'web.download_done';
+  static readonly WEB_DOWNLOAD_FAILED: string = 'web.download_failed';
+  static readonly WEB_DOWNLOAD_OPEN: string = 'web.download_open';
+  static readonly WEB_DOWNLOAD_SAVED: string = 'web.download_saved';
+  static readonly WEB_DOWNLOADS: string = 'web.downloads';
+  static readonly WEB_EXIT: string = 'web.exit';
   static readonly WEB_LOAD_FAILED: string = 'web.load_failed';
+  static readonly WEB_ISOLATION_UNAVAILABLE: string = 'web.isolation_unavailable';
+  static readonly WEB_SESSION_FAILED: string = 'web.session_failed';
   static readonly WEB_LOADING: string = 'web.loading';
+  static readonly WEB_ORIENTATION: string = 'web.orientation';
+  static readonly WEB_ORIENTATION_LANDSCAPE: string = 'web.orientation_landscape';
+  static readonly WEB_ORIENTATION_PORTRAIT: string = 'web.orientation_portrait';
+  static readonly WEB_ORIENTATION_SYSTEM: string = 'web.orientation_system';
+  static readonly WEB_REFRESH: string = 'web.refresh';
+  static readonly WEB_USER_AGENT: string = 'web.user_agent';
+  static readonly WEB_USER_AGENT_DESKTOP: string = 'web.user_agent_desktop';
+  static readonly WEB_USER_AGENT_MOBILE: string = 'web.user_agent_mobile';
 
   /** What a refusal code is called, wherever it arrived from. */
   static forError(code: ErrorCode): string {
@@ -160,6 +201,23 @@ export class MessageKeys {
       default:
         return MessageKeys.ERROR_CLIENT;
     }
+  }
+
+  /**
+   * What a failure that is not a wire refusal is called: a credential that cannot
+   * be read or used, a transport fault, anything the callers catch as an object.
+   */
+  static forFailure(error: Object): string {
+    if (error instanceof ClientError) {
+      // A code-less refusal is a transport fault — nothing answered, or the answer
+      // never arrived — and the network is what it is named for, the same reading
+      // every client gives it.
+      return error.code === null ? MessageKeys.ERROR_NETWORK : MessageKeys.forError(error.code);
+    }
+    if (error instanceof CredentialError) {
+      return MessageKeys.ERROR_CLIENT;
+    }
+    return MessageKeys.ERROR_NETWORK;
   }
 
   /** What a node's reachability is called, wherever it is shown. */

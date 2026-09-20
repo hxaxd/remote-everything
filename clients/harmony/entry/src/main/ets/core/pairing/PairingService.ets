@@ -1,5 +1,6 @@
-// The add-node flow, as ui-contract §2/S2 states it: input → confirm → pairing →
-// done, with failed wherever it can be reached.
+// The two round trips of pairing, and nothing else: redeem the invitation, then be
+// activated with the credential it yielded. How a waiting or a refusal looks on a
+// screen is the app layer's business — no stage machine lives here.
 //
 // The rules this file enforces, and where they come from:
 //
@@ -15,63 +16,67 @@
 //   * Every failure becomes a resource key. Nothing here knows any user-facing words.
 
 import { util } from '@kit.ArkTS';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Identity, ServerPin } from '../model/Models';
-import { ClientError, ErrorCode } from '../api/Errors';
+import { ClientError, CredentialError, ErrorCode } from '../model/Errors';
 import { MessageKeys } from '../model/MessageKeys';
-import { Activation, credentialFailure, ProtocolClient } from '../api/ProtocolClient';
+import { Activation, ProtocolClient } from '../api/ProtocolClient';
 import { PairingAnswer } from '../api/Dto';
-import { IdentityStore } from '../store/IdentityStore';
+import { SettingsStore } from '../store/SettingsStore';
 import { randomBytes } from '../model/Digest';
-import { CredentialError } from '../identity/CredentialError';
+import { rfc3339EpochMs } from '../json/Strict';
 import { IdentityVault, StoredCredential } from '../identity/IdentityVault';
-import { parseSetupUri, SetupError, SetupUri } from '../setup/SetupUri';
-import { PairingTransaction, StagedPairing, StagedSetupStore } from './StagedSetup';
+import { SetupUri } from '../setup/SetupUri';
+import { StagedSetup, StagedSetupStore } from './StagedSetup';
 
-export enum PairingStage {
-  Input = 'input',
-  Confirm = 'confirm',
-  Pairing = 'pairing',
+const LOG_DOMAIN: number = 0x0000;
+const LOG_TAG: string = 'RemoteEverything';
+
+/**
+ * Every pairing failure becomes a resource key for a screen, and the reason it
+ * happened goes no further — so the reason goes to the log, where a diagnosis of
+ * "the client's own error" can be answered with the actual failing step and its
+ * detail.
+ */
+function noteFailure(step: string, error: Object): void {
+  let detail: string = '';
+  if (error instanceof CredentialError) {
+    detail = `credential: ${error.detail}`;
+  } else if (error instanceof ClientError) {
+    detail = `transport: ${error.message}`;
+  } else {
+    const named: Error = error as Error;
+    detail = `${named.name ?? 'Error'}: ${named.message ?? ''}`;
+  }
+  hilog.error(LOG_DOMAIN, LOG_TAG, `pairing failed at ${step}: ${detail}`);
+}
+
+/** How a pairing attempt concluded, before any screen state is made of it. */
+export enum PairingVerdict {
+  Activated = 'activated',
   WaitingApproval = 'waitingApproval',
-  Done = 'done',
   Failed = 'failed'
 }
 
-export class PairingOutcome {
-  readonly stage: PairingStage;
-  readonly setup: SetupUri | null;
-  readonly identity: Identity | null;
-  readonly staged: StagedPairing | null;
+export class PairingResult {
+  readonly verdict: PairingVerdict;
   readonly errorKey: string | null;
-  readonly retryAfterMs: number;
 
-  constructor(stage: PairingStage, setup: SetupUri | null, identity: Identity | null, staged: StagedPairing | null,
-    errorKey: string | null, retryAfterMs: number) {
-    this.stage = stage;
-    this.setup = setup;
-    this.identity = identity;
-    this.staged = staged;
+  private constructor(verdict: PairingVerdict, errorKey: string | null) {
+    this.verdict = verdict;
     this.errorKey = errorKey;
-    this.retryAfterMs = retryAfterMs;
   }
 
-  static input(errorKey: string | null): PairingOutcome {
-    return new PairingOutcome(PairingStage.Input, null, null, null, errorKey, 0);
+  static activated(): PairingResult {
+    return new PairingResult(PairingVerdict.Activated, null);
   }
 
-  static confirm(setup: SetupUri): PairingOutcome {
-    return new PairingOutcome(PairingStage.Confirm, setup, null, null, null, 0);
+  static waiting(errorKey: string | null): PairingResult {
+    return new PairingResult(PairingVerdict.WaitingApproval, errorKey);
   }
 
-  static failed(errorKey: string): PairingOutcome {
-    return new PairingOutcome(PairingStage.Failed, null, null, null, errorKey, 0);
-  }
-
-  static done(identity: Identity): PairingOutcome {
-    return new PairingOutcome(PairingStage.Done, null, identity, null, null, 0);
-  }
-
-  static waiting(staged: StagedPairing, errorKey: string | null, retryAfterMs: number): PairingOutcome {
-    return new PairingOutcome(PairingStage.WaitingApproval, null, null, staged, errorKey, retryAfterMs);
+  static failed(errorKey: string): PairingResult {
+    return new PairingResult(PairingVerdict.Failed, errorKey);
   }
 }
 
@@ -93,26 +98,14 @@ export class PairingService {
   private readonly client: ProtocolClient;
   private readonly vault: IdentityVault;
   private readonly transaction: StagedSetupStore;
-  private readonly identities: IdentityStore;
+  private readonly identities: SettingsStore;
 
   constructor(client: ProtocolClient, vault: IdentityVault, transaction: StagedSetupStore,
-    identities: IdentityStore) {
+    identities: SettingsStore) {
     this.client = client;
     this.vault = vault;
     this.transaction = transaction;
     this.identities = identities;
-  }
-
-  /** One pasted or scanned link becomes the confirmation step, or an inline refusal. */
-  parseLink(raw: string): PairingOutcome {
-    try {
-      return PairingOutcome.confirm(parseSetupUri(raw));
-    } catch (error) {
-      if (error instanceof SetupError) {
-        return PairingOutcome.input(MessageKeys.PAIR_BAD_INVITATION);
-      }
-      return PairingOutcome.input(MessageKeys.PAIR_BAD_INVITATION);
-    }
   }
 
   /**
@@ -120,70 +113,99 @@ export class PairingService {
    * failure: it means the credential is real and the operator has not approved this
    * device yet, and the caller keeps asking.
    */
-  async pair(setup: SetupUri, deviceName: string): Promise<PairingOutcome> {
+  async pair(setup: SetupUri, deviceName: string): Promise<PairingResult> {
     const trimmedName: string = deviceName.trim();
     if (trimmedName.length === 0) {
-      return PairingOutcome.failed(MessageKeys.PAIR_DEVICE_NAME_REQUIRED);
+      return PairingResult.failed(MessageKeys.PAIR_DEVICE_NAME_REQUIRED);
+    }
+    // A pairing whose redeem succeeded but whose activation did not is not
+    // redeemed again: the invitation is spent, and finishing what the vault
+    // already holds is what resume does. A staged setup for this origin is
+    // therefore resumed, not paired over — unless its pending window has
+    // closed, in which case it is dropped and the gateway's own answer to a
+    // spent invitation is what the user sees.
+    const stagedBefore: StagedSetup | null = this.transaction.read();
+    if (stagedBefore !== null && stagedBefore.origin === setup.origin) {
+      if (!stagedBefore.expired) {
+        return await this.resume(stagedBefore, setup.serverPin);
+      }
+      await this.transaction.discard(setup.origin);
     }
     const credentialPassword: string = newCredentialPassword();
     let answer: PairingAnswer;
     try {
       answer = await this.client.pair(setup.origin, setup.invitation, trimmedName, credentialPassword, setup.serverPin);
     } catch (error) {
-      return PairingOutcome.failed(this.keyFor(error));
+      noteFailure('redeem', error);
+      return PairingResult.failed(MessageKeys.forFailure(error));
     }
     let stored: StoredCredential;
     try {
       stored = await this.vault.adopt(setup.origin, answer.credentialPkcs12, credentialPassword,
         answer.certificateFingerprint);
     } catch (error) {
-      return PairingOutcome.failed(this.keyFor(error));
+      noteFailure('adopt', error);
+      return PairingResult.failed(MessageKeys.forFailure(error));
     }
-    const staged: StagedPairing = new StagedPairing(setup.origin, setup.node, setup.nodeName, answer.deviceName,
-      stored.fingerprint, stored.keyUri, answer.pendingExpiresAt, Date.now(), setup.serverPin);
+    // The window is the gateway's own, resolved once: the answer was accepted only
+    // because its expiry was an RFC 3339 instant, and here it becomes the epoch
+    // the staged file compares against.
+    const staged: StagedSetup = new StagedSetup(setup.origin, setup.node, setup.nodeName, answer.deviceName,
+      stored.fingerprint, stored.keyUri, rfc3339EpochMs(answer.pendingExpiresAt), setup.serverPin);
     this.transaction.stage(staged);
     try {
       await this.client.connect(setup.origin, setup.serverPin);
     } catch (error) {
-      await this.transaction.discard(setup.origin);
-      return PairingOutcome.failed(this.keyFor(error));
+      noteFailure('connect', error);
+      // A network that is down is not a verdict: the invitation is spent but the
+      // staged pairing is not, and a later resume (a relaunch or the retry button)
+      // asks again with the same credential.
+      return PairingResult.failed(MessageKeys.forFailure(error));
     }
     return await this.activate(setup.origin, setup.node, setup.nodeName, setup.serverPin, staged);
   }
 
   /** Asks again for the activation a staged pairing is waiting on. */
-  async resume(staged: StagedPairing, serverPin: ServerPin | null): Promise<PairingOutcome> {
+  async resume(staged: StagedSetup, serverPin: ServerPin | null): Promise<PairingResult> {
     const effectivePin: ServerPin | null = serverPin ?? staged.serverPin;
     try {
       await this.client.connect(staged.origin, effectivePin);
     } catch (error) {
-      return PairingOutcome.waiting(staged, this.keyFor(error), 0);
+      return PairingResult.waiting(MessageKeys.forFailure(error));
     }
     return await this.activate(staged.origin, staged.node, staged.nodeName, effectivePin, staged);
   }
 
   private async activate(origin: string, nodeId: string, nodeName: string, serverPin: ServerPin | null,
-    staged: StagedPairing): Promise<PairingOutcome> {
+    staged: StagedSetup): Promise<PairingResult> {
     let activation: Activation;
     try {
       activation = await this.client.activate(origin, nodeId);
     } catch (error) {
-      return PairingOutcome.waiting(staged, this.keyFor(error), 0);
+      return PairingResult.waiting(MessageKeys.forFailure(error));
     }
     if (activation.pending) {
-      return PairingOutcome.waiting(staged, null, 0);
+      return PairingResult.waiting(null);
     }
     const failure: ClientError | null = activation.failure;
     if (failure !== null) {
       if (failure.code === ErrorCode.RateLimited || failure.code === ErrorCode.ServerBusy) {
-        return PairingOutcome.waiting(staged, MessageKeys.forError(failure.code), failure.retryAfterMs);
+        return PairingResult.waiting(MessageKeys.forError(failure.code));
       }
-      // The invitation is spent and the activation was refused: nothing was
-      // promoted, so nothing stays behind.
-      await this.transaction.discard(origin);
-      return PairingOutcome.failed(MessageKeys.forError(failure.code));
+      if (failure.code === ErrorCode.InvitationDenied || failure.code === ErrorCode.InvitationExpired ||
+        failure.code === ErrorCode.Unauthorized) {
+        // The invitation is spent and the activation is refused for good: nothing
+        // was promoted, so nothing stays behind.
+        await this.transaction.discard(origin);
+      }
+      // Any other refusal is not a verdict — a gateway that was not ready, a node
+      // not added yet — so the staged pairing stays for the retry that a later
+      // resume makes.
+      return PairingResult.failed(failure.code === null
+        ? MessageKeys.ERROR_NETWORK : MessageKeys.forError(failure.code));
     }
-    return PairingOutcome.done(this.promote(staged, nodeName, serverPin));
+    this.promote(staged, nodeName, serverPin);
+    return PairingResult.activated();
   }
 
   /**
@@ -192,27 +214,14 @@ export class PairingService {
    * paired under, the certificate's fingerprint, the reference to it, and the pin of a
    * gateway that signs its own certificate.
    */
-  private promote(staged: StagedPairing, nodeName: string, serverPin: ServerPin | null): Identity {
+  private promote(staged: StagedSetup, nodeName: string, serverPin: ServerPin | null): Identity {
     const identity: Identity = new Identity(staged.origin, staged.deviceName,
       staged.certificateFingerprint, staged.credentialRef, serverPin, Date.now());
-    const known: Identity[] = this.identities.read();
+    const known: Identity[] = this.identities.readIdentities();
     const kept: Identity[] = known.filter((entry: Identity) => entry.origin !== staged.origin);
     kept.push(identity);
-    this.identities.write(kept);
+    this.identities.writeIdentities(kept);
     this.transaction.clear();
     return identity;
   }
-
-  private keyFor(error: Object): string {
-    if (error instanceof CredentialError) {
-      return MessageKeys.forError(credentialFailure(error).code);
-    }
-    if (error instanceof ClientError) {
-      return MessageKeys.forError(error.code);
-    }
-    return MessageKeys.forError(ErrorCode.Network);
-  }
 }
-
-export type PairingMachine = PairingService;
-export const PairingMachine = PairingService;
