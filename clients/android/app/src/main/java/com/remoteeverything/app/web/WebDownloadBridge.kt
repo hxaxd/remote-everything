@@ -12,6 +12,7 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.annotation.StringRes
 import com.remoteeverything.app.R
+import com.remoteeverything.core.api.belongsToGateway
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +22,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /**
  * What a page's "download" becomes here. Three shapes arrive:
@@ -39,7 +41,9 @@ import java.util.UUID
  */
 class WebDownloadBridge(
     context: Context,
+    private val gatewayOrigin: String,
     private val clientProvider: () -> OkHttpClient?,
+    private val cookieManager: CookieManager,
 ) {
 
     // The application, not the screen: a file that a person asked for keeps coming
@@ -47,6 +51,14 @@ class WebDownloadBridge(
     private val context: Context = context.applicationContext
 
     private val notice = WebDownloadNotice(context)
+
+    /** A download from outside the gateway: system trust, no device certificate. */
+    private val plainTransport: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(600, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
     /** A download outlives the screen that started it: it ends with the process. */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -73,20 +85,32 @@ class WebDownloadBridge(
     // --- http(s) --------------------------------------------------------------
 
     private fun downloadHttp(url: String, userAgent: String, contentDisposition: String?, mimetype: String?) {
-        val client = clientProvider() ?: run {
-            toast(R.string.web_download_failed)
-            return
+        // A file from the gateway itself needs the device certificate to fetch; a
+        // file from anywhere else — a CDN, an object store the page points at —
+        // is fetched without it, because the credential is this gateway's and this
+        // gateway's only, and a host outside it that asks for it is refused rather
+        // than loaned it.
+        val transport = if (belongsToGateway(gatewayOrigin, url)) {
+            clientProvider() ?: run {
+                toast(R.string.web_download_failed)
+                return
+            }
+        } else {
+            plainTransport
         }
+        val client = transport.newBuilder().addNetworkInterceptor { chain ->
+            val address = chain.request().url.toString()
+            val request = chain.request().newBuilder().removeHeader("Cookie")
+            cookieManager.getCookie(address)?.let { request.header("Cookie", it) }
+            val response = chain.proceed(request.build())
+            response.headers("Set-Cookie").forEach { cookieManager.setCookie(address, it) }
+            response
+        }.build()
         val name = fileName(url, contentDisposition, mimetype)
         scope.launch(Dispatchers.IO) {
             val saved = runCatching {
                 val request = Request.Builder().url(url)
                     .header("User-Agent", userAgent)
-                    .apply {
-                        // The WebView owns the session: its cookies are what makes
-                        // this fetch the same visitor the page thinks it is.
-                        CookieManager.getInstance().getCookie(url)?.let { header("Cookie", it) }
-                    }
                     .build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return@use null

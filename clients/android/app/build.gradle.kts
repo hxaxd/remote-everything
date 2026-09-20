@@ -20,6 +20,7 @@ android {
         applicationId = "com.remoteeverything.app"
         minSdk = releaseMinSdk
         targetSdk = 36
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = releaseBuildNumber
         versionName = releaseVersionName
         buildConfigField("int", "PROTOCOL_VERSION", "$releaseProtocolVersion")
@@ -71,6 +72,7 @@ kotlin {
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.webkit)
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
@@ -85,6 +87,8 @@ dependencies {
     implementation(libs.zxing.embedded)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
     // Test-only: the JDK has no public API for minting a certificate, and these
     // tests are about what a credential must prove, not about the minting.
     testImplementation(libs.bouncycastle.pkix)

@@ -10,12 +10,18 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.CookieManager
+import androidx.webkit.ProfileStore
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import com.remoteeverything.core.store.WebSessionScope
 import android.webkit.ClientCertRequest
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -74,6 +80,8 @@ class AppWebActivity : ComponentActivity() {
     private var serverPin: ServerPin? = null
     private var appUrl: String = ""
     private var appKey: String = ""
+    private lateinit var browserProfile: String
+    private lateinit var profileCookies: CookieManager
     private var crashCount: Int = 0
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
@@ -124,6 +132,18 @@ class AppWebActivity : ComponentActivity() {
             }
         })
 
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            showFailure(getString(R.string.web_isolation_unavailable))
+            return
+        }
+        try {
+            browserProfile = WebSessionScope.profileName(identityOrigin, appKey)
+            profileCookies = ProfileStore.getInstance().getOrCreateProfile(browserProfile).cookieManager
+        } catch (_: Exception) {
+            showFailure(getString(R.string.web_session_failed))
+            return
+        }
+
         val vault = AndroidKeyStoreIdentityVault()
         material = vault.load(identityOrigin)
         if (material == null) {
@@ -134,6 +154,8 @@ class AppWebActivity : ComponentActivity() {
         }
         downloads = WebDownloadBridge(
             context = this,
+            gatewayOrigin = identityOrigin,
+            cookieManager = profileCookies,
             clientProvider = {
                 material?.let { runCatching { GatewayClients.rawTransport(identityOrigin, it, serverPin) }.getOrNull() }
             },
@@ -287,6 +309,7 @@ class AppWebActivity : ComponentActivity() {
 
     private fun newWebView(): WebView {
         val view = WebView(this)
+        WebViewCompat.setProfile(view, browserProfile)
         view.setBackgroundColor(palette.background)
         view.settings.apply {
             javaScriptEnabled = true
@@ -550,12 +573,25 @@ class AppWebActivity : ComponentActivity() {
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            // A frame inside the page is the page's own affair: only a main-frame
+            // navigation decides whether the visit stays inside the gateway.
+            if (!request.isForMainFrame) return false
             val host = request.url.host.orEmpty()
             if (allowedHost(host)) return false
             // Anything that leaves the gateway goes to the system browser: this
             // WebView carries a device certificate, and it is not for other sites.
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
             return true
+        }
+
+        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+            super.onReceivedError(view, request, error)
+            // Only the main frame is the page: a resource that failed is a broken
+            // picture, not a broken visit. An error page that is already showing
+            // is not replaced by another one.
+            if (request?.isForMainFrame == true && errorView == null) {
+                showFailure(getString(R.string.web_load_failed))
+            }
         }
 
         override fun onReceivedClientCertRequest(view: WebView, request: ClientCertRequest) {
@@ -635,6 +671,10 @@ class AppWebActivity : ComponentActivity() {
                 message = message,
                 dark = dark,
                 onRetry = {
+                    if (!::browserProfile.isInitialized || material == null) {
+                        recreate()
+                        return@create
+                    }
                     container.removeAllViews()
                     errorView = null
                     crashCount = 0
