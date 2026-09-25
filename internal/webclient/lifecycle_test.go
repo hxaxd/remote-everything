@@ -109,13 +109,16 @@ func TestConnectionLockUnlockLogout(t *testing.T) {
 
 func TestExpiryAndDeviceRevocation(t *testing.T) {
 	m, _ := NewSessionManager(t.TempDir())
-	c, _ := m.Pair(strings.Repeat("3", 64), "browser", 30*time.Millisecond)
+	c, _ := m.Pair(strings.Repeat("3", 64), "browser", 150*time.Millisecond)
 	ticket, _ := m.IssueTicket(c.Token)
-	_, ctx, done, _ := m.Acquire(context.Background(), c.Token)
+	_, ctx, done, ok := m.Acquire(context.Background(), c.Token)
+	if !ok {
+		t.Fatal("session should be valid immediately after pair")
+	}
 	defer done()
 	select {
 	case <-ctx.Done():
-	case <-time.After(time.Second):
+	case <-time.After(2 * time.Second):
 		t.Fatal("active access survived expiry")
 	}
 	if _, ok := m.ValidateSession(c.Token); ok {

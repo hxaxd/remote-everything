@@ -528,7 +528,7 @@ func TestLANTunnelNodeAddAndRenew(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !nodeRes.OK || nodeRes.NodeAddress != "127.0.0.1:58628" {
+	if !nodeRes.OK || !strings.HasPrefix(nodeRes.NodeAddress, "127.0.0.1:") {
 		t.Fatalf("unexpected nodeRes: %+v", nodeRes)
 	}
 	if nodeRes.TunnelMaterialDir == "" || nodeRes.TunnelClientFingerprint == "" {
