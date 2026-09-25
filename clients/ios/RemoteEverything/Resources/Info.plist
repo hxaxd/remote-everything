@@ -3,12 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleLocalizations</key>
-	<array>
-		<string>en</string>
-		<string>zh-Hans</string>
-	</array>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
 	<string>Remote Everything</string>
 	<key>CFBundleExecutable</key>
@@ -17,14 +12,17 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>3.5.0</string>
-	<key>CFBundleVersion</key>
-	<string>28</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -38,28 +36,27 @@
 			</array>
 		</dict>
 	</array>
+	<key>CFBundleVersion</key>
+	<string>28</string>
 	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<!-- What a page downloads lands in the app's own Documents (App/Web): the two
-	     keys below are what makes that folder visible in Files and openable there,
-	     which is this platform's answer to "where did the file go". -->
-	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the invitation QR code, and let an application use the camera. / 用于扫描邀请二维码，以及让应用使用摄像头。</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Let an application use the microphone. / 用于让应用使用麦克风。</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Let an application know where this device is while it is open. / 用于在应用打开时获取本机位置。</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Reach a gateway on the local network. / 用于接入局域网内的网关。</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Let an application know where this device is while it is open. / 用于在应用打开时获取本机位置。</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Let an application use the microphone. / 用于让应用使用麦克风。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

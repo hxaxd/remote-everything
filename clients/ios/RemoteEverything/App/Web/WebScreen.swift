@@ -26,6 +26,10 @@ struct WebScreen: View {
     @State private var openFailure: String?
     @State private var isResolving = true
     @State private var generation = 0
+    /// How many times this screen's web content process has crashed. Rebuilding
+    /// twice is a helping hand; a crash that keeps coming back is an error
+    /// screen, the same line Android draws (onRenderProcessGone).
+    @State private var processCrashes = 0
     @State private var prefs = WebAppPrefs()
     @State private var panelShown = false
     @State private var notice: String?
@@ -41,6 +45,7 @@ struct WebScreen: View {
             page(theme)
                 .simultaneousGesture(backGesture)
                 .ignoresSafeArea()
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             if panelShown {
                 WebPanelView(
                     theme: theme,
@@ -72,6 +77,8 @@ struct WebScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBar(hidden: true)
         .persistentSystemOverlays(.hidden)
+        .ignoresSafeArea()
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .task {
             prefs = store.webAppPrefs(for: appKey)
             OrientationLock.shared.apply(prefs.orientation)
@@ -96,7 +103,16 @@ struct WebScreen: View {
                     handle: handle,
                     interfaceStyle: interfaceStyle,
                     prefs: prefs,
-                    onProcessTerminated: { generation += 1 },
+                    onProcessTerminated: {
+                        // A crash that keeps coming back becomes an error screen
+                        // rather than an endless rebuild (Android rebuilds twice).
+                        processCrashes += 1
+                        if processCrashes <= 2 {
+                            generation += 1
+                        } else {
+                            openFailure = l10n(MessageKeys.WEB_LOAD_FAILED)
+                        }
+                    },
                     onNotice: { show(notice: $0) }
                 )
                 .id("\(WebSessionScope.identifier(gatewayOrigin: target.gatewayOrigin, appKey: appKey))-\(generation)")
@@ -123,12 +139,19 @@ struct WebScreen: View {
     }
 
     private func failurePage(_ theme: Theme) -> some View {
-        MessagePage(
-            title: openFailure ?? l10n(MessageKeys.WEB_LOAD_FAILED),
-            message: nil,
-            actionTitle: l10n(MessageKeys.ACTION_RETRY),
-            action: { Task { await resolve() } }
-        )
+        VStack(spacing: 0) {
+            MessagePage(
+                title: openFailure ?? l10n(MessageKeys.WEB_LOAD_FAILED),
+                message: nil,
+                actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                action: { Task { await resolve() } }
+            )
+            Button(l10n(MessageKeys.ACTION_BACK)) {
+                dismiss()
+            }
+            .buttonStyle(.bordered)
+            .padding(.bottom, Theme.gapXL)
+        }
     }
 
     /// The way back: a swipe from the screen's edge, from anywhere on it, which
@@ -178,10 +201,13 @@ struct WebScreen: View {
     }
 
     /// Every retry starts from the open request: the address is asked for again
-    /// rather than remembered, which is what the contract asks for.
+    /// rather than remembered, which is what the contract asks for — and the
+    /// crash budget starts over, because a person who asked again is a person
+    /// who wants the screen to try again.
     private func resolve() async {
         isResolving = true
         openFailure = nil
+        processCrashes = 0
         let previous = target
         do {
             let resolved = try await model.resolveWebTarget(nodeID: nodeID, appID: appID)

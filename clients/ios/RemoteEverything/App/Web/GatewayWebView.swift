@@ -59,7 +59,7 @@ final class WebViewHandle: ObservableObject {
 /// be presented from.
 ///
 /// It is one WKWebView for the life of the screen: rotating the device does not
-/// touch it (ui-contract §2/S4), and the only thing that rebuilds it is the web
+/// touch it, and the only thing that rebuilds it is the web
 /// content process dying, which the screen asks for by changing the view's id.
 ///
 /// Everything a page may ask the device for is answered here: a file to upload
@@ -98,9 +98,49 @@ struct GatewayWebView: UIViewRepresentable {
             context.coordinator.blobRelay,
             name: Coordinator.blobMessageName
         )
+
+        // Web applications inside Remote Everything belong in a native frame:
+        // pinch-to-zoom and gesture zooming are disabled to prevent loose floating layouts,
+        // matching the behavior on Android and HarmonyOS.
+        let viewportScriptSource = """
+        (function() {
+          function enforceViewport() {
+            let meta = document.querySelector('meta[name="viewport"]');
+            if (!meta) {
+              meta = document.createElement('meta');
+              meta.name = 'viewport';
+              (document.head || document.documentElement).appendChild(meta);
+            }
+            let content = meta.getAttribute('content') || '';
+            if (!content.includes('user-scalable=no')) {
+              meta.setAttribute('content', (content ? content + ', ' : '') + 'maximum-scale=1.0, user-scalable=no');
+            }
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', enforceViewport);
+          } else {
+            enforceViewport();
+          }
+          document.addEventListener('gesturestart', function(e) {
+            e.preventDefault();
+          }, { passive: false });
+        })();
+        """
+        let viewportScript = WKUserScript(
+            source: viewportScriptSource,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: false
+        )
+        configuration.userContentController.addUserScript(viewportScript)
+
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
+        webView.scrollView.delegate = context.coordinator
+        webView.scrollView.bounces = false
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.alwaysBounceHorizontal = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = true
         webView.overrideUserInterfaceStyle = interfaceStyle
         webView.isOpaque = true
@@ -134,10 +174,12 @@ struct GatewayWebView: UIViewRepresentable {
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+        webView.scrollView.delegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Coordinator.blobMessageName)
+        webView.configuration.userContentController.removeAllUserScripts()
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UIScrollViewDelegate {
 
         static let blobMessageName = "RemoteEverythingBlob"
 
@@ -153,8 +195,13 @@ struct GatewayWebView: UIViewRepresentable {
         private var savedDownloads: [ObjectIdentifier: URL] = [:]
         private var blobSinks: [String: BlobSink] = [:]
 
+        /// The size a blob handed over by a page may be, and the size a download
+        /// a server announces is refused up front: the same two caps the other
+        /// clients keep (behavior README).
+        private static let maxBlobBytes = 16 * 1024 * 1024
+        private static let maxDownloadBytes = 512 * 1024 * 1024
+
         private struct BlobSink {
-            /// The type the page declared, replaced when the data URL says what it is.
             var mime: String
             var data: Data
         }
@@ -277,12 +324,20 @@ struct GatewayWebView: UIViewRepresentable {
                 if target.handler.isGatewayHost(url.host ?? "") {
                     decisionHandler(.allow)
                 } else {
-                    // Anything that leaves the gateway goes to the system browser:
-                    // this WebView carries a device certificate, and it is not for
-                    // other sites.
-                    UIApplication.shared.open(url)
+                    // Anything that leaves the gateway goes to the system browser —
+                    // but only when a person asked for it: a page that bounces this
+                    // WebView, which carries a device certificate, to another site
+                    // gets nothing rather than a ride.
+                    if navigationAction.navigationType == .linkActivated {
+                        UIApplication.shared.open(url)
+                    }
                     decisionHandler(.cancel)
                 }
+            case "http":
+                if navigationAction.navigationType == .linkActivated {
+                    UIApplication.shared.open(url)
+                }
+                decisionHandler(.cancel)
             case "blob":
                 // A blob only lives in the page: the page reads it and hands the
                 // bytes over, and the navigation is cancelled.
@@ -291,9 +346,14 @@ struct GatewayWebView: UIViewRepresentable {
             case "data":
                 decisionHandler(.cancel)
                 saveDataURL(url)
+            case "mailto", "tel":
+                if navigationAction.navigationType == .linkActivated {
+                    UIApplication.shared.open(url)
+                }
+                decisionHandler(.cancel)
             default:
-                // tel:, mailto:, and whatever else the page links to: the system's.
-                UIApplication.shared.open(url)
+                // Everything else — custom schemes, unknown protocols — is not a
+                // link worth leaving this WebView for, whatever the page says.
                 decisionHandler(.cancel)
             }
         }
@@ -321,6 +381,10 @@ struct GatewayWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            // Cancelling is not failing: a navigation superseded by another, or a
+            // download taken over, ends with NSURLErrorCancelled and must not show
+            // a page that says it did not load.
+            guard (error as NSError).code != NSURLErrorCancelled else { return }
             handle.phase = .failed
         }
 
@@ -329,6 +393,7 @@ struct GatewayWebView: UIViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
+            guard (error as NSError).code != NSURLErrorCancelled else { return }
             handle.phase = .failed
         }
 
@@ -380,7 +445,14 @@ struct GatewayWebView: UIViewRepresentable {
                 group.enter()
                 AVCaptureDevice.requestAccess(for: media) { _ in group.leave() }
             }
-            group.notify(queue: .main) { decisionHandler(.grant) }
+            group.notify(queue: .main) {
+                // The platform's own question was asked and answered; the page is
+                // told the truth about what it was answered. A page that was told
+                // "yes" while the phone said "no" would show a camera that does
+                // not work and a prompt that was already spent.
+                let granted = needed.allSatisfy { AVCaptureDevice.authorizationStatus(for: $0) == .authorized }
+                decisionHandler(granted ? .grant : .deny)
+            }
         }
 
         // MARK: - Downloads
@@ -407,6 +479,15 @@ struct GatewayWebView: UIViewRepresentable {
             suggestedFilename: String,
             completionHandler: @escaping (URL?) -> Void
         ) {
+            // A download the server announces as larger than the cap is refused
+            // up front rather than written out and discarded.
+            let expected = response.expectedContentLength
+            if expected > 0, expected > Coordinator.maxDownloadBytes {
+                savedDownloads.removeValue(forKey: ObjectIdentifier(download))
+                onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
+                completionHandler(nil)
+                return
+            }
             let destination = Coordinator.downloadsDirectory()
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
                 .appendingPathComponent(sanitised(suggestedFilename))
@@ -473,6 +554,11 @@ struct GatewayWebView: UIViewRepresentable {
                 blobSinks[token] = sink
             case "append":
                 if let chunk = blobMessage["data"] as? String, let bytes = Data(base64Encoded: chunk) {
+                    if sink.data.count + bytes.count > Coordinator.maxBlobBytes {
+                        blobSinks.removeValue(forKey: token)
+                        onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
+                        return
+                    }
                     sink.data.append(bytes)
                     blobSinks[token] = sink
                 }
@@ -523,6 +609,10 @@ struct GatewayWebView: UIViewRepresentable {
                 onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
                 return
             }
+            guard bytes.count <= Coordinator.maxBlobBytes else {
+                onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
+                return
+            }
             var sink = BlobSink(mime: mime.isEmpty ? "application/octet-stream" : mime, data: Data())
             sink.data = bytes
             finish(blob: sink)
@@ -566,6 +656,12 @@ struct GatewayWebView: UIViewRepresentable {
                 .replacingOccurrences(of: "\"", with: "\\\"")
                 .replacingOccurrences(of: "\n", with: "\\n")
             return "\"\(escaped)\""
+        }
+
+        // MARK: - UIScrollViewDelegate (prevent pinch zooming)
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+            nil
         }
     }
 }

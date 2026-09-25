@@ -194,7 +194,7 @@ final class SupportTests: XCTestCase {
         let store = ClientStore(defaults: defaults)
         let origin = "https://gw.example.com"
         XCTAssertNil(store.cachedNodes(origin: origin))
-        let response = NodesResponse(ok: true, nodes: [.init(id: String(repeating: "a", count: 64), name: "Desk", link: nil)])
+        let response = NodesResponse(ok: true, nodes: [.init(id: String(repeating: "a", count: 64), name: "Desk")])
         store.saveCachedNodes(response, origin: origin)
         XCTAssertEqual(store.cachedNodes(origin: origin)?.nodes.first?.name, "Desk")
         store.clearCachedNodes(origin: origin)

@@ -1,0 +1,3 @@
+"CFBundleDisplayName" = "Remote Everything";
+"NSCameraUsageDescription" = "Scanning an invitation QR code to add a node.";
+"NSMicrophoneUsageDescription" = "Web applications on a node may ask to record audio.";

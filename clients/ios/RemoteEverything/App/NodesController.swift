@@ -66,6 +66,19 @@ final class NodesController: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
 
+        // Re-read identities from store so newly added or modified identities are picked up.
+        let liveIdentities = store.loadIdentities()
+        var currentIdentities: [Identity] = []
+        for identity in liveIdentities {
+            if vault.hasCredential(origin: identity.origin) {
+                currentIdentities.append(identity)
+            }
+        }
+        if !currentIdentities.isEmpty || identities.isEmpty {
+            identities = currentIdentities
+        }
+
+        let started = Date()
         var prepared: [(identity: Identity, client: GatewayClient)] = []
         for identity in identities {
             if let client = clients.deviceClient(for: identity, vault: vault) {
@@ -120,6 +133,16 @@ final class NodesController: ObservableObject {
 
         nodes = NodeMerge.merge(answers)
         refreshPendingRows()
+
+        // A refresh that finishes before the eye can read it is a refresh nobody
+        // saw: hold the working line just long enough for the tap or the pull to
+        // be the thing it is, even when every gateway answered from its cache.
+        // The hold lives here, while `isRefreshing` is still true, so the line
+        // it drives actually shows.
+        let elapsed = Date().timeIntervalSince(started)
+        if elapsed < 0.4 {
+            try? await Task.sleep(nanoseconds: UInt64((0.4 - elapsed) * 1_000_000_000))
+        }
     }
 
     func status(of node: Node) -> NodeStatus {
@@ -153,8 +176,14 @@ final class NodesController: ObservableObject {
     }
 
     func orderedPaths(for node: Node) -> [Path] {
+        // The chosen path goes first, then the other roads that answered — the
+        // same "roads" a catalog or an open is fetched down (Android: roads =
+        // chosen + paths whose reachable == true). A path that did not answer is
+        // not a road worth trying twice in one minute.
         let chosen = pathSelector.preferred(node: node, networkKey: network.key)
-        let rest = node.paths.filter { $0.origin != chosen?.origin }
+        let rest = node.paths.filter { path in
+            path.origin != chosen?.origin && path.reachable == true
+        }
         return (chosen.map { [$0] } ?? []) + rest
     }
 

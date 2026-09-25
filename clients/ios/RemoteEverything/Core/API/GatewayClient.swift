@@ -155,6 +155,13 @@ final class GatewayClient {
             guard let url = URL(string: location, relativeTo: originURL)?.absoluteURL else {
                 throw ClientError(.internalError, httpStatus: response.statusCode)
             }
+            // A redirect is a redirect, but the place it names must be this
+            // gateway's: a substituted Location must not move this device's
+            // certificate to another host (the same rule Android and Harmony
+            // keep, spelled the same way).
+            guard handler.isGatewayHost(url.host ?? "") else {
+                throw UnreadableAnswer("the gateway pointed at an origin that is not its own")
+            }
             return url
         case 200:
             throw ClientError(.internalError, httpStatus: 200)

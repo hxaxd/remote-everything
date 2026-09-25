@@ -12,16 +12,21 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var settings: ClientSettings
     @Published var notice: Notice?
-    @Published var isShowingSettings = false
     @Published var path: [AppRoute] = []
     @Published var selectedNodeID: String?
+    /// What the wide (two-column) layout's right pane shows instead of a node:
+    /// settings or pairing, embedded beside the list the way Android embeds
+    /// them (084aa92). On a phone these are a sheet and a pushed page instead.
+    @Published var pane: AppPane?
     @Published private(set) var updateState: UpdateState = .idle
 
-    // S2 View Bindings (delegated to pairingSession)
-    var isAddingNode: Bool {
-        get { pairingSession.isAddingNode }
-        set { pairingSession.isAddingNode = newValue }
+    /// The two panes a wide screen may hold beside the node list.
+    enum AppPane: Equatable {
+        case settings
+        case addNode
     }
+
+    // S2 View Bindings (delegated to pairingSession)
     var addNodeText: String {
         get { pairingSession.addNodeText }
         set { pairingSession.addNodeText = newValue }
@@ -117,6 +122,9 @@ final class AppModel: ObservableObject {
         pairingSess.onCatalogReady = { [weak self] nodeID, catalog in
             self?.catalogController.setCatalog(.ready(catalog.applicationInfos), forNodeID: nodeID)
         }
+        pairingSess.onClosePairPage = { [weak self] in
+            self?.closePairPresentation()
+        }
 
         // Propagate objectWillChange from child controllers to AppModel
         nodesCtrl.objectWillChange
@@ -136,10 +144,18 @@ final class AppModel: ObservableObject {
 
     func start() {
         Localization.apply(settings.language)
+        // The window exists by now: apply the stored appearance at the level
+        // that reaches every sheet and cover.
+        applyAppearanceToWindows()
         network.onPathChange = { [weak self] in
             guard let self else { return }
+            // The chosen path belongs to the network that is gone: it is retired
+            // here so the next look re-decides between what is left, and whatever
+            // node is on screen is asked again now rather than at the next tick
+            // (Android networkChanged).
             self.pathSelector.reset()
             Task { await self.refreshNodes() }
+            self.catalogController.recheckNow()
         }
         network.start()
         let (_, lost) = nodesController.reconcile(pairing: pairingCoordinator)
@@ -191,6 +207,8 @@ final class AppModel: ObservableObject {
     // MARK: - Nodes
 
     func refreshNodes() async {
+        // The minimum working-line time lives in the controller, next to
+        // `isRefreshing`, so a fast refresh is still visible as the thing it is.
         await nodesController.refreshNodes()
     }
 
@@ -242,15 +260,12 @@ final class AppModel: ObservableObject {
 
     func beginAddNode() {
         pairingSession.beginAddNode()
-        isAddingNode = true
-        addNodeText = ""
-        deviceNameDraft = pairingSession.deviceNameDraft
+        pushPairRoute()
     }
 
-    func cancelAddNode() {
-        pairingSession.cancelAddNode()
-        isAddingNode = false
-        addNodeText = ""
+    /// Cancels the attempt in flight, keeping the invitation in the field.
+    func cancelPairingAttempt() {
+        pairingSession.cancelPairingAttempt()
     }
 
     func parseInvitation(_ text: String) {
@@ -259,26 +274,61 @@ final class AppModel: ObservableObject {
 
     func handleIncomingURL(_ url: URL) {
         pairingSession.handleIncomingURL(url)
-        isAddingNode = true
         addNodeText = url.absoluteString
+        pushPairRoute()
     }
 
     func confirmPairing() async {
         await pairingSession.confirmPairing()
     }
 
-    func retryPairing() async {
-        await pairingSession.retryPairing()
-    }
-
-    func finishPairingSheet() {
-        pairingSession.finishPairingSheet()
-        isAddingNode = false
-        addNodeText = ""
-    }
-
     func resumeStagedSetups() async {
         await pairingSession.resumeStagedSetups()
+    }
+
+    // MARK: - The wide layout's panes
+
+    /// Opens one of the wide screen's panes. Pairing starts a fresh flow; the
+    /// detail column is cleared so the pane stands alone beside the list.
+    func setPane(_ pane: AppPane?) {
+        if pane == .addNode {
+            pairingSession.beginAddNode()
+            path.removeAll()
+            selectedNodeID = nil
+        }
+        self.pane = pane
+    }
+
+    /// Opens settings: the pane on a wide screen, a pushed page on a phone — a
+    /// sheet is not used, because a presented sheet cannot be relied on to
+    /// follow an appearance change (the other clients' settings are a screen).
+    func pushSettings() {
+        guard !path.contains(where: { if case .settings = $0 { return true }; return false }) else { return }
+        path.append(.settings)
+    }
+
+    /// Closes settings, whichever presentation it is: the pushed page on a
+    /// phone, the pane on a wide screen.
+    func closeSettings() {
+        path.removeAll { if case .settings = $0 { return true }; return false }
+        if pane == .settings { pane = nil }
+    }
+
+    /// Closes the pairing page, whichever presentation it is.
+    func closePairPresentation() {
+        popPairRoute()
+        if pane == .addNode { pane = nil }
+    }
+
+    /// The pairing page is a pushed page on a phone and a pane on a wide
+    /// screen; this is the pushed half, a sheet's worth of navigation.
+    private func pushPairRoute() {
+        guard !path.contains(where: { if case .pair = $0 { return true }; return false }) else { return }
+        path.append(.pair)
+    }
+
+    private func popPairRoute() {
+        path.removeAll { if case .pair = $0 { return true }; return false }
     }
 
     static func defaultDeviceName() -> String {
@@ -298,13 +348,37 @@ final class AppModel: ObservableObject {
     func setLanguage(_ language: Language) {
         settings.language = language
         store.saveSettings(settings)
-        Localization.apply(language)
+        // "Follow the system" is answered by what the system says *after* the
+        // previous choice has stopped overriding it: persist first, resolve after.
         Localization.persistPreferredLanguage(language)
+        Localization.apply(language)
     }
 
     func setAppearance(_ appearance: Appearance) {
         settings.appearance = appearance
         store.saveSettings(settings)
+        applyAppearanceToWindows()
+    }
+
+    /// Appearance is applied at the window level, not through SwiftUI's
+    /// preferredColorScheme: a window's overrideUserInterfaceStyle reaches
+    /// every view the scene presents — the settings sheet included — through
+    /// its trait collection, immediately and in both directions (including
+    /// back to "follow the system"). preferredColorScheme alone left a
+    /// presented sheet behind.
+    func applyAppearanceToWindows() {
+        let style: UIUserInterfaceStyle
+        switch settings.appearance {
+        case .light: style = .light
+        case .dark: style = .dark
+        case .system: style = .unspecified
+        }
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+            for window in windowScene.windows {
+                window.overrideUserInterfaceStyle = style
+            }
+        }
     }
 
     func forget(origin: String) async {

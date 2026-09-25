@@ -5,16 +5,11 @@ import UIKit
 /// Reading the invitation out of a QR code. The code carries the same URI the
 /// paste field accepts, and it goes through the same parser.
 ///
-/// Why this platform difference is not a choice (clients/README.md — the
-/// scanner is one of the three sanctioned platform divergences): iOS ships no
-/// system scanning API the other two can lean on. Android and Harmony can
-/// inline a preview or a system scan into PairScreen; here the camera is a
-/// hand-built AVCaptureSession that must ask for camera permission, answer its
-/// refusal, and run only while its view is on screen — machinery that cannot
-/// live inside the pairing sheet, so it is a screen of its own. The divergence
-/// ends at the shell: what the scanner yields is the same invitation string,
-/// parsed by the same strict SetupURI, and nothing else in the app knows a
-/// scanner exists.
+/// The scanner is a full-screen cover of its own: the camera wants the whole
+/// screen, and a camera that has to fit inside another page is a camera that
+/// asks to be cropped. The divergence is only the shell — what the scanner
+/// yields is the same invitation string, parsed by the same strict SetupURI,
+/// and nothing else in the app knows a scanner exists.
 struct ScannerScreen: View {
 
     let onCode: (String) -> Void
@@ -22,31 +17,64 @@ struct ScannerScreen: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var authorization: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    /// Why the last code was passed over, when it was: a code that is not an
+    /// invitation is not an answer, and the scan keeps looking.
+    @State private var scanMessage: String?
 
     var body: some View {
-        let theme = Theme(colorScheme)
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                switch authorization {
-                case .authorized, .notDetermined:
-                    QRCodeScanner(onCode: onCode)
-                        .ignoresSafeArea(edges: .bottom)
-                default:
-                    MessagePage(
-                        title: l10n(MessageKeys.PAIR_SCAN_DENIED),
-                        message: l10n(MessageKeys.PAIR_SCAN_BODY),
-                        actionTitle: nil,
-                        action: nil
-                    )
-                    .background(theme.bg)
+        ZStack {
+            Color.black.ignoresSafeArea()
+            switch authorization {
+            case .authorized, .notDetermined:
+                QRCodeScanner(
+                    onCode: onCode,
+                    onInvalidCode: {
+                        scanMessage = l10n(MessageKeys.PAIR_SCAN_FAILED)
+                    }
+                )
+                .ignoresSafeArea(edges: .bottom)
+            default:
+                VStack(spacing: Theme.gapM) {
+                    Spacer()
+                    Text(l10n(MessageKeys.PAIR_SCAN_DENIED))
+                        .font(Theme.headline)
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                    Text(l10n(MessageKeys.PAIR_SCAN_BODY))
+                        .font(Theme.body)
+                        .foregroundStyle(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                    Spacer()
                 }
+                .padding(Theme.gapXL)
             }
-            .navigationTitle(l10n(MessageKeys.PAIR_SCAN))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(l10n(MessageKeys.ACTION_CANCEL)) { dismiss() }
+
+            VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, Theme.gapM)
+                }
+                .padding(.top, Theme.gapS)
+                Spacer()
+                if let scanMessage {
+                    Text(scanMessage)
+                        .font(Theme.body)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.gapM)
+                        .padding(.vertical, Theme.gapS)
+                        .background(Color.black.opacity(0.75), in: Capsule())
+                        .padding(.bottom, Theme.gapXL)
+                        .transition(.opacity)
                 }
             }
         }
@@ -76,21 +104,25 @@ struct ScannerScreen: View {
 struct QRCodeScanner: UIViewRepresentable {
 
     let onCode: (String) -> Void
+    var onInvalidCode: (() -> Void)?
 
     func makeUIView(context: Context) -> QRScannerView {
         let view = QRScannerView()
         view.onCode = onCode
+        view.onInvalidCode = onInvalidCode
         return view
     }
 
     func updateUIView(_ uiView: QRScannerView, context: Context) {
         uiView.onCode = onCode
+        uiView.onInvalidCode = onInvalidCode
     }
 }
 
 final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
 
     var onCode: ((String) -> Void)?
+    var onInvalidCode: (() -> Void)?
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
@@ -178,6 +210,15 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
                   readable.type == .qr,
                   let value = readable.stringValue
             else { continue }
+            // A code that is not an invitation is not an answer: the scan keeps
+            // looking, and the screen says why this one was passed over — the
+            // same rule Android's own scanner keeps.
+            guard (try? SetupURI.parse(value.trimmingCharacters(in: .whitespacesAndNewlines))) != nil else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onInvalidCode?()
+                }
+                return
+            }
             handled = true
             stop()
             DispatchQueue.main.async { [weak self] in

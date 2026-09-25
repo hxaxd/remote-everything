@@ -6,7 +6,6 @@ struct SettingsScreen: View {
 
     @EnvironmentObject private var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.dismiss) private var dismiss
 
     @State private var forgetting: Identity?
     @State private var copied: String?
@@ -14,34 +13,64 @@ struct SettingsScreen: View {
 
     var body: some View {
         let theme = Theme(colorScheme)
-        NavigationStack {
-            List {
-                languageSection(theme)
-                appearanceSection(theme)
-                connectionsSection(theme)
-                aboutSection(theme)
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(theme.bg)
-            .navigationTitle(l10n(MessageKeys.SETTINGS_TITLE))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
+        List {
+            languageSection(theme)
+            appearanceSection(theme)
+            connectionsSection(theme)
+            aboutSection(theme)
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle(l10n(MessageKeys.SETTINGS_TITLE))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // A pushed settings page closes with the system back button; the
+            // pane beside the list has no back button, so it closes with Done —
+            // never both, the way pairing never showed two ways out.
+            if !model.path.contains(where: { if case .settings = $0 { return true }; return false }) {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(l10n(MessageKeys.ACTION_DONE)) { dismiss() }
+                    Button(l10n(MessageKeys.ACTION_DONE)) { model.closeSettings() }
                 }
             }
-            .overlay(alignment: .top) {
-                if let copied {
+        }
+        .overlay(alignment: .bottom) {
+            if let copied {
+                HStack(spacing: Theme.gapS + 2) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(Theme.body.weight(.medium))
+                        .foregroundStyle(theme.ok)
                     Text(copied)
-                        .font(Theme.caption)
-                        .foregroundStyle(theme.textSecondary)
-                        .padding(.horizontal, Theme.gapM)
-                        .padding(.vertical, Theme.gapS)
-                        .background(Capsule().fill(theme.bgElevated))
-                        .padding(.top, Theme.gapL)
-                        .transition(.opacity)
+                        .font(Theme.body.weight(.medium))
+                        .foregroundStyle(theme.textPrimary)
                 }
+                .padding(.horizontal, Theme.gapL)
+                .padding(.vertical, Theme.gapM - 2)
+                .background(.ultraThinMaterial, in: Capsule())
+                .background(
+                    Capsule()
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.6))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.3 : 0.8),
+                                    Color.white.opacity(colorScheme == .dark ? 0.08 : 0.2)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(
+                    color: Color.black.opacity(colorScheme == .dark ? 0.35 : 0.12),
+                    radius: 16,
+                    x: 0,
+                    y: 6
+                )
+                .padding(.bottom, Theme.gapXL + 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .alert(
@@ -175,18 +204,7 @@ struct SettingsScreen: View {
                 }
             }
         }
-        .padding(Theme.gapM)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(theme.bgElevated)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(theme.hairline, lineWidth: Theme.hairlineWidth)
-                )
-        )
-        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-        .listRowBackground(Color.clear)
-        .listRowSeparator(.hidden)
+        .padding(.vertical, Theme.gapS)
     }
 
     /// A line of a connection that is also a thing to take away.
@@ -205,11 +223,13 @@ struct SettingsScreen: View {
     private func copy(_ value: String) {
         UIPasteboard.general.string = value
         copiedTask?.cancel()
-        withAnimation(.easeOut(duration: 0.15)) { copied = l10n(MessageKeys.ACTION_COPIED) }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            copied = l10n(MessageKeys.ACTION_COPIED)
+        }
         copiedTask = Task {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
-            withAnimation(.easeOut(duration: 0.2)) { copied = nil }
+            withAnimation(.easeOut(duration: 0.25)) { copied = nil }
         }
     }
 

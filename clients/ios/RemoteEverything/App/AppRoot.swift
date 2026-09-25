@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Whether the screen is wide enough for S1 and S3 to stand side by side:
-/// ui-contract §6 puts the line at 840 points on the short side, which is a
+/// Whether the screen is wide enough for S1 and S3 to stand side by side: the
+/// line sits at 840 points on the short side, which is a
 /// tablet or an unfolded foldable, and never changes by rotating.
 private struct WideLayoutKey: EnvironmentKey {
     static let defaultValue = false
@@ -29,7 +29,7 @@ struct AppRootView: View {
             // room for two columns; Split View 1/3 (~320pt) or iPhones drop back to single pane.
             let isWide = verticalSizeClass != .compact && proxy.size.width >= 700
             let theme = Theme(colorScheme)
-            ZStack(alignment: .top) {
+            ZStack(alignment: .bottom) {
                 Group {
                     if isWide {
                         wideLayout
@@ -43,23 +43,19 @@ struct AppRootView: View {
                 }
                 if let notice = model.notice {
                     NoticeBanner(notice: notice) {
-                        model.notice = nil
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            model.notice = nil
+                        }
                     }
-                    .padding(.top, Theme.gapS)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.bottom, Theme.gapXL)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(100)
                 }
             }
             .background(theme.bg.ignoresSafeArea())
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .preferredColorScheme(model.preferredColorScheme)
-        .sheet(isPresented: $model.isAddingNode) {
-            PairScreen()
-                .environmentObject(model)
-        }
-        .sheet(isPresented: $model.isShowingSettings) {
-            SettingsScreen()
-                .environmentObject(model)
-        }
         .onOpenURL { url in
             model.handleIncomingURL(url)
         }
@@ -74,12 +70,18 @@ struct AppRootView: View {
     /// Keep navigation state seamless when resizing or rotating between single-column and split-column.
     private func handleLayoutTransition(toWide: Bool) {
         if toWide {
-            // Narrow -> Wide:
-            // If the user navigated into a node in narrow layout, extract the root node route
-            // to selectedNodeID so detailColumn displays it directly, leaving any child routes (e.g. .application)
-            // pushed cleanly in the detail stack.
+            // Narrow -> Wide: what was a full-screen page becomes the pane or the
+            // detail beside the list — a pushed pairing becomes the add-node pane,
+            // a pushed settings becomes the settings pane, a node at the root
+            // becomes the selected detail.
             if let first = model.path.first {
                 switch first {
+                case .pair:
+                    model.pane = .addNode
+                    model.path.removeAll { if case .pair = $0 { return true }; return false }
+                case .settings:
+                    model.pane = .settings
+                    model.path.removeAll { if case .settings = $0 { return true }; return false }
                 case .node(let nodeID):
                     model.selectedNodeID = nodeID
                     model.path.removeFirst()
@@ -90,9 +92,23 @@ struct AppRootView: View {
                 }
             }
         } else {
-            // Wide -> Narrow:
-            // If a node was selected in wide layout, ensure it is at the root of model.path
-            // so the user does not get kicked back to the home screen.
+            // Wide -> Narrow: the pane becomes the phone's own full-screen shape —
+            // settings a pushed page, pairing a pushed page — so nothing the
+            // person had open is swallowed by the column change.
+            switch model.pane {
+            case .settings:
+                model.pushSettings()
+                model.pane = nil
+            case .addNode:
+                model.path.removeAll()
+                model.path.append(.pair)
+                model.selectedNodeID = nil
+                model.pane = nil
+            case nil:
+                break
+            }
+            // A node selected in wide layout keeps its place at the root of the
+            // phone's stack rather than kicking the person back to the list.
             if let selected = model.selectedNodeID {
                 let hasNodeInPath = model.path.contains { route in
                     if case .node(let id) = route, id == selected { return true }
@@ -134,17 +150,26 @@ struct AppRootView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        if let nodeID = model.selectedNodeID {
-            NodeScreen(nodeID: nodeID)
-        } else {
-            MessagePage(
-                title: l10n(MessageKeys.NODES_SELECT_HINT),
-                message: nil,
-                actionTitle: nil,
-                action: nil
-            )
-            .navigationTitle(l10n(MessageKeys.NODES_TITLE))
-            .navigationBarTitleDisplayMode(.inline)
+        switch model.pane {
+        case .settings:
+            SettingsScreen()
+                .environmentObject(model)
+        case .addNode:
+            PairScreen()
+                .environmentObject(model)
+        case nil:
+            if let nodeID = model.selectedNodeID {
+                NodeScreen(nodeID: nodeID)
+            } else {
+                MessagePage(
+                    title: l10n(MessageKeys.NODES_SELECT_HINT),
+                    message: nil,
+                    actionTitle: nil,
+                    action: nil
+                )
+                .navigationTitle(l10n(MessageKeys.NODES_TITLE))
+                .navigationBarTitleDisplayMode(.inline)
+            }
         }
     }
 
@@ -159,6 +184,12 @@ struct AppRootView: View {
                 appID: appID,
                 appName: applicationName(nodeID: nodeID, appID: appID)
             )
+        case .pair:
+            PairScreen()
+                .environmentObject(model)
+        case .settings:
+            SettingsScreen()
+                .environmentObject(model)
         }
     }
 

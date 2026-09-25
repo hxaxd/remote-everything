@@ -66,7 +66,13 @@ func issueDeviceCertificate(issuerKey *ecdsa.PrivateKey, issuer *x509.Certificat
 }
 
 func encodePKCS12(privateKey *ecdsa.PrivateKey, certificate, issuer *x509.Certificate, password string) (string, error) {
-	contents, err := pkcs12.Modern.Encode(privateKey, certificate, []*x509.Certificate{issuer}, password)
+	// The Legacy encoder (PBES1/3DES, HMAC-SHA-1) is what every platform's
+	// PKCS#12 reader accepts. Modern2023 (PBES2/AES-256) is refused by Apple's
+	// SecPKCS12Import with errSecAuthFailed even with the right password, so a
+	// credential in that encoding cannot ever be imported on iOS. The password
+	// is a fresh 256-bit random value per attempt, which is the strong half of
+	// the container regardless of the PBE scheme.
+	contents, err := pkcs12.Legacy.Encode(privateKey, certificate, []*x509.Certificate{issuer}, password)
 	if err != nil {
 		return "", err
 	}

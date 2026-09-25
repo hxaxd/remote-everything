@@ -42,7 +42,7 @@ func l10n(_ key: String, _ first: CVarArg, _ rest: CVarArg...) -> String {
     String(format: l10n(key), arguments: [first] + rest)
 }
 
-/// The code → copy mapping of ui-contract §3, spelled by `MessageKeys`: the
+/// The code → copy mapping, spelled by `MessageKeys`: the
 /// code decides which name is said, and the catalog decides how this client
 /// says it. The prose the gateway sends is never read.
 enum ErrorText {
@@ -67,7 +67,7 @@ enum ErrorText {
     }
 }
 
-/// The light notices of ui-contract §3.
+/// The light notices.
 enum NoticeText {
     static func text(for notice: Notice) -> String {
         switch notice {

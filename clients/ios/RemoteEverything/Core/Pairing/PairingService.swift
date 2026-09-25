@@ -2,7 +2,7 @@ import Foundation
 
 /// The pairing flow: an invitation becomes a credential, the credential becomes
 /// an admitted device, and the client is killed between any two of those steps
-/// without losing the attempt (pitfalls §3.3 stage → activate → promote).
+/// without losing the attempt (stage → activate → promote).
 ///
 /// The one-shot password lives in this type and nowhere else: it is generated
 /// per attempt, held only while the attempt runs, and written to the Keychain

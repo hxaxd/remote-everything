@@ -95,19 +95,18 @@ enum CredentialMaterial {
         }
         let payload = Data(challenge)
 
-        // Qualified because the local below carries the function's own name.
-        guard let signingAlgorithm = Self.signingAlgorithm(for: privateKey, operation: .sign),
-              let verifyingAlgorithm = Self.signingAlgorithm(for: publicKey, operation: .verify)
+        guard let signing = signingAlgorithm(for: privateKey, operation: .sign),
+              let verifying = signingAlgorithm(for: publicKey, operation: .verify)
         else { throw Failure.unsupportedKey }
 
         // `try?` around a Security call that may or may not be imported as
         // throwing: either way the absent result is the failure.
-        let signatureBox: CFData? = try? SecKeyCreateSignature(privateKey, signingAlgorithm, payload as CFData, nil)
+        let signatureBox: CFData? = try? SecKeyCreateSignature(privateKey, signing, payload as CFData, nil)
         guard let signature = signatureBox else { throw Failure.unsupportedKey }
 
         let verified = SecKeyVerifySignature(
             publicKey,
-            verifyingAlgorithm,
+            verifying,
             payload as CFData,
             signature,
             nil
