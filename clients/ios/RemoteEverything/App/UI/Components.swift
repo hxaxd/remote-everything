@@ -1,9 +1,10 @@
 import SwiftUI
 
 /// The small pieces every screen is made of. They exist so that a radius, a
-/// hairline or a badge colour is spelled once.
+/// badge colour or a notice is spelled once, and so the glass of one screen is
+/// the glass of every screen.
 
-/// A light banner at the top of a screen: the "轻提示" of ui-contract §3.
+/// A floating toast snackbar at the bottom of the screen: a transient notice over the page.
 struct NoticeBanner: View {
     let notice: Notice
     let onDismiss: () -> Void
@@ -12,32 +13,134 @@ struct NoticeBanner: View {
 
     var body: some View {
         let theme = Theme(colorScheme)
-        HStack(alignment: .firstTextBaseline, spacing: Theme.gapS) {
+        let isError = NoticeText.usesErrorColor(notice)
+        HStack(spacing: Theme.gapS + 2) {
+            Image(systemName: isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
+                .font(Theme.body.weight(.medium))
+                .foregroundStyle(isError ? theme.danger : theme.ok)
             Text(NoticeText.text(for: notice))
-                .font(Theme.body)
-                .foregroundStyle(NoticeText.usesErrorColor(notice) ? theme.danger : theme.textPrimary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(Theme.body.weight(.medium))
+                .foregroundStyle(theme.textPrimary)
+                .lineLimit(2)
+            Spacer(minLength: Theme.gapS)
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
                     .font(Theme.caption)
+                    .foregroundStyle(theme.textSecondary)
+                    .padding(4)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(theme.textSecondary)
         }
-        .padding(.horizontal, Theme.gapM)
-        .padding(.vertical, Theme.gapS + 2)
-        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
+        .padding(.horizontal, Theme.gapL)
+        .padding(.vertical, Theme.gapM - 2)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.ultraThinMaterial)
         )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.08), radius: 12, y: 8)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.6))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(colorScheme == .dark ? 0.3 : 0.8),
+                            Color.white.opacity(colorScheme == .dark ? 0.08 : 0.2)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(
+            color: Color.black.opacity(colorScheme == .dark ? 0.35 : 0.12),
+            radius: 16,
+            x: 0,
+            y: 6
+        )
+        .frame(maxWidth: 440)
         .padding(.horizontal, Theme.gapM)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                onDismiss()
+            }
+        }
     }
 }
 
-/// Text in a semantic colour over the same colour at 12%/20% — the badge rule of
-/// style.md §2.
+/// Frosted glass card modifier providing iOS material translucency, subtle specular border, and elevation.
+struct GlassCardModifier: ViewModifier {
+    var isSelected: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let theme = Theme(colorScheme)
+        content
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? theme.accent.opacity(0.14)
+                            : (colorScheme == .dark
+                                ? Color.white.opacity(0.04)
+                                : Color.white.opacity(0.6))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(
+                        isSelected
+                            ? LinearGradient(
+                                colors: [theme.accent.opacity(0.85), theme.accent.opacity(0.35)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                            : LinearGradient(
+                                colors: [
+                                    Color.white.opacity(colorScheme == .dark ? 0.24 : 0.8),
+                                    Color.white.opacity(colorScheme == .dark ? 0.05 : 0.2)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .shadow(
+                color: isSelected
+                    ? theme.accent.opacity(colorScheme == .dark ? 0.35 : 0.18)
+                    : Color.black.opacity(colorScheme == .dark ? 0.25 : 0.06),
+                radius: isSelected ? 14 : 10,
+                x: 0,
+                y: 4
+            )
+    }
+}
+
+extension View {
+    func glassCard(isSelected: Bool = false) -> some View {
+        modifier(GlassCardModifier(isSelected: isSelected))
+    }
+}
+
+/// Gentle scale and opacity transition on tap, mimicking iOS system card physics.
+struct GlassPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+/// A word in its own semantic colour over a quiet glass capsule.
 struct StatusBadge: View {
     let text: String
     let color: Color
@@ -49,8 +152,8 @@ struct StatusBadge: View {
         Text(text)
             .font(Theme.caption)
             .foregroundStyle(color)
-            .padding(.horizontal, Theme.gapS)
-            .padding(.vertical, 3)
+            .padding(.horizontal, Theme.gapS + 2)
+            .padding(.vertical, 4)
             .background(theme.tint(color), in: Capsule())
     }
 }
@@ -69,11 +172,12 @@ struct PathLabel: View {
     }
 }
 
-/// The ways in this phone has to one machine: a local link, a link over the tunnel,
-/// or both — each a dot and a word, with the one it would actually take standing
-/// out and the other left quiet. Two links is the ordinary state of a phone that
-/// paired over the internet and later met the gateway at home, and seeing both is
-/// how a person knows that losing one of them is not losing the machine.
+/// The ways in this phone has to one machine: a local link, a link over the
+/// tunnel, or both — each a dot and a word, with the one it would actually take
+/// standing out and the other left quiet. Two links is the ordinary state of a
+/// phone that paired over the internet and later met the gateway at home, and
+/// seeing both is how a person knows that losing one of them is not losing the
+/// machine.
 struct LinkDots: View {
 
     let paths: [Path]
@@ -106,7 +210,7 @@ struct LinkDots: View {
     }
 }
 
-/// An application's emoji over its own accent, as a 12-point rounded square.
+/// An application's emoji over its own accent, as a rounded square.
 struct AppIconTile: View {
     let icon: String
     let accent: Color?
@@ -136,18 +240,18 @@ struct StatusDot: View {
     }
 }
 
-/// The 0.5 pt line that separates rows, instead of a shadow.
+/// The thin line that separates rows, where a list style does not do it.
 struct Hairline: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Rectangle()
-            .fill(Theme(colorScheme).hairline)
+            .fill(Theme(colorScheme).hairline.opacity(0.6))
             .frame(height: Theme.hairlineWidth)
     }
 }
 
-/// A thin line that means "working", never a gesture indicator (pitfalls §5).
+/// A thin line that means "working", never a gesture indicator.
 struct LoadingLine: View {
     @Environment(\.colorScheme) private var colorScheme
 
@@ -161,43 +265,30 @@ struct LoadingLine: View {
     }
 }
 
-/// S0's shape: one sentence about what is going on, one about what to do, and
-/// one button.
+/// The empty state: what is going on, what to do, and the one button.
+/// The page's own words only — no invented icon, because a state a person has
+/// not met before reads better as itself than as a box with a face on it.
 struct EmptyStateView: View {
     let title: String
-    // Not `body`: a stored property of a View may not be named for the one the
-    // protocol already asks for.
     let message: String
     let actionTitle: String
     let action: () -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        let theme = Theme(colorScheme)
         VStack(spacing: Theme.gapM) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(theme.tint(theme.accent))
-                .frame(width: 64, height: 64)
-                .overlay(Text("📦").font(.system(size: 28)))
-                .padding(.bottom, Theme.gapS)
             Text(title)
                 .font(Theme.headline)
-                .foregroundStyle(theme.textPrimary)
+                .foregroundStyle(Color(.label))
                 .multilineTextAlignment(.center)
             Text(message)
                 .font(Theme.body)
-                .foregroundStyle(theme.textSecondary)
+                .foregroundStyle(Color(.secondaryLabel))
                 .multilineTextAlignment(.center)
             Button(action: action) {
                 Text(actionTitle)
                     .font(Theme.body)
-                    .foregroundStyle(theme.accentOnBg)
-                    .padding(.horizontal, Theme.gapL)
-                    .padding(.vertical, Theme.gapS + 4)
-                    .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .reGlassButton()
             .padding(.top, Theme.gapS)
         }
         .padding(Theme.gapXL)
@@ -213,34 +304,24 @@ struct MessagePage: View {
     let actionTitle: String?
     let action: (() -> Void)?
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        let theme = Theme(colorScheme)
         VStack(spacing: Theme.gapS) {
             Text(title)
                 .font(Theme.headline)
-                .foregroundStyle(theme.textPrimary)
+                .foregroundStyle(Color(.label))
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
                     .font(Theme.body)
-                    .foregroundStyle(theme.textSecondary)
+                    .foregroundStyle(Color(.secondaryLabel))
                     .multilineTextAlignment(.center)
             }
             if let actionTitle, let action {
                 Button(action: action) {
                     Text(actionTitle)
                         .font(Theme.body)
-                        .foregroundStyle(theme.textPrimary)
-                        .padding(.horizontal, Theme.gapL)
-                        .padding(.vertical, Theme.gapS)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
-                        )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
                 .padding(.top, Theme.gapM)
             }
         }

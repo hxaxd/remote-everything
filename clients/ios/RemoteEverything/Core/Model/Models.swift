@@ -106,7 +106,7 @@ enum AppState: String, Codable, Equatable {
 }
 
 /// What language the app speaks. `system` means: Chinese when the system's first
-/// preferred language is Chinese, English otherwise (ui-contract §2/S5).
+/// preferred language is Chinese, English otherwise.
 enum Language: String, Codable, CaseIterable, Identifiable {
     case system
     case zh
@@ -145,7 +145,7 @@ enum Appearance: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The two settings the app keeps (ui-contract §2/S5).
+/// The two settings the app keeps.
 struct ClientSettings: Codable, Equatable {
     var language: Language = .system
     var appearance: Appearance = .system

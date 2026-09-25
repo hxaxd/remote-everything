@@ -1,23 +1,32 @@
 import Foundation
 
-/// Where a detail column can go. S1 → S3 → S4.
+/// Where a detail column can go. S1 → S3 → S4, and S2 pushed over any of them;
+/// settings is a pushed page on a phone (a sheet cannot follow an appearance
+/// change reliably) and a pane beside the list on a wide screen.
 enum AppRoute: Hashable {
     case node(String)
     case application(nodeID: String, appID: String)
+    case pair
+    case settings
 }
 
-/// S3's whole-page state (ui-contract §2/S3).
+/// S3's whole-page state — the five phases all three clients share: loading,
+/// the applications, the machine off, the device refused, and a gateway in
+/// trouble. A catalog the phone simply cannot reach is an offline machine, not
+/// a state of its own; a gateway that answers a refusal it does not understand
+/// is one in trouble. (The other two clients read it the same way.)
 enum CatalogState: Equatable {
     case loading
     case ready([AppInfo])
-    /// `computer_offline` is an answer, not an error: the machine is off, asleep
-    /// or its tunnel is down.
+    /// `computer_offline` is an answer, and so is "could not be reached at all":
+    /// the machine is off, asleep, or its tunnel is down.
     case offline
     /// The gateway says this device may not reach the node any more.
     case unauthorized
-    /// The gateway itself could not be reached: the network, not the node.
-    case unreachable
-    case refused(ClientError)
+    /// The gateway answered, and its answer is a refusal that is neither the
+    /// machine being off nor this device being refused: the deployment, not the
+    /// phone, is the question.
+    case gatewayTrouble
 
     var applications: [AppInfo] {
         if case .ready(let apps) = self { return apps }
@@ -25,7 +34,7 @@ enum CatalogState: Equatable {
     }
 }
 
-/// The light notices (toast/banner) of ui-contract §3 — nothing here is a page.
+/// The light notices (toast/banner) — nothing here is a page.
 enum Notice: Equatable, Identifiable {
     case busy
     case appGone
@@ -54,6 +63,9 @@ enum Notice: Equatable, Identifiable {
 enum PairingPhase: Equatable {
     case idle
     case pairing
+    /// The device paired and its operator has not approved it yet: the page
+    /// stays open on the same screen Android keeps, with a retry and a way back.
+    case pendingApproval(nodeName: String)
     case failed(PairingFailure)
 }
 

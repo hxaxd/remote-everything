@@ -26,9 +26,11 @@ struct NodeScreen: View {
                     Text(node?.name ?? "")
                         .font(Theme.headline)
                         .foregroundStyle(theme.textPrimary)
-                    if let node = model.node(withID: nodeID),
-                       let hint = currentPathHint(model.preferredPath(for: node)) {
-                        Text(hint)
+                    // Under its own name, whose screen this is, and which way the
+                    // phone is getting there: the path, or the state's own name
+                    // when there is no path to describe (Android's NodeBar).
+                    if let node = model.node(withID: nodeID) {
+                        Text(pathHintOrStatus(node))
                             .font(Theme.caption)
                             .foregroundStyle(theme.textSecondary)
                     }
@@ -41,6 +43,16 @@ struct NodeScreen: View {
         }
         .onDisappear {
             model.endCatalogPolling()
+        }
+    }
+
+    /// Asking again means asking now: the node list is read again — the paths it
+    /// carries are what a catalog is fetched through — and this node's catalog
+    /// with it (Android retryNode).
+    private func retry() {
+        Task {
+            await model.refreshNodes()
+            await model.loadCatalog(nodeID: nodeID)
         }
     }
 
@@ -58,23 +70,24 @@ struct NodeScreen: View {
                     MessagePage(
                         title: l10n(MessageKeys.APPS_EMPTY_TITLE),
                         message: l10n(MessageKeys.APPS_EMPTY_BODY),
-                        actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                        action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                        actionTitle: nil,
+                        action: nil
                     )
                 } else {
-                    List {
-                        ForEach(apps) { app in
-                            ApplicationRow(
-                                app: app,
-                                onOpen: { open(app) },
-                                onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
-                                onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
-                            )
-                            .listRowBackground(theme.bgElevated)
+                    ScrollView {
+                        LazyVStack(spacing: Theme.gapM) {
+                            ForEach(apps) { app in
+                                ApplicationRow(
+                                    app: app,
+                                    onOpen: { open(app) },
+                                    onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
+                                    onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
+                                )
+                            }
                         }
+                        .padding(.horizontal, Theme.gapM)
+                        .padding(.vertical, Theme.gapM)
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
                     .refreshable { await model.loadCatalog(nodeID: nodeID) }
                 }
             case .some(.offline):
@@ -82,7 +95,7 @@ struct NodeScreen: View {
                     title: l10n(MessageKeys.NODE_OFFLINE_TITLE),
                     message: l10n(MessageKeys.NODE_OFFLINE_BODY),
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                    action: retry
                 )
             case .some(.unauthorized):
                 MessagePage(
@@ -95,19 +108,14 @@ struct NodeScreen: View {
                         Task { await model.refreshNodes() }
                     }
                 )
-            case .some(.unreachable):
+            case .some(.gatewayTrouble):
+                // The gateway answered and its answer is a refusal: the same
+                // words every client says here, and the retry that asks again.
                 MessagePage(
-                    title: ErrorText.network,
-                    message: !node.paths.isEmpty ? pathNames(node) : nil,
-                    actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
-                )
-            case .some(.refused(let error)):
-                MessagePage(
-                    title: ErrorText.text(for: error.code),
+                    title: l10n(MessageKeys.PAIR_GATEWAY_TROUBLE),
                     message: nil,
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                    action: retry
                 )
             }
         } else {
@@ -124,22 +132,23 @@ struct NodeScreen: View {
         }
     }
 
-    private func pathNames(_ node: Node?) -> String? {
-        guard let node else { return nil }
-        let labels = node.paths.map { $0.origin }.joined(separator: "\n")
-        return labels.isEmpty ? nil : labels
+    /// The one-line answer under a node's name: the road in use, or the state's
+    /// own name when nothing is answering — the fallback Android's NodeBar uses.
+    private func pathHintOrStatus(_ node: Node) -> String {
+        currentPathHint(model.preferredPath(for: node))
+            ?? l10n(MessageKeys.forNodeStatus(model.status(of: node)))
     }
 
-    /// Tapping an application opens it: running already, starting, or started
-    /// first and then opened (S4 shows the start it is waiting for).
+    /// Tapping an application opens it. A stopped one is opened as it is — the
+    /// start is its own button — exactly as Android opens a stopped-but-enabled
+    /// app; only one that cannot be started at all is left alone.
     private func open(_ app: AppInfo) {
         switch app.code {
         case .ready, .starting:
             model.path.append(.application(nodeID: nodeID, appID: app.id))
-        case .stopped:
-            model.startApplication(nodeID: nodeID, appID: app.id)
+        case .stopped where app.enabled:
             model.path.append(.application(nodeID: nodeID, appID: app.id))
-        case .stopping:
+        case .stopped, .stopping:
             break
         }
     }
@@ -160,7 +169,7 @@ private struct ApplicationRow: View {
             Button(action: onOpen) {
                 HStack(spacing: Theme.gapM) {
                     AppIconTile(icon: app.icon, accent: Color(hexString: app.accent))
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(app.name)
                             .font(Theme.headline)
                             .foregroundStyle(theme.textPrimary)
@@ -176,7 +185,7 @@ private struct ApplicationRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(GlassPressButtonStyle())
 
             StatusBadge(text: stateText, color: theme.color(for: app.code))
 
@@ -186,19 +195,33 @@ private struct ApplicationRow: View {
             } else {
                 Button(action: app.code == .stopped ? onStart : onStop) {
                     Text(app.code == .stopped ? l10n(MessageKeys.ACTION_START) : l10n(MessageKeys.ACTION_STOP))
-                        .font(Theme.caption)
-                        .foregroundStyle(theme.textPrimary)
-                        .frame(width: 44)
+                        .font(Theme.caption.weight(.semibold))
+                        .foregroundStyle(app.code == .stopped ? theme.accentOnBg : theme.textPrimary)
+                        .padding(.horizontal, Theme.gapM - 2)
                         .padding(.vertical, Theme.gapS - 2)
+                        .background(
+                            app.code == .stopped
+                                ? AnyShapeStyle(theme.accent)
+                                : AnyShapeStyle(.ultraThinMaterial),
+                            in: Capsule()
+                        )
                         .overlay(
-                            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
+                            Capsule()
+                                .strokeBorder(
+                                    app.code == .stopped
+                                        ? Color.clear
+                                        : Color.white.opacity(colorScheme == .dark ? 0.2 : 0.4),
+                                    lineWidth: 1
+                                )
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
-        .frame(minHeight: Theme.appRowHeight)
+        .padding(.horizontal, Theme.gapL)
+        .padding(.vertical, Theme.gapM)
+        .glassCard()
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private var stateText: String {

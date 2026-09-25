@@ -1,6 +1,6 @@
 import Foundation
 
-/// Choosing a road without asking anybody (ui-contract §4). Among the paths that
+/// Choosing a road without asking anybody. Among the paths that
 /// answered, a private address wins — it is the LAN, and it is faster by
 /// construction. Among equals, the one that answered fastest wins. The choice is
 /// remembered per network and never shown as a control: the only thing the UI

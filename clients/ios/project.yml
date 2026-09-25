@@ -22,6 +22,40 @@ targets:
           - Resources/Info.plist
     info:
       path: RemoteEverything/Resources/Info.plist
+      # The whole plist lives here so a regenerated project regenerates a
+      # complete plist: the deep-link scheme, the camera, the localizations and
+      # the orientations must survive xcodegen, or a rebuild silently loses them.
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleDisplayName: Remote Everything
+        CFBundleLocalizations:
+          - en
+          - zh-Hans
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.remoteeverything.app
+            CFBundleURLSchemes:
+              - remote-everything
+        LSRequiresIPhoneOS: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSCameraUsageDescription: "Scan the invitation QR code, and let an application use the camera. / 用于扫描邀请二维码，以及让应用使用摄像头。"
+        NSLocalNetworkUsageDescription: "Reach a gateway on the local network. / 用于接入局域网内的网关。"
+        NSLocationWhenInUseUsageDescription: "Let an application know where this device is while it is open. / 用于在应用打开时获取本机位置。"
+        NSMicrophoneUsageDescription: "Let an application use the microphone. / 用于让应用使用麦克风。"
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIFileSharingEnabled: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.remoteeverything.app
@@ -32,6 +66,7 @@ targets:
     scheme:
       testTargets:
         - RemoteEverythingTests
+        - RemoteEverythingUITests
 
   RemoteEverythingTests:
     type: bundle.unit-test
@@ -43,5 +78,18 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.remoteeverything.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+
+  RemoteEverythingUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RemoteEverythingUITests
+    dependencies:
+      - target: RemoteEverything
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.remoteeverything.app.uitests
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO

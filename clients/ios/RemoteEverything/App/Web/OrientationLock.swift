@@ -24,13 +24,17 @@ final class OrientationLock {
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
     }
 
-    /// Leaving the application gives the screen back to the system.
+    /// Leaving the application gives the screen back to the system: the mask is
+    /// released and the scene is asked to rotate to it, the way entering asked
+    /// it to hold — otherwise the phone stays in the application's orientation
+    /// until the person happens to turn it (the other clients restore on exit).
     func release() {
         mask = .all
         guard let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first else { return }
         scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .all))
     }
 
     static func mask(for orientation: WebOrientation) -> UIInterfaceOrientationMask {

@@ -16,7 +16,7 @@ final class RemoteEverythingAppDelegate: NSObject, UIApplicationDelegate {
 
 /// The app itself: one window, one scene, one model.
 ///
-/// A single scene is deliberate (pitfalls §5): several scenes would make the
+/// A single scene is deliberate: several scenes would make the
 /// WebView's data store leases and the polling loops a different problem, and
 /// nothing in this contract needs them.
 @main
