@@ -26,8 +26,8 @@ targets:
       # complete plist: the deep-link scheme, the camera, the localizations and
       # the orientations must survive xcodegen, or a rebuild silently loses them.
       properties:
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: "3.5.0"
+        CFBundleVersion: "28"
         CFBundleDisplayName: Remote Everything
         CFBundleLocalizations:
           - en
