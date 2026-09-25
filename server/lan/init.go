@@ -138,7 +138,6 @@ func (state lanState) applicationsHost() (string, error) {
 	return host, nil
 }
 
-
 // ensureFRPS reserves and records an FRPS listener if one is not already present.
 func (state *lanState) ensureFRPS() error {
 	for _, l := range state.Listeners {
