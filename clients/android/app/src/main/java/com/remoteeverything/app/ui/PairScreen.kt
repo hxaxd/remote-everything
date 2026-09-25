@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -100,6 +101,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
         }
     }
     val startScan = { scanLauncher.launch(QrScanActivity.intent(context)) }
+    val scanDeniedMessage = stringResource(R.string.pair_scan_denied)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -108,7 +110,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
             startScan()
         } else {
             scope.launch {
-                snackbarHostState.showSnackbar(context.getString(R.string.pair_scan_denied))
+                snackbarHostState.showSnackbar(scanDeniedMessage)
             }
         }
     }
