@@ -16,7 +16,7 @@ def gateway_ask_path():
     """The path the entrance asks the gateway at, read from where the gateway names
     it: one name in two places is a name that drifts, and this is the check that
     catches the drift rather than agreeing with it."""
-    source = Path(__file__).resolve().parents[3] / "internal" / "devicecore" / "application.go"
+    source = Path(__file__).resolve().parents[3] / "internal" / "gateway" / "devicecore" / "application.go"
     match = re.search(r'TLSAskPath\s*=\s*"([^"]+)"', source.read_text(encoding="utf-8"))
     if not match:
         raise ValueError(f"the gateway names no ask path in {source}")

@@ -60,7 +60,7 @@ jobs:
           go vet ./internal/... ./server/public/...
           go test -race ./internal/... ./server/public/...
           go build ./server/public
-          python -c "compile(open(r'internal/devicecore/tests/pairing_pkcs12.py',encoding='utf-8').read(),r'x','exec')"
+          python -c "compile(open(r'internal/gateway/devicecore/tests/pairing_pkcs12.py',encoding='utf-8').read(),r'x','exec')"
 
       # Everything above drives the gateway through its own packages. This drives
       # the deployment: the entrance is the only thing that verifies a device
