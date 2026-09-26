@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/nodecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore"
 )
 
 func entryNames(t *testing.T, directory string) []string {

@@ -7,11 +7,11 @@ import (
 	"io"
 	"os"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/secret"
-	"github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
+	"github.com/hxaxd/remote-everything/internal/backplane/tunnelbootstrap"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/secret"
 )
 
 // nodeTunnelHost and nodeTunnelPort are where this gateway reaches a node: the

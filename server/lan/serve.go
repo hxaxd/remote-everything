@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/logline"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
-	"github.com/hxaxd/remote-everything/internal/wire"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/logline"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
+	"github.com/hxaxd/remote-everything/internal/protocol/wire"
 )
 
 // applicationHost is where this entrance's applications listen when nobody said:

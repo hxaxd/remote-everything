@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/deploymentbootstrap"
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
-	"github.com/hxaxd/remote-everything/internal/nodecore"
-	"github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
+	"github.com/hxaxd/remote-everything/internal/backplane/deploymentbootstrap"
+	"github.com/hxaxd/remote-everything/internal/backplane/tunnelbootstrap"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore"
 )
 
 // init records the gateway itself: its identity, its origin, its listeners and the

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/entrancetest"
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/webclient"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/client/webclient"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrancetest"
 )
 
 func newPublicWebTestClient(t *testing.T) (*http.Client, *cookiejar.Jar) {

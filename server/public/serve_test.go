@@ -13,11 +13,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/entrancetest"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrancetest"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
 )
 
 // A public entrance is a gateway shape, and the same behaviour suite drives it:

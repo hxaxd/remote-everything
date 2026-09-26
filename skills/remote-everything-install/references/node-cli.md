@@ -36,7 +36,7 @@ remote-everything-control app remove --state PATH ID
 
 `launch_fragment` 为空或以 `#` 开头，用于应用首次打开时向自身前端传递片段参数。公网形态它只出现在经 mTLS 鉴权设备的应用目录中；局域网形态入口不鉴权客户端，目录对能到达入口端口的所有人可见，敏感片段依赖网段防火墙收敛。
 
-代理链路只剥离 `X-Remote-Everything-Client-Fingerprint` 与 `X-Remote-Everything-Node` 两个保留头（名字都在 `internal/proxysecurity`，网关那一跳与节点这一跳用的是同一份列表）；控制令牌不走应用链路，它是网关调节点控制面时用的 `Authorization: Bearer`（见下），应用自身的 `Authorization` 与其余头部原样透传。
+代理链路只剥离 `X-Remote-Everything-Client-Fingerprint` 与 `X-Remote-Everything-Node` 两个保留头（名字都在 `internal/backplane/proxysecurity`，网关那一跳与节点这一跳用的是同一份列表）；控制令牌不走应用链路，它是网关调节点控制面时用的 `Authorization: Bearer`（见下），应用自身的 `Authorization` 与其余头部原样透传。
 
 显示名称 1—80 个 Unicode 字符且不含首尾空白，描述最多 240，图标最多 4；三者拒绝控制字符。`accent` 必须是六位十六进制颜色。代理 URL 拒绝 fragment。
 
