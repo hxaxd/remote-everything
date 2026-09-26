@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
 )
 
 // This entrance serves no web client, and that is a decision rather than a gap: its

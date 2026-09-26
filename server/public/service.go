@@ -6,11 +6,11 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/logline"
-	"github.com/hxaxd/remote-everything/internal/webclient"
+	"github.com/hxaxd/remote-everything/internal/client/webclient"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/logline"
 )
 
 // publicService is the public entrance: its state, the device trust that guards

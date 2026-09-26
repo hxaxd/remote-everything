@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/hxaxd/remote-everything/internal/nodecore"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore"
 )
 
 const (

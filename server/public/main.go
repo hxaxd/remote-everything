@@ -8,7 +8,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/hxaxd/remote-everything/internal/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
 )
 
 // requireLinux refuses to run this shape anywhere else. It is not only what is

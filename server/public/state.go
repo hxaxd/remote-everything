@@ -4,8 +4,8 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
 )
 
 // publicPaths is what the entrance keeps in its own root. The device CA, the

@@ -48,7 +48,7 @@ A refusal is always the body in `errors.schema.json`, with the code naming what 
 
 JSON Schemas are **human-readable documentation** of the wire format: field names, types, patterns, and the constraints that hold between fields. Where two endpoints answer with the same body, one schema says so by referencing the other rather than describing it twice.
 
-**Do NOT use schemas for runtime validation.** Each implementation decodes strictly in its own language — on the Go side `internal/setup`, `internal/gatewaycore` and `internal/devicecore` — and rejects a body it does not understand rather than tolerating it. Schemas exist so a reviewer can check that an implementation enforces the same rules, and so the next client has one document to implement against.
+**Do NOT use schemas for runtime validation.** Each implementation decodes strictly in its own language — on the Go side `internal/protocol/setup`, `internal/gateway/gatewaycore` and `internal/gateway/devicecore` — and rejects a body it does not understand rather than tolerating it. Schemas exist so a reviewer can check that an implementation enforces the same rules, and so the next client has one document to implement against.
 
 ## Contract Drift
 

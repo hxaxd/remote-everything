@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"github.com/hxaxd/remote-everything/internal/webclient"
+	"github.com/hxaxd/remote-everything/internal/client/webclient"
 )
 
 // restrictPublicApplicationCookies confines server-issued cookies to the current

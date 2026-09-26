@@ -65,7 +65,7 @@ try {
     $repoRoot = Split-Path -Parent (Split-Path -Parent $windowsRoot)
     $genBundlePath = Join-Path $temporaryRoot 'genbundle.exe'
     Push-Location $repoRoot
-    try { & $go.Source build -o $genBundlePath ./internal/nodecore/testharness/genbundle }
+    try { & $go.Source build -o $genBundlePath ./internal/node/nodecore/testharness/genbundle }
     finally { Pop-Location }
     Assert-True ($LASTEXITCODE -eq 0) 'temporary genbundle binary builds'
 

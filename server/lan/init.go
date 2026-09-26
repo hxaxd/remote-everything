@@ -20,14 +20,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/jsonfile"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
-	"github.com/hxaxd/remote-everything/internal/secret"
-	"github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
-	"github.com/hxaxd/remote-everything/internal/wire"
+	"github.com/hxaxd/remote-everything/internal/backplane/tunnelbootstrap"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/jsonfile"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
+	"github.com/hxaxd/remote-everything/internal/infra/secret"
+	"github.com/hxaxd/remote-everything/internal/protocol/wire"
 )
 
 var (

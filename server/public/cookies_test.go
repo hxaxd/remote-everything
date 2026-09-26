@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/webclient"
+	"github.com/hxaxd/remote-everything/internal/client/webclient"
 )
 
 func TestPublicApplicationCookiesStayOnCurrentHost(t *testing.T) {

@@ -16,12 +16,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/entrance"
-	"github.com/hxaxd/remote-everything/internal/entrancetest"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
-	"github.com/hxaxd/remote-everything/internal/nodecore"
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
+	"github.com/hxaxd/remote-everything/internal/gateway/entrancetest"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore"
 )
 
 // A LAN entrance is a gateway shape, so its behaviour is the shared one: what it

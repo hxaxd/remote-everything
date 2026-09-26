@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/nodecore"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore"
 )
 
 type linuxPlatform struct{}
