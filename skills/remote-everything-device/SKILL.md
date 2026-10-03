@@ -18,3 +18,5 @@ description: 管理 Remote Everything 客户端信任（移动客户端与公网
 - 吊销：`device revoke <指纹>`，再 list，确认该证访问为 401/403。
 
 设备变更记入 `AGENTS.local.md`。
+
+iOS 客户端的签名续期（免费账号 7 天循环、定时重签、报警通道与路径选择）见 [ios-signing.md](references/ios-signing.md)。
