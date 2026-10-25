@@ -35,10 +35,14 @@ jobs:
         working-directory: nodes/windows
         run: |
           $unformatted = gofmt -l .
+          if ($LASTEXITCODE -ne 0) { throw "gofmt failed (exit code $LASTEXITCODE)" }
           if ($unformatted) { throw "Unformatted Go files: $unformatted" }
           go vet ./...
+          if ($LASTEXITCODE -ne 0) { throw "go vet failed (exit code $LASTEXITCODE)" }
           go build ./...
+          if ($LASTEXITCODE -ne 0) { throw "go build failed (exit code $LASTEXITCODE)" }
           ./tests/run.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Windows node tests failed (exit code $LASTEXITCODE)" }
 
   unix:
     strategy:
