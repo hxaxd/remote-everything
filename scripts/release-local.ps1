@@ -17,6 +17,7 @@ $Version = [string]$Release.versionName
 $BuildNumber = [int]$Release.buildNumber
 $Tag = "v$Version"
 $Output = Join-Path $Root "dist\release-$Version"
+$GoPackages = @('./internal/...', './nodes/...', './server/...')
 $Assets = @(
     'app-release.apk',
     'remote-everything-control-windows-amd64.exe',
@@ -65,10 +66,9 @@ function Apk-Signer([string]$Sdk) {
     $found[0].FullName
 }
 function Expected-Signer {
-    $source = Get-Content (Join-Path $Root 'clients\android\app\src\main\java\com\remoteeverything\app\AppUpdater.kt') -Raw
-    $match = [regex]::Match($source, 'OFFICIAL_SIGNER_SHA256\s*=\s*"([a-f0-9]{64})"')
-    if (-not $match.Success) { throw 'Could not read OFFICIAL_SIGNER_SHA256 from AppUpdater.kt.' }
-    $match.Groups[1].Value
+    $fingerprint = (Get-Content (Join-Path $Root 'clients/android/release-signer.sha256') -Raw).Trim()
+    if ($fingerprint -cnotmatch '^[a-f0-9]{64}$') { throw 'Invalid Android release signing fingerprint.' }
+    $fingerprint
 }
 
 function Harmony-Hvigor {
@@ -163,8 +163,8 @@ function Validate-Repository {
     Step 'Run Go checks and Windows node probes'
     $unformatted = @(gofmt -l internal nodes server)
     if ($unformatted) { throw "Unformatted Go files:`n$($unformatted -join "`n")" }
-    Run { go vet ./... } 'go vet failed'
-    Run { go test ./... } 'Go tests failed'
+    Run { go vet @GoPackages } 'go vet failed'
+    Run { go test @GoPackages } 'Go tests failed'
     Need staticcheck
     Need govulncheck
     $gitleaksCommand = Get-Command gitleaks -ErrorAction SilentlyContinue
@@ -174,8 +174,8 @@ function Validate-Repository {
         if (Test-Path $localGitleaks -PathType Leaf) { $gitleaksPath = $localGitleaks }
     }
     if (-not $gitleaksPath) { throw 'gitleaks 8.30.1 is required for the full-history secret scan.' }
-    Run { staticcheck ./... } 'staticcheck failed'
-    Run { govulncheck ./... } 'govulncheck failed'
+    Run { staticcheck @GoPackages } 'staticcheck failed'
+    Run { govulncheck @GoPackages } 'govulncheck failed'
     Run { & $gitleaksPath git . --log-opts=--all --redact=100 --no-banner } 'Full-history secret scan failed'
     Push-Location (Join-Path $Root 'nodes\windows')
     try { Run { .\tests\run.ps1 } 'Windows node integration tests failed' } finally { Pop-Location }

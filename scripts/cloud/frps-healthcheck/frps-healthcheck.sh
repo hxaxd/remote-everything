@@ -10,11 +10,11 @@
 #
 # 看的是谁，才重启谁：动作是重启 frps，判据就必须落在 frps 上。
 #   * frps 自己的端口都连不上 -> frps 不在了 -> 失败
-#   * 所有节点的隧道都不通   -> 这条共享隧道断了，也就是 frps 楔死 -> 失败
-#   * 只有部分节点不通       -> 是那几台机器自己不在线，与 frps 无关 -> 只记日志
-# 最后一条是多节点下唯一能把"某台机器关机"和"frps 楔死"分开的判据：所有节点共用
-# 同一个 frps，只有它们一起断才是 frps 的问题；只盯一台节点就会在它关机时反复重启
-# 一台本来好好的 frps，还会把其余在线节点的隧道一起扯断。
+#   * 所有节点的隧道都不通   -> 共享路径整体不可达 -> 按恢复启发式记失败
+#   * 只有部分节点不通       -> 只记可达性，不触发重启
+# 这套判据不能证明故障一定在 frps：所有节点关机也会触发。完整名单可避免
+# 只探一条离线隧道、遗漏仍然健康路径的误判。恢复策略与实例管理见
+# skills/remote-everything-install/references/frps-healthcheck.md。
 #
 # 判定逻辑（两层防误杀）：
 #   * 探活失败后等待 5s 重试一次，两次都失败才动作（防瞬时抖动误杀）
@@ -27,10 +27,10 @@ FRPS_SERVICE="remote-everything-${INSTALL_ID}-frps"
 FRPS_ADDRESS="{{FRPS_ADDRESS}}"
 TUNNEL_ADDRESSES="{{TUNNEL_ADDRESSES}}"
 PROBE_TIMEOUT=8
-STATE_DIR="/var/lib/remote-everything/.runtime/state"
-STATE_FILE="${STATE_DIR}/frps-health.json"
-LOG_FILE="/var/lib/remote-everything/.runtime/logs/frps-health.log"
-LOCK_FILE="/run/lock/remote-everything-frps-health.lock"
+STATE_DIR="{{STATE_DIR}}"
+STATE_FILE="${STATE_DIR}/state.json"
+LOG_FILE="${STATE_DIR}/health.log"
+LOCK_FILE="{{LOCK_FILE}}"
 MAX_CONSECUTIVE_FAILURES=2
 
 log() {
@@ -75,7 +75,7 @@ probe() {
         return 1
     fi
     if [ "$reachable" -lt "$total" ]; then
-        log "INFO: ${reachable}/${total} tunnels reachable; down:${PROBE_DETAIL} (that is those machines, not frps)"
+        log "INFO: ${reachable}/${total} tunnels reachable; down:${PROBE_DETAIL} (partial tunnel outage)"
     fi
     PROBE_DETAIL=""
     return 0
@@ -94,10 +94,10 @@ read_failures() {
 }
 
 # 并发保护：防止上一个探测还没跑完、下一个又进来（锁最长 4 分钟自动释放）
+mkdir -p "$STATE_DIR" "$(dirname "$LOCK_FILE")" || exit 1
 exec 9>"$LOCK_FILE"
 flock -w 240 9 || { log "WARN: could not acquire lock (another run in progress?), skipping"; exit 0; }
 
-mkdir -p "$STATE_DIR"
 failures="$(read_failures)"
 failures="${failures:-0}"
 PROBE_DETAIL=""
