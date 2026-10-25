@@ -37,6 +37,8 @@ Release 可以走 `.github/workflows/release.yml`；CI 不可用或需要本地�
 
 脚本默认读取 `Documents/key/android-release-v2.jks` 和 `Documents/key/android-release-v2.password.clixml`。密码文件由 Windows DPAPI 保护。两份文件不得提交；丢失签名密钥或密码后已安装客户端无法升级。
 
+公开的签名证书 SHA-256 固定在 `clients/android/release-signer.sha256`；本地脚本与 Release CI 共用这一来源，校验密钥与最终 APK 的签名身份。
+
 ### 前置工具
 
 需要 `staticcheck` v0.7.0、`govulncheck` v1.6.0 和 `gitleaks` v8.30.1。前两项通过 Go 安装；Gitleaks 从官方 Release 下载校验，脚本也会识别 `.runtime/bin/gitleaks-8.30.1/gitleaks.exe`。

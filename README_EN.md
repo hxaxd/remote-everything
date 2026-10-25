@@ -96,10 +96,10 @@ Everyday operations use natural language as well:
 
 ## Security model
 
-- **LAN**: before opening a remote app, the client confirms the gateway with the server-certificate SHA-256 fingerprint from the QR code, and also checks certificate validity and the target host; the entry only allows the selected LAN or overlay interfaces.
+- **LAN**: clients pin the gateway using the public-key digest/certificate fingerprint in the invitation, check certificate validity and host coverage, and present their device credential.
 - **Public**: pairing invitations are single-use and time-limited. Device certificates stay pending until the user verifies the full fingerprint and approves them; later requests use both mTLS and the device record.
-- **Server side**: the control token exists only on the Gateway–Node path; public mode only reuses port 443. In LAN mode the Gateway–Node path is treated as a **trusted network**: the operator chooses where it is, and it is not encrypted further — the control token and application traffic both travel on it. To cross an untrusted network, use public mode, where every hop that leaves a machine is TLS (the node reaches the 443 entrance over WSS with a client certificate, and the rest stay on loopback within one machine).
-- **Client side**: device credentials go into system secure storage; every application is served at an origin of its own, so Web data is separated by origin (the browser's same-origin policy); external links open in the system browser.
+- **Server side**: the gateway enforces node grants and uses per-node control tokens. See [network exposure](skills/remote-everything-install/references/networking.md) for direct and encrypted paths, and [HTTPS entry points](skills/remote-everything-install/references/reverse-proxy.md) for public ports and browser access.
+- **Client side**: device credentials use system secure storage and applications have separate origins; see the [application trust boundary](skills/remote-everything-app/SKILL.md#应用信任边界) for storage and Cookie isolation limits.
 - **Supply chain**: release assets include SHA-256 digests; stable clients use a fixed signature or the platform's official distribution signing.
 
 Do not open a public Issue for a security vulnerability; report privately via the [Security Policy](SECURITY.md).

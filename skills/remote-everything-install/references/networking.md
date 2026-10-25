@@ -1,82 +1,39 @@
-# 网络拓扑
+# 网络拓扑与域名选择
 
-一个节点就是一台机器（一个 `node_id`），一个网关服务它旗下的一台或多台节点；每个网关绑定 = 一个 `installation_id` = 移动客户端一条路（一个 Profile），手动切换。网关和节点不必同机：LAN 形态要求两者在同一局域网内，公网形态经隧道相连。
-多台电脑部署详见 [multi-computer.md](multi-computer.md)。
+节点、网关和设备的身份关系见 [AGENTS.md](../../../AGENTS.md#架构)。设备请求先到网关；节点控制接口和原始应用端口不是移动客户端入口。
 
-控制面的请求总是先到网关，由网关按 `X-Remote-Everything-Node` 决定送给哪台节点——这条头是内部头，应用永远看不到它；应用流量则发生在各应用自己的 origin 上，哪个节点哪个应用由 origin 决定（网关转发时自己补上节点侧的路由 cookie）。没有"手机不经网关直连节点"这条路：能验证设备证书的是网关那一跳，判权限的也是它。
+## 选择拓扑
 
-## 1. 局域网或虚拟组网直连（LAN / VPN）
+| 条件 | 选择 | 后续参考 |
+| --- | --- | --- |
+| 网关能经局域网或已有 VPN/组网直接访问节点 | 直连 LAN | 下节 |
+| 有远端服务器，需节点主动建立隧道，但不使用域名、公共 CA 或 443 入口 | LAN 隧道 | [lan-tunnel.md](lan-tunnel.md) |
+| 有 Linux 服务器、可用域名与 443 控制权；需要公共证书或浏览器入口 | public | [域名选择](#域名选择)及 [reverse-proxy.md](reverse-proxy.md) |
+| 既无可达服务器，也不能直连 | 先建立远程组网，再用直连 LAN | 先验证设备和网关可达，再部署 |
 
-运行节点和 LAN 入口，两者可以在同一台机器上，也可以在同一局域网内的两台机器上。
+应用的信任前提与浏览器限制见[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
 
-- 同机：节点 `init --listen 127.0.0.1`（缺省），节点端口只在本机可达。
-- 不同机：节点 `init --listen <该节点所在机器的局域网地址>`，入口 `node add --node-address <同一地址:端口>`，两者必须一致。
+## 直连 LAN
 
-入口的动态端口写入 `lan.json` 与二维码，防火墙只允许移动设备所在 LAN 网段或组网接口访问它。不同机时节点端口也必须对入口所在的那台机器可达：该端口用控制令牌保护控制接口，但应用代理对任何能连上它的主机开放，和入口自身的暴露是同一层级，因此只放行入口所在地址或所在网段，不要开给更大的范围。
+网关和节点可以同机，也可以分处可互通的机器：同机节点使用默认 loopback 监听；异机节点监听网关可达的具体地址，网关以 `node add --node-address` 记录该地址。
 
-异地且没有公网服务器时，先与用户对齐是否已有远程组网：有则复用，没有则推荐免费虚拟组网 Tailscale 并指导建立。验证目标移动客户端与节点均在线、节点地址稳定且入口端口可达后按直连 LAN 形态部署。
+设备通过 HTTPS 和设备证书访问网关，使用二维码中的固定信息验证入口证书；网关到节点是明文 HTTP。这段网络必须受控：节点控制接口有令牌鉴权，但节点的应用代理不再验证设备身份。因此只向网关所在地址或必要网段开放节点端口；跨不可信网络选隧道。
 
-## 2. 无域名公网/远端穿透（No-Domain Remote LAN with Tunnel）
+设备需要访问 LAN 入口及网关分配的各应用端口。入口地址从 `init` 输出取，应用地址从 `open` 和持久化映射取；在防火墙中限定设备所在网段或组网接口。
 
-当用户拥有云服务器或远端公网 IP，但**没有域名**（或无法开放 443 端口、不想购买域名及维护 DNS 泛解析/证书签发）时，采用带隧道的 LAN 入口形态：
+## 域名选择
 
-```text
-移动客户端(手机/平板) ── HTTPS(SPKI钉扎) ────┐
-                                           ├── LAN入口端口 ── [本地回环 或 隧道端口] ── 节点
-每台节点(家/公司电脑) ──── TLS/FRPC 隧道 ─────── LAN内置FRPS端口 ── 回环隧道端口
-```
+public 的网关主机为 `<domain>`，应用主机为 `<app>.<node_id前8位>.<domain>`。有两种取值方式：
 
-- **部署命令**：`remote-everything-lan-server init --state PATH --host <公网IP/远端IP> --tunnel --require-approval`
-- **节点接入**：在网关上 `remote-everything-lan-server node add --state PATH --name <名字> --node-id <NODE_ID> --node-bootstrap <目录>`（省略 `--node-address`，网关自动分配隧道端口并输出 `frpc/` 材料）；节点端导入身份并启动 FRPC 隧道连接网关的 FRPS 监听端口。
-- **免域名高安全**：
-  - **移动端**：原生 App（Android / iOS / HarmonyOS）直接钉扎入口自签证书的 SPKI，无需公共商业 CA 证书，防中间人窃听与伪造，不产生任何证书红脸。
-  - **没有 Web 客户端**：这个形态只服务持证书的设备，浏览器入口一律是信任层自己的拒绝（`401 unauthorized`），不提供 SPA、配对与会话端点。原因是 Cookie 的作用范围按主机而不按端口：应用与入口在同一主机的不同端口上，浏览器入口会让每个应用页面与入口共享一个 Cookie 罐，应用能写入口会收到的 Cookie、也能读入口没标 HttpOnly 的 Cookie。要浏览器入口就得选公网形态（见 §3）。
-  - **应用地址与存储**：各应用由 LAN 网关在远端分配独立端口（`https://<IP>:<app_port>/`），浏览器同源策略隔离页面、LocalStorage 与 IndexedDB，无需子域名泛解析；Cookie 不按端口隔离，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
+- 自有域名：为网关基础域名设置指向入口的 A/AAAA 记录，再为应用子域设置 `*.<domain>` 通配记录；更近的 DNS 节点可能阻止通配合成，部署前必须检查真实应用主机的解析结果，见 [RFC 4592](https://www.rfc-editor.org/rfc/rfc4592.html#section-3.3.1)。
+- IP 泛解析域名：可选 `nip.io` 或 `sslip.io` 一类服务，无需自己维护解析。示例 `203-0-113-10.nip.io` 只展示命名方式，实际替换为服务器地址；部署前核对网关和应用子域的解析、TLS 与网络可达性。
 
-## 3. Linux 域名公网服务器（Public 443）
+Caddy 在基础域名前匹配两层应用标签，证书逐主机按需签发；DNS 通配解析与证书通配是不同机制。TLS 与既有入口合并要求见 [reverse-proxy.md](reverse-proxy.md)。
 
-当用户拥有 Linux 云服务器、独立公网域名、以及 443 端口完整控制权时采用：
+同一公网主机也可以运行节点：按相同流程建立本机 FRPC 和绑定，网关与节点各用独立状态目录。多网关的域名、服务及共享节点管理见 [multi-computer.md](multi-computer.md)。
 
-```text
-移动客户端 ── HTTPS/mTLS ── 443入口 ── 网关状态端口 ── 节点隧道端口（每台节点一个）
-移动客户端 ── HTTPS邀请 ─── 443入口 ── 网关配对端口
-每台节点 ───── WSS/443 ───── 443入口 ── FRPS端口 ── 各自的隧道端口
-Web浏览器 ─── HTTPS(8443) ── 8443入口 ── 网关状态端口 ── 节点隧道端口（免客户端证书，直通Web客户端与代理）
-```
+## 换域名或地址
 
-`status`、`pairing`、`frps` 三个服务器内部端口均从 `server.json` 读取且只监听 loopback；每台节点的隧道端口记在该节点条目里（`node_address`），也是 loopback，由同一个 frps 按 `remotePort` 暴露。移动客户端 App 走标准的 443 端口与正式公网证书，强校验 mTLS 设备凭据，未带证书的普通公网请求直接放行给服务器原有的网站/Nginx（互不抢占根路径）；普通 Web 浏览器访问专用的 8443 高端口，复用公网 CA 证书，免客户端证书即可加载网关内嵌的 SPA 客户端并通过 Web 会话直达各节点受管应用。**8443 必须在云安全组放行入站**：Caddy 侧配好、服务器上 `curl 127.0.0.1:8443` 返回 200，都不代表外网能连——入站规则在云控制台，机器上看不到；每次换机器或换端口都要从外网 vantage 复测一次。（2026-09-19 现网就是这样：配着、本机通、外网不通。）网关初始化一次生成安装 ID、隧道 CA 与 FRPS token，并为**每台节点**签发一份控制令牌；隧道 CA 私钥只留在服务器。节点只接收安装 ID 与该节点自己的控制令牌；跑在节点机器上的隧道代理另外拿到 FRPS token 与自己的客户端身份——由网关在同一个交付目录里给出，见 [server-cli.md](server-cli.md)。
+public 改域名时，同步网关状态中的 `origin`、Caddy 主机与 FRPC 的 `public_host`，验证完整配置后重载入口、重启网关和 FRPC，再按 device Skill 重新配对；原 origin 的客户端连接不能继续使用。更新公开访问规则，并从外网验证握手、配对与应用访问。
 
-节点与公网服务器同机时同样按公网形态部署：bootstrap bundle 本机传递即可，那台节点的 FRPC 连接本机 443，经反向代理回环到本机 FRPS；全部组件端口都是动态 loopback，互不冲突。两侧各自使用独立的项目副本与 `.runtime/`，运行记录、状态与日志互不相干，移除任一侧不影响另一侧。
-
-### 域名选型与 Origin 隔离策略（自由可选，非强制绑定）
-
-Public 形态为**每个应用分配独立 Web Origin**（形如 `https://<appID>.<nodePrefix>.<domain>/`），浏览器同源策略限制跨应用的页面及 LocalStorage、SessionStorage、IndexedDB 访问。Cookie 不遵循相同的隔离边界：当前同父域布局仍允许应用脚本写父域 Cookie，接入时遵循[应用信任边界](../../remote-everything-app/SKILL.md#应用信任边界)。
-
-Web 客户端（`https://<public_host>:8443/`）**公网形态提供，但不推荐**：它是探索与应急的入口，不是首选客户端。会话 Cookie 以 `__Host-` 前缀下发，浏览器强制它只能由设置它的那个主机读写，应用域既写不进也覆盖不了；网关还会剥掉应用自己下发的 Cookie 的域范围。残留的、无法由网关消除的风险是应用页面里的脚本可以写父域 Cookie，因此只有接入可信应用时才可以开这个入口。
-
-为了支撑多级子域名隔离，Remote Everything 提供完全自由、非强制绑定的域名选型路径：
-
-1. **分支 A：自有独立域名（Custom Domain）**
-   - **适用场景**：用户持有已备案/受信任的自有域名（如 `example.com`），适合长期生产部署。
-   - **DNS 配置**：在域名解析商处添加一条泛解析记录：`*.example.com -> <服务器公网IP>`。
-   - **证书与路由**：Caddy 通过 `https://*.*.example.com` 模板自动匹配两级子域名，并结合 TLS-ALPN-01 自动化按需签发证书。
-
-2. **分支 B：IP 泛解析域名（Wildcard IP DNS，可选且推荐的零门槛方案）**
-   - **适用场景**：用户拥有公网 IP，但没有自有域名、不想购买域名或不想维护 DNS 解析记录。
-   - **实现方案**：利用公共 IP 泛解析基础设施（首选 `nip.io`，备选 `sslip.io`），直接将公网 IP 转化为全功能子域名：
-     - **网关 Origin 示例**：`https://47-97-117-46.nip.io`（或 `https://47-97-117-46.sslip.io`）
-     - **应用 Origin 示例**：`https://dsh.457b963f.47-97-117-46.nip.io/`
-   - **核心优势**：
-     - **零配置**：公共 DNS 服务器自动将任何 `*.<ip-with-hyphens>.nip.io` 解析回该 IP，无需手动添加任何 DNS 记录。
-     - **绕过 80 端口拦截**：国内主流云厂商（如阿里云、腾讯云）默认封禁未备案域名的 80 端口 HTTP 访问，导致标准 HTTP-01 证书申请失败。而 Remote Everything 的 Caddy 配置固定使用 `disable_http_challenge`，完全经由 443 端口的 **TLS-ALPN-01** 挑战与 Let's Encrypt 交互，即便在未备案云服务器上也能秒级自动完成证书签发。
-   - **规范与避坑要点**：
-     - **必须使用中划线命名（Dash Notation）**：域名必须形如 `47-97-117-46.nip.io`，**严禁使用点分格式** `47.97.117.46.nip.io`！点分格式会将 IPv4 的 4 个数字段识别为 4 个独立 DNS label，叠加应用前缀后总共有 6 级 label，而 Caddy 模板的 `https://*.*.{{PUBLIC_HOST}}` 仅匹配两级通配 label，点分格式会导致 Caddy 无法匹配路由。中划线格式将 IP 收敛为一个单一 label，与模板 100% 契合。
-     - **域名选型必须实测连通（2026-09-19 实测）**：`*.sslip.io` 在部分链路上被按 SNI 直接 RST——TCP 能建连、DNS 正常解析、ICMP 可达，但 ClientHello 里带 `sslip.io` 域名就被重置；同一 IP 直接访问与 `*.nip.io` 完全正常。因此**默认选 `nip.io`**，换域名后必须用外网 vantage（或手机蜂窝/WiFi 各测一次）验证 `https://<域名>/web/` 真能握手成功，不能只看本机 curl——同机 curl 走云内回环，可能绕过云厂商对未备案域名的 SNI 拦截。**换域名的完整动作**：替换 Caddyfile 与 `server.json` 的 origin → `caddy reload` → 重启网关 → 客户端重新发码配对（旧 profile 要在客户端删掉）→ **让按请求主机名做白名单的应用认识新名字**：正解是在它的 adapter 里把 `Host`/`Origin`/`Referer` 说成应用自己的 origin（见 [patterns.md](../../remote-everything-app/references/patterns.md) 的适配器一节），**不需要**每换一次入口就重登记；症状是页面外壳能开、一调 API 就 403（DSH 的 `--trusted-host` 即此类，见 `apps/dsh/NOTES.md`）。
-     - **客户端本地代理分流考量**：若客户端设备（手机或电脑）开启了全局科学上网工具（如 Clash / Mihomo 的 Fake-IP TUN 模式），域名的解析与出站都发生在代理侧：代理软件可能把它误判为境外流量而分配 `198.18.x.x` 保留 IP，或经境外节点回连国内服务器。真遇到连不上时，先把 App 加进「应用访问控制」的绕过名单（FlClash 实测：勾选后需重启一次隧道生效）或把 `<PUBLIC_IP>.nip.io` 加进 **DIRECT（直连）** 规则来排除代理因素；但注意**这不能治 SNI 拦截**——2026-09-19 实测中，绕过代理后连不上依旧，改域名（sslip.io → nip.io）才是修复。
-
-3. **分支 C：无域名纯 IP 隧道 LAN 网关（Tunnel LAN Gateway）**
-   - **适用场景**：无域名，且**不希望依赖任何第三方公网 DNS 泛解析服务**，或 443 端口被运营商完全封锁。
-   - **实现方案**：执行 `remote-everything-lan-server init --host <公网IP> --tunnel --require-approval`。
-   - **隔离与信任模型**：
-     - 移动端 App 通过 SPKI 公钥强钉扎直接与云端自签证书通信，零外部 CA 依赖；
-     - 受管应用在云端分配独立端口（如 `https://<IP>:9001/`），浏览器以「协议+主机+端口」为维度隔离页面与本地存储；Cookie 不按端口隔离，而**这个形态没有也不提供 Web 客户端**——入口与应用同主机不同端口，浏览器入口会让应用与入口共用一个 Cookie 罐，因此这里只有持证书的设备，浏览器访问入口端口得到的是 `401 unauthorized`。需要浏览器入口请改用 §3 的公网形态。
+如果应用按 Host/Origin 做白名单校验，按 [适配器说明](../../remote-everything-app/references/patterns.md#适配器adapterjs) 让它看到自己认识的 origin。SNI 重置、客户端代理/Fake-IP 分流与“本机可达、外网不可达”的排查集中在 [troubleshooting.md](../../remote-everything-inspect/references/troubleshooting.md)。
