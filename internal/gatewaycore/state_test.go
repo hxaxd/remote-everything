@@ -253,7 +253,10 @@ func TestRepairNodePortsKeepsEveryNodeIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, node := range []Node{testNode, testOtherNode} {
+	nodes := []Node{testNode, testOtherNode}
+	nodes[0].Link = NodeLinkLocal
+	nodes[1].Link = NodeLinkTunnel
+	for _, node := range nodes {
 		if state, err = state.AddNode(node); err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +271,9 @@ func TestRepairNodePortsKeepsEveryNodeIdentity(t *testing.T) {
 	seen := map[string]bool{}
 	for index, node := range repaired.Nodes {
 		original := state.Nodes[index]
-		if node.ID != original.ID || node.Name != original.Name || !netaddr.ValidLoopback(node.Address) {
+		expected := original
+		expected.Address = node.Address
+		if node != expected || !netaddr.ValidLoopback(node.Address) {
 			t.Fatalf("node %d is %+v", index, node)
 		}
 		if seen[node.Address] {

@@ -243,14 +243,14 @@ func (addressing domainAddressing) Origin(nodeID, appID string) (string, error) 
 // New returns the gateway that serves the nodes a state records. Each node is
 // reached at the address that state holds for it, wherever that is — a node on
 // another machine in the same network, or the local port a tunnel forwards from
-// — and authenticates this gateway with the token held for it. A gateway that
-// serves no node is refused: it has nothing to route a request to. Its
+// — and authenticates this gateway with the token held for it. An empty gateway
+// keeps serving its own health and device management without routing to a node. Its
 // applications are served as hosts under the origin it recorded, which is the
 // only place a gateway with a domain puts them; a shape that puts them elsewhere
 // says so with SetAppAddressing.
 func New(state State, gatewayRoot string) (*Gateway, error) {
-	if len(state.Nodes) == 0 {
-		return nil, errors.New("a gateway serves no nodes")
+	if state.Nodes == nil {
+		return nil, errors.New("gateway nodes are not recorded")
 	}
 	gateway := &Gateway{nodes: slices.Clone(state.Nodes), links: map[string]*nodeLink{}, addressing: addressingFor(state.Origin)}
 	if gateway.addressing == nil {

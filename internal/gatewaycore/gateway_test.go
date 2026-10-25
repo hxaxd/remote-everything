@@ -199,15 +199,27 @@ func TestARequestForNoKnownNodeIsRefused(t *testing.T) {
 	}
 }
 
-// A gateway with nothing behind it is refused where it is opened rather than
-// starting and answering nothing.
-func TestNewRefusesAGatewayThatServesNoNode(t *testing.T) {
+func TestAnEmptyGatewayOpensWithoutRoutingToANode(t *testing.T) {
 	state, err := NewState(strings.Repeat("f0", 32), "https://gateway.example", []Listener{{Name: "lan", Address: "127.0.0.1:58626"}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	gateway, err := New(state, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nodes := gateway.Nodes(); nodes == nil || len(nodes) != 0 {
+		t.Fatalf("empty gateway nodes: %+v", nodes)
+	}
+	if body, connected := gateway.ConnectedList(testNodeIDs[0]); connected || body != nil {
+		t.Fatalf("empty gateway connected to a node: %s", body)
+	}
+	if response := ask(gateway, testNodeIDs[0], http.MethodGet, "/__remote_everything/apps"); response.Code != http.StatusNotFound {
+		t.Fatalf("unknown node answered %d: %s", response.Code, response.Body.String())
+	}
+	state.Nodes = nil
 	if _, err := New(state, t.TempDir()); err == nil {
-		t.Fatal("a gateway with no node was opened")
+		t.Fatal("a missing node collection was accepted")
 	}
 }
 
