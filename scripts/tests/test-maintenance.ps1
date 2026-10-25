@@ -130,7 +130,7 @@ try {
     $global:Maintenancecommands = [Collections.Generic.List[string]]::new()
     function gofmt { $global:Maintenancecommands.Add('gofmt'); $global:LASTEXITCODE = if ($global:MaintenancefailAt -eq 'gofmt') { 23 } else { 0 } }
     function go { $global:Maintenancecommands.Add([string]$args[0]); $global:LASTEXITCODE = if ($global:MaintenancefailAt -eq $args[0]) { 23 } else { 0 } }
-    foreach ($global:MaintenancefailAt in @('gofmt', 'vet', 'build')) {
+    foreach ($global:MaintenancefailAt in @('gofmt', 'vet', 'test', 'build')) {
         $global:Maintenancecommands.Clear()
         $rejected = $false
         try { & $ci } catch { $rejected = $true }

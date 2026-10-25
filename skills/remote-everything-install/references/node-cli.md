@@ -44,6 +44,7 @@ remote-everything-control app remove --state PATH ID
 - 显示名称 1—80 个 Unicode 字符，描述最多 240、图标最多 4，均拒绝控制字符及首尾空白；`accent` 为六位十六进制颜色。
 - `proxy_url` 必须是无路径、查询或 fragment 的 `127.0.0.1` HTTP 地址，不能指向节点自身。探活地址从它派生。
 - 启动命令、非空停止命令、非空工作目录须为绝对路径，工作目录须存在。定义及适配器各不超过 64KB。
+- 停止辅助命令正常结束、执行失败或超时取消后，节点都会清理它启动的受管后代进程。
 - `launch_fragment` 为空或以 `#` 开头，用于应用首次打开；两种网关的应用目录都受设备授权保护。
 
 `app set` 会读取同目录 `adapter.js`，也支持定义内的 `adapter` 字段；`app list` 不输出源码，`app adapter ID` 单独读取。适配器行为与应用验收见 [patterns.md](../../remote-everything-app/references/patterns.md)。
