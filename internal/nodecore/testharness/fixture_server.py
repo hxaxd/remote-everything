@@ -31,4 +31,9 @@ if sys.argv[1] == "--launch-child":
         output.write(str(child.pid))
     os._exit(0)
 
+if len(sys.argv) == 5 and sys.argv[2] == "--with-child":
+    subprocess.Popen([sys.executable, __file__, sys.argv[3]])
+    with open(sys.argv[4], "w", encoding="ascii") as output:
+        output.write(str(os.getpgrp()))
+
 Server(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
