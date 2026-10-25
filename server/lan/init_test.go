@@ -481,7 +481,7 @@ func TestLANInitOptions_RequireApprovalAndTunnel(t *testing.T) {
 	if !res.RequireApproval {
 		t.Fatal("expected RequireApproval to be true")
 	}
-	if res.FRPSListen == "" || res.FRPSTokenFile == "" || res.TunnelCAFile == "" {
+	if res.FRPSListen == "" || res.FRPSTokenFile == "" || res.TunnelCAFile == "" || res.TunnelServerCertFile == "" || res.TunnelServerKeyFile == "" || res.TunnelServerName == "" {
 		t.Fatalf("expected tunnel files to be populated: %+v", res)
 	}
 	if _, err := os.Stat(res.FRPSTokenFile); err != nil {
@@ -489,6 +489,25 @@ func TestLANInitOptions_RequireApprovalAndTunnel(t *testing.T) {
 	}
 	if _, err := os.Stat(res.TunnelCAFile); err != nil {
 		t.Fatalf("Tunnel CA file not written: %v", err)
+	}
+	serverBefore, err := os.ReadFile(res.TunnelServerCertFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed, err := renewLANTunnelServer(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverAfter, err := os.ReadFile(renewed.CertificateFile)
+	if err != nil || bytes.Equal(serverBefore, serverAfter) {
+		t.Fatalf("server renewal did not rotate the tunnel leaf: %v", err)
+	}
+	if renewed.CAFile != res.TunnelCAFile {
+		t.Fatal("renewal changed tunnel authority")
+	}
+	stateAfter, err := loadLANState(root)
+	if err != nil || stateAfter.LAN.CertificateFingerprint != res.CertificateFingerprint {
+		t.Fatalf("FRPS renewal changed the mobile entrance certificate: %v", err)
 	}
 
 	rootCLI := t.TempDir()
@@ -536,7 +555,7 @@ func TestLANTunnelNodeAddAndRenew(t *testing.T) {
 			t.Fatalf("missing expected bootstrap file %q: %v", file, err)
 		}
 	}
-	for _, file := range []string{"tunnel-client.crt.pem", "tunnel-client.key.pem", "frps-token"} {
+	for _, file := range []string{"tunnel-client.crt.pem", "tunnel-client.key.pem", "frps-token", "tunnel-ca.crt.pem"} {
 		if _, err := os.Stat(filepath.Join(nodeRes.TunnelMaterialDir, file)); err != nil {
 			t.Fatalf("missing expected tunnel material file %q: %v", file, err)
 		}

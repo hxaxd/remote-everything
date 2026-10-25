@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 import xml.etree.ElementTree as etree
 from pathlib import Path
@@ -25,6 +26,31 @@ class RenderTests(unittest.TestCase):
             command += ["--launcher-output", str(launcher_path)]
         result = subprocess.run(command, capture_output=True, text=True)
         return result, output, launcher_path
+
+    def test_lan_tunnel_renderers_require_explicit_tls_and_recorded_ports(self):
+        server = {"bind_host": "0.0.0.0", "frps_port": 51001, "frps_token_file": "/state/token",
+                  "frps_log": "/logs/frps.log", "tunnel_server_cert": "/state/server.pem",
+                  "tunnel_server_key": "/state/server.key", "tunnel_ca_file": "/state/ca.pem"}
+        client = {"server_host": "192.0.2.10", "server_port": 51001,
+                  "tunnel_server_name": "remote-everything-frps", "tunnel_ca_file": "/agent/ca.pem",
+                  "tunnel_client_cert": "/agent/client.pem", "tunnel_client_key": "/agent/client.key",
+                  "frps_token_file": "/agent/token", "frpc_log": "/logs/frpc.log", "node_id": "a"*64,
+                  "node_host": "127.0.0.1", "node_port": 51002, "node_tunnel_port": 51003}
+        for kind, values in (("frps-lan", server), ("frpc-lan", client)):
+            result, output, _ = self.render(kind, values)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = tomllib.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(config["transport"]["tls"]["trustedCaFile"], values["tunnel_ca_file"])
+            if kind == "frps-lan":
+                self.assertTrue(config["transport"]["tls"]["force"])
+                self.assertEqual(config["proxyBindAddr"], "127.0.0.1")
+            else:
+                self.assertEqual(config["serverPort"], 51001)
+                self.assertEqual(config["transport"]["protocol"], "tcp")
+            self.assertNotEqual(self.render(kind, {**values, "unexpected": True})[0].returncode, 0)
+            self.assertNotEqual(self.render(kind, {**values, "tunnel_ca_file": "relative.pem"})[0].returncode, 0)
+        self.assertNotEqual(self.render("frps-lan", {**server, "bind_host": "224.0.0.1"})[0].returncode, 0)
+        self.assertNotEqual(self.render("frpc-lan", {**client, "server_port": 0})[0].returncode, 0)
 
     def test_service_renderers_escape_arguments_and_produce_parseable_xml(self):
         common = {"installation_id": INSTALLATION_ID, "component_id": "node", "working_directory": "/opt/remote everything", "executable": "/opt/remote everything/control", "arguments": ["serve", "--state", "/tmp/a b", "$VALUE"]}

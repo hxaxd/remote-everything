@@ -1,0 +1,13 @@
+bindAddr = "{{BIND_HOST}}"
+bindPort = {{FRPS_PORT}}
+proxyBindAddr = "127.0.0.1"
+transport.maxPoolCount = 32
+transport.tls.force = true
+transport.tls.certFile = "{{TUNNEL_SERVER_CERT}}"
+transport.tls.keyFile = "{{TUNNEL_SERVER_KEY}}"
+transport.tls.trustedCaFile = "{{TUNNEL_CA_FILE}}"
+auth.method = "token"
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "{{FRPS_TOKEN_FILE}}"
+log.to = "{{FRPS_LOG}}"
+log.level = "info"
