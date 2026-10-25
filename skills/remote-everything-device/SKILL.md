@@ -1,22 +1,41 @@
 ---
 name: remote-everything-device
-description: 管理 Remote Everything 客户端信任（移动客户端与公网形态的通用 Web 客户端）。用于在各种拓扑下创建或取消邀请、列出和人工审批设备、吊销权限、原地续期设备证书或入口证书，并验证授权变化。
+description: 管理 Remote Everything 客户端信任。用于创建和取消邀请、列出和批准设备、追加或吊销节点授权、续期设备及 LAN 入口证书。
 ---
 
-读取 [server-cli.md](../remote-everything-install/references/server-cli.md)，从服务器 `runtime.json` 定位网关、状态目录和 systemd unit，从 unit 的 `User` 读取服务账户；网关 CLI（含 `device invite`）以该账户执行。root 发码会产生 gateway 读不到的邀请文件。
+从 [runtime.md](../remote-everything-install/references/runtime.md) 定位网关和部署账户；命令使用 [server-cli.md](../remote-everything-install/references/server-cli.md) 中的 `GATEWAY device --state PATH` 前缀。
 
-两种形态的准入是同一件事：设备兑换一条邀请、拿到只属于自己的证书或经审批的 WebSession，之后由此被准入。公网入口在它前面由 443 终止 mTLS，LAN 入口自己终止；除此之外只差谁批准设备。
+## 邀请与准入
 
-- 发邀请：用户可操作时执行 `device invite --name <设备显示名> --node <节点的 id 或名字> --ttl 10m [--qr <本次邀请唯一的绝对路径>]`，交付二维码、setup URI 或邀请码并说明失效时间。一条邀请开的是**一台节点**的门，`--node` 就是那一台（`node list` 看当前有哪些）；入口的 origin 在 `init` 时就写进状态了，发邀请不需要再给地址。不覆盖旧二维码路径，不保存或复用邀请明文；状态变为 `approved` 后删掉二维码和 setup URI 临时副本。
-- 追加授权：同一台设备还要进这个网关下的另一台节点时执行 `device grant --node <那台> <指纹>`，立即生效，不需要重新发码；收回其中一台用 `device revoke --node <那台> <指纹>`。
-- 批准：公网邀请跨网旅行，以及 LAN 网关开启了 `--require-approval` 时（例如无域名公网穿透拓扑或不受信网络），必须由人确认——客户端申请后从 `device list` 取设备名与完整指纹，用户确认后 `device approve <指纹>`。默认未开启审批的直连 LAN 邀请是操作者当面交出去的，兑换即批准，不需要人工确认。
-- Web 客户端准入（**只发生在公网形态**）：通用浏览器配对生成专属设备指纹（格式为 `sha256("web:" + client_id)`），在 `device list` 中作为正式设备记录同构展示，完全兼容 `device approve` 审批、`device grant` 授权追加与 `device revoke` 吊销。局域网入口不提供 Web 客户端，因此那里的 `device list` 不会有 `web:` 开头的记录；**如果一条 LAN 记录里出现了这种指纹（旧版本留下的），它已经没有任何入口可用，用 `device revoke` 清掉**。
-- 邀请：`device invitation list`；取消用 `invitation cancel`（按 hash）。
-- 查看：`device list`（设备名、完整指纹、状态、时间，以及它持有的 `nodes`）。
-- 公网续期：`device renew --node <它已有的一台> ... <旧指纹>`，同安装 ID 新指纹 approved、旧指纹 revoked 后删临时码。续期只换证书、不改它能进哪些节点，所以 `--node` 只能是它已经持有的那一台。
-- LAN 续期：停入口 → `certificate renew` → 重启验证，然后重新 `device invite`。客户端钉的是入口证书，证书换了就得重新发一次邀请让它重扫；同安装 ID 原地替换该 Profile，不新建实例。
-- 吊销：`device revoke <指纹>`，再 list，确认该证访问为 401/403。
+用户可以操作时执行 `invite --name NAME --node NODE --ttl 10m [--qr ABSOLUTE_PATH]`，交付二维码、setup URI 或邀请码及准确失效时间。邀请携带目标节点与入口信息，用户无需手填连接参数；浏览器仍需设置自己的保险箱密码。二维码用本次唯一文件名，完成准入后删除临时码和 URI 副本。
 
-设备变更记入 `AGENTS.local.md`。
+| 网关 | 准入方式 |
+| --- | --- |
+| public，或设置 `--require-approval` 的 LAN | 客户端兑换邀请并请求激活；从 `list` 读取设备名与完整指纹，取得用户确认后 `approve FINGERPRINT` |
+| 未设置该选项的 LAN | 当面交付邀请即为批准依据，不另做人工 approve |
 
-iOS 客户端的签名续期（免费账号 7 天循环、定时重签、报警通道与路径选择）见 [ios-signing.md](references/ios-signing.md)。
+设备证书配对先生成 pending 记录；激活还要求目标节点目录可达。public 浏览器同样作为设备审批，指纹为 `sha256("web:" + client_id)`；是否有浏览器入口及边界见[应用信任说明](../remote-everything-app/SKILL.md#应用信任边界)，连接凭据见 [Web 连接模型](../../internal/webclient/README.md#browser-connections)。
+
+## 命令与作用范围
+
+以下均为 `device` 后的 ACTION：
+
+| ACTION | 行为 |
+| --- | --- |
+| `list` | 设备名、完整指纹、状态、申请/批准/激活/证书时间及 `nodes` |
+| `grant --node NODE FINGERPRINT` | 为已批准设备追加节点，即时生效，无需再配对 |
+| `revoke --node NODE FINGERPRINT` | 只收回一台节点，保留设备连接 |
+| `revoke FINGERPRINT` | 吊销整台设备；复核记录及该凭据访问被拒绝 |
+| `invitation list` | 邀请 hash、目标节点、设备名、期限与阶段，不返回邀请明文或凭据 |
+| `invitation cancel TOKEN_HASH` | 取消未使用邀请；已兑换但未激活时同时撤销 pending 授权 |
+| `renew --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] OLD_FINGERPRINT` | 为已批准设备签发替换证书；NODE 必须是它已有权限的节点 |
+
+邀请 TTL 为 1 分钟至 24 小时。证书配对在 pending 期保存密码加密响应，支持同设备名和密码的网络重试；激活后清除暂存响应。取消、过期与服务启动的孤儿清理共同回收未完成事务。
+
+## 续期
+
+设备证书续期使用上表 `renew`；保留节点权限，替换凭据完成激活后吊销旧凭据。需要审批的网关仍按准入表批准替换设备。
+
+LAN 服务端证书续期：停入口 → `certificate renew` → 启动验证 → 重新发 `invite` 让客户端取得当前固定信息。相同 installation ID 原地替换连接；入口端口改变也按此重新发码。public 的 HTTPS 证书由其入口管理。隧道证书不属于设备凭据，按 [server-cli.md](../remote-everything-install/references/server-cli.md#节点交付与隧道材料) 或 [LAN 隧道](../remote-everything-install/references/lan-tunnel.md) 维护。
+
+将设备变更和验证结果记入 `AGENTS.local.md`。

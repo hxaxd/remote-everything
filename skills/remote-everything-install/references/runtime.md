@@ -1,39 +1,29 @@
-# 运行记录
+# 运行记录与组件归属
 
-每个部署位置使用项目内 `.runtime/`：
+运行目录通常为项目内 `.runtime/`，实际路径以 runtime 记录为准：
 
 ```text
 .runtime/
 ├── bin/
 ├── config/
-├── state/node/、state/lan/、state/server/ 或 state/frpc/<node_id>/
+├── state/node/、state/lan/、state/server/
+├── state/frpc/<installation_id>/<node_id>/
 ├── logs/
 └── runtime.json
 ```
 
-每个服务使用自己的状态目录，目录路径记在 `runtime.json` 里该组件的 `arguments` 与配置位置，没有任何服务读写另一个服务的状态目录。节点与入口可以在同一台机器上，也可以在同一局域网内的不同机器上；不在同一台机器时两台机器各有自己的 `.runtime/`。
+网关和节点状态分开管理；相同机器被多个网关服务时复用同一个节点，不复制节点身份。每条“节点 × 网关”隧道有独立 FRPC 配置、材料、日志、进程和管理器名称，按两个 ID 隔离；FRPC 在节点机器上运行，FRPS 在网关机器上运行。
 
-隧道代理（`frpc`）按隧道分开：**一台节点、一个网关一条隧道**，一条隧道一个进程、一份配置、一个 `state/frpc/<node_id>/` 材料目录。多台节点挂在同一个网关下时，服务器上就有多个 `frpc` 进程，运行记录里也各是一条组件；反过来，一台节点挂在两个网关下时，那台机器上也是两个 `frpc`。它读的 token 与客户端身份由网关交付，见 [server-cli.md](server-cli.md)。
+共享节点或 Caddy 只能有一个负责生命周期的 owner：拥有者记录 `managed:true`，其它部署记录复用关系，不在卸载时停掉或删除共享对象。复用入口中的本站点配置、防火墙规则等用 integrations 的精确 insertion/restore 表达。
 
-网关那一侧另有一份**每台节点**的材料：控制令牌写在网关状态目录的 `nodes/<node_id>`，一拍一份，不与别的节点共用。
+## 记录内容
 
-`runtime.json` 使用严格 schema 1。用 `python skills/remote-everything-install/scripts/runtime.py init ...` 创建；用 `put` 更新组件、依赖或集成；用 `verify` 写入验收结果；用 `validate` 检查。工具拒绝旧/未知字段并原子替换文件。
+`runtime.json` 使用严格 schema 1；契约和样例在 `assets/runtime.schema.json`、`runtime.minimal.json`、`runtime.full.json`。用 `scripts/runtime.py init/put/verify/validate` 创建、修改和验证，工具原子替换文件并拒绝未知字段。
 
-机器契约和样例分别为 `assets/runtime.schema.json`、`assets/runtime.minimal.json` 与 `assets/runtime.full.json`。
+- components：唯一组件 ID、managed、可执行文件及 SHA-256、完整参数、工作目录、日志、管理器 ID/definition、expected、observed、verification。观测包含 PID、启动时间和监听地址。
+- dependencies：固定版本、来源、路径与摘要。
+- integrations：真实 owner、definition、managed、精确插入内容、恢复方法及验证。
 
-组件同时记录 `expected` 和 `observed`：可执行文件 SHA-256、完整参数、工作目录、监听地址、PID、启动时间、管理器、定义、日志与验证结果。依赖记录固定版本、来源、路径和摘要。集成记录 `managed`、真实 owner、definition、insertion、restore 与 verification；移除流程据此决定删除对象或仅撤销插入片段。
+组件角色为 node、lan、frpc、gateway、frps、reverse-proxy；同一记录内重复角色使用可区分的组件 ID。管理器命名及平台安装位置见 [templates.md](templates.md#服务管理器)。服务使用部署账户执行，Linux 系统组件以 unit 的 `User` 为准；初始化时即选定该账户，避免状态文件权限不一致。
 
-组件 ID：
-
-| ID | 含义 |
-|---|---|
-| `node` | 节点核心 |
-| `lan` | 局域网入口 |
-| `frpc` | 节点公网隧道（每台节点一条） |
-| `gateway` | Linux 公网网关 |
-| `frps` | 服务器隧道端 |
-| `reverse-proxy` | 443 入口，仅无现有入口时作为项目组件 |
-
-节点侧管理器记录为 Windows 用户计划任务、macOS 用户 LaunchAgent 或 Linux `systemd-user`，只承诺部署用户登录期间在线；Linux 服务器组件记录为系统级 `systemd`。现有反向代理、防火墙作为 `integrations` 记录；已有远程组网也作为 `managed:false` 的外部集成记录，项目不修改或移除它。项目自行下载的 FRP、Caddy 和发布资产作为 `dependencies` 记录。敏感值只保存在权限受限的状态文件，运行记录保存其路径。
-
-先从组件初始化结果取得 `installation_id` 和动态地址，再创建运行记录。启动前写期望状态；启动后写观测状态。敏感值仅记录受限文件路径，不写内容。
+先取得初始化身份与动态地址，再写启动期望；启动后写观测和验证。凭据只保存在受限状态文件，记录只保存路径和摘要。维护或卸载以已验证的记录界定对象，不能从程序名推断进程归属。

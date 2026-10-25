@@ -22,6 +22,8 @@
 | [server-cli.md](remote-everything-install/references/server-cli.md) | 入口 / 网关 CLI |
 | [templates.md](remote-everything-install/references/templates.md) | 服务模板 |
 | [networking.md](remote-everything-install/references/networking.md) | 拓扑 |
+| [frps-healthcheck.md](remote-everything-install/references/frps-healthcheck.md) | public 隧道健康检查的安装、巡检与移除 |
+| [lan-tunnel.md](remote-everything-install/references/lan-tunnel.md) | 无域名 LAN 隧道的双向 TLS、独立 FRPS 与验收 |
 | [reverse-proxy.md](remote-everything-install/references/reverse-proxy.md) | Caddy / 443 |
 | [multi-computer.md](remote-everything-install/references/multi-computer.md) | 多机 |
 
