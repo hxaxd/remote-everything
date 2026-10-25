@@ -16,6 +16,13 @@ $scratch = Join-Path ([IO.Path]::GetTempPath()) ('remote-everything-maintenance-
 $processes = [Collections.Generic.List[Diagnostics.Process]]::new()
 New-Item -ItemType Directory -Path $scratch | Out-Null
 try {
+    . (Release-Function 'Project-GoToolchain')
+    $previousTestGoToolchain = $env:GOTOOLCHAIN
+    try {
+        $env:GOTOOLCHAIN = Project-GoToolchain
+        $actualToolchain = go env GOVERSION
+        Assert ($LASTEXITCODE -eq 0 -and $actualToolchain -ceq $env:GOTOOLCHAIN) 'Release did not select its pinned patch toolchain'
+    } finally { $env:GOTOOLCHAIN = $previousTestGoToolchain }
     # C1: resolve the real signing policy without touching signing credentials.
     . (Release-Function 'Expected-Signer')
     $signer = Expected-Signer
@@ -129,7 +136,7 @@ try {
         try { & $ci } catch { $rejected = $true }
         Assert ($rejected -and $global:Maintenancecommands[$global:Maintenancecommands.Count-1] -eq $global:MaintenancefailAt) "CI continued after failed $global:MaintenancefailAt"
     }
-    Write-Output '{"ok":true,"suite":"windows-maintenance","checks":["signer-source","release-package-scope","tunnel-isolation","stale-pid","ci-fail-fast"]}'
+    Write-Output '{"ok":true,"suite":"windows-maintenance","checks":["release-toolchain","signer-source","release-package-scope","tunnel-isolation","stale-pid","ci-fail-fast"]}'
 } finally {
     foreach ($process in $processes) {
         if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }

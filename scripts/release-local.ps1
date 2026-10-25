@@ -71,6 +71,13 @@ function Expected-Signer {
     $fingerprint
 }
 
+function Project-GoToolchain {
+    $module = Get-Content (Join-Path $Root 'go.mod') -Raw
+    $match = [regex]::Match($module, '(?m)^go\s+(\d+\.\d+\.\d+)\s*$')
+    if (-not $match.Success) { throw 'go.mod must pin a Go patch release.' }
+    'go' + $match.Groups[1].Value
+}
+
 function Harmony-Hvigor {
     foreach ($name in @('hvigorw', 'hvigorw.bat')) {
         $command = Get-Command $name -ErrorAction SilentlyContinue
@@ -304,8 +311,10 @@ function Upload-Release {
     if($Mode -eq 'Publish'){Run { gh release edit $Tag --draft=false --latest } "Could not publish $Tag"}
 }
 
+$previousGoToolchain = $env:GOTOOLCHAIN
 Push-Location $Root
 try {
+    $env:GOTOOLCHAIN = Project-GoToolchain
     foreach($command in @('git','go','gofmt','python','node','java','keytool')){Need $command}
     if(-not $SkipValidation){Validate-Repository}
     if($Mode -ne 'Validate'){
@@ -313,4 +322,4 @@ try {
         if($Mode -in @('Draft','Publish')){Upload-Release}
         Write-Host "`nRelease assets ready: $Output" -ForegroundColor Green
     }
-} finally { Pop-Location }
+} finally { Pop-Location; $env:GOTOOLCHAIN = $previousGoToolchain }
