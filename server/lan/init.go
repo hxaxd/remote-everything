@@ -214,6 +214,21 @@ type lanInitResult struct {
 	FRPSListen             string `json:"frps_listen,omitempty"`
 	FRPSTokenFile          string `json:"frps_token_file,omitempty"`
 	TunnelCAFile           string `json:"tunnel_ca_file,omitempty"`
+	TunnelServerCertFile   string `json:"tunnel_server_certificate_file,omitempty"`
+	TunnelServerKeyFile    string `json:"tunnel_server_key_file,omitempty"`
+	TunnelServerName       string `json:"tunnel_server_name,omitempty"`
+}
+
+func withLANTunnel(result lanInitResult, root string, state lanState) lanInitResult {
+	if address, err := state.Address("frps"); err == nil {
+		result.FRPSListen = address
+		result.FRPSTokenFile = filepath.Join(root, tunnelbootstrap.FRPSTokenName)
+		result.TunnelCAFile = filepath.Join(root, tunnelbootstrap.TunnelCACertName)
+		result.TunnelServerCertFile = filepath.Join(root, tunnelbootstrap.TunnelServerCertName)
+		result.TunnelServerKeyFile = filepath.Join(root, tunnelbootstrap.TunnelServerKeyName)
+		result.TunnelServerName = tunnelbootstrap.TunnelServerName
+	}
+	return result
 }
 
 func writeNewFile(path string, contents []byte, mode os.FileMode) error {
@@ -333,22 +348,13 @@ func repairLANPorts(root string) (lanInitResult, error) {
 	if err := state.save(root); err != nil {
 		return lanInitResult{}, err
 	}
-	frpsListen, _ := state.Address("frps")
-	var frpsTokenFile, tunnelCAFile string
-	if frpsListen != "" {
-		frpsTokenFile = filepath.Join(root, tunnelbootstrap.FRPSTokenName)
-		tunnelCAFile = filepath.Join(root, tunnelbootstrap.TunnelCACertName)
-	}
-	return lanInitResult{
+	return withLANTunnel(lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress,
 		Origin: state.Origin, CertificateFingerprint: state.LAN.CertificateFingerprint,
 		PublicKeyPin:     devicecore.PublicKeyPin(certificate),
 		ApplicationsHost: state.ApplicationsHost,
 		RequireApproval:  state.RequireApproval,
-		FRPSListen:       frpsListen,
-		FRPSTokenFile:    frpsTokenFile,
-		TunnelCAFile:     tunnelCAFile,
-	}, nil
+	}, root, state), nil
 }
 
 func loadLANState(root string) (lanState, error) {
@@ -479,8 +485,12 @@ func reconcileLANState(root, host, applicationsHost, installationID, fingerprint
 		}
 	}
 	state.ApplicationsHost = applicationsHost
-	if tunnel {
-		if _, err := tunnelbootstrap.EnsureGatewayMaterial(root, installationID); err != nil {
+	if _, err := state.Address("frps"); err == nil {
+		material, err := tunnelbootstrap.EnsureGatewayMaterial(root, installationID)
+		if err != nil {
+			return lanState{}, err
+		}
+		if _, err := tunnelbootstrap.EnsureServerMaterial(material); err != nil {
 			return lanState{}, err
 		}
 	}
@@ -567,23 +577,14 @@ func initializeLAN(root, host, applicationsHost string, validDays int, opts ...L
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	frpsListen, _ := state.Address("frps")
-	var frpsTokenFile, tunnelCAFile string
-	if frpsListen != "" {
-		frpsTokenFile = filepath.Join(root, tunnelbootstrap.FRPSTokenName)
-		tunnelCAFile = filepath.Join(root, tunnelbootstrap.TunnelCACertName)
-	}
-	return lanInitResult{
+	return withLANTunnel(lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, Origin: state.Origin,
 		CertificateFingerprint: state.LAN.CertificateFingerprint, PublicKeyPin: devicecore.PublicKeyPin(certificate),
 		// The address the applications listen on as it now stands, which is the
 		// wildcard address until an operator says otherwise.
 		ApplicationsHost: applicationsListen,
 		RequireApproval:  state.RequireApproval,
-		FRPSListen:       frpsListen,
-		FRPSTokenFile:    frpsTokenFile,
-		TunnelCAFile:     tunnelCAFile,
-	}, nil
+	}, root, state), nil
 }
 
 // lanNodes is the LAN entrance's state as the node lifecycle sees it: the
@@ -640,6 +641,9 @@ func (nodes *lanNodes) PlaceNode(nodeID, address string) (gatewaycore.State, ent
 	}
 	material, err := tunnelbootstrap.EnsureGatewayMaterial(nodes.root, nodes.state.InstallationID)
 	if err != nil {
+		return gatewaycore.State{}, entrance.Placement{}, err
+	}
+	if _, err := tunnelbootstrap.EnsureServerMaterial(material); err != nil {
 		return gatewaycore.State{}, entrance.Placement{}, err
 	}
 	// A node that is already here keeps the address it was added with: the
@@ -740,10 +744,10 @@ func renewLANCertificate(root string, validDays int) (lanInitResult, error) {
 	if err != nil {
 		return lanInitResult{}, err
 	}
-	return lanInitResult{
+	return withLANTunnel(lanInitResult{
 		OK: true, InstallationID: state.InstallationID, ListenAddress: listenAddress, Origin: state.Origin,
 		CertificateFingerprint: fingerprint, PublicKeyPin: keyPin,
-	}, nil
+	}, root, state), nil
 }
 
 func runLANInit(parts []string, output io.Writer) error {

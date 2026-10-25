@@ -46,19 +46,30 @@ def nested(value, *path):
     return value
 
 
-def validate_frp_contract(client_text, server_text):
+def validate_frp_contract(client_text, server_text, mode="public"):
     client = tomllib.loads(client_text)
     server = tomllib.loads(server_text)
-    if client.get("serverPort") != 443 or nested(client, "transport", "protocol") != "wss" or nested(client, "transport", "wireProtocol") != "v2":
-        raise ValueError("frpc transport must be WSS v2 on 443")
+    if mode not in {"public", "lan"}:
+        raise ValueError("unknown FRP mode")
+    if nested(client, "transport", "wireProtocol") != "v2":
+        raise ValueError("frpc wire protocol must be v2")
+    if mode == "public":
+        if client.get("serverPort") != 443 or nested(client, "transport", "protocol") != "wss":
+            raise ValueError("public frpc transport must be WSS on 443")
+    elif (nested(client, "transport", "protocol") != "tcp" or
+          not isinstance(client.get("serverPort"), int) or not 1024 <= client["serverPort"] <= 65535 or
+          client["serverPort"] != server.get("bindPort")):
+        raise ValueError("LAN frpc must use the recorded FRPS TCP port")
     if nested(client, "transport", "poolCount") != FRP_POOL_COUNT:
         raise ValueError(f"frpc connection pool must be {FRP_POOL_COUNT}")
     tls = nested(client, "transport", "tls")
     for key in ("certFile", "keyFile", "serverName"):
         if not isinstance(tls.get(key), str) or not tls[key]:
             raise ValueError(f"frpc TLS field {key} is required")
-    if "trustedCaFile" in tls:
+    if mode == "public" and "trustedCaFile" in tls:
         raise ValueError("frpc public server trust must use the operating-system trust store")
+    if mode == "lan" and not tls.get("trustedCaFile"):
+        raise ValueError("LAN frpc must verify the gateway's tunnel CA")
     if tls.get("enable") is not True:
         raise ValueError("frpc TLS must be enabled")
     if nested(client, "auth", "method") != "token" or nested(client, "auth", "tokenSource", "type") != "file" or not nested(client, "auth", "tokenSource", "file", "path"):
@@ -78,16 +89,29 @@ def validate_frp_contract(client_text, server_text):
         raise ValueError("frpc node proxy contract is invalid")
     if local_address.is_unspecified or local_address.is_multicast:
         raise ValueError("frpc node proxy must point at an address the tunnel can reach")
-    if server.get("bindAddr") != "127.0.0.1" or not isinstance(server.get("bindPort"), int):
-        raise ValueError("frps must bind a dynamic loopback port")
+    if not isinstance(server.get("bindPort"), int) or not 1024 <= server["bindPort"] <= 65535:
+        raise ValueError("frps must bind a recorded high port")
+    if mode == "public" and server.get("bindAddr") != "127.0.0.1":
+        raise ValueError("public frps must bind loopback")
+    if mode == "lan":
+        try:
+            address = ipaddress.IPv4Address(server.get("bindAddr", ""))
+        except ipaddress.AddressValueError:
+            raise ValueError("LAN frps must bind a listening IPv4 address")
+        if address.is_multicast or str(address) == "255.255.255.255":
+            raise ValueError("LAN frps bind address is invalid")
     # A node's tunnel port carries that node's control plane, so it is published on
     # loopback and nowhere else: the gateway is the only thing that dials it.
     if server.get("proxyBindAddr") != "127.0.0.1":
         raise ValueError("frps must publish node tunnel ports on loopback only")
     if nested(server, "transport", "maxPoolCount") != FRP_POOL_COUNT:
         raise ValueError(f"frps maximum connection pool must be {FRP_POOL_COUNT}")
-    if "tls" in server.get("transport", {}):
+    if mode == "public" and "tls" in server.get("transport", {}):
         raise ValueError("frps behind the TLS-terminating reverse proxy must not require inner TLS")
+    if mode == "lan":
+        server_tls = nested(server, "transport", "tls")
+        if server_tls.get("force") is not True or any(not server_tls.get(key) for key in ("certFile", "keyFile", "trustedCaFile")):
+            raise ValueError("LAN frps must require mutual TLS with its tunnel CA")
     if nested(server, "auth", "method") != "token" or nested(server, "auth", "tokenSource", "type") != "file" or not nested(server, "auth", "tokenSource", "file", "path"):
         raise ValueError("frps must use a file token")
 
@@ -160,6 +184,7 @@ def validate_caddy_contract(text):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--frp-mode", choices=("public", "lan"), default="public")
     for name in ("frpc", "frpc-config", "frps", "frps-config", "caddy", "caddy-config"):
         parser.add_argument("--" + name)
     args = parser.parse_args()
@@ -169,7 +194,7 @@ def main():
                 raise ValueError("FRP validation requires both binaries and both configs")
             client = read_rendered(args.frpc_config)
             server = read_rendered(args.frps_config)
-            validate_frp_contract(client, server)
+            validate_frp_contract(client, server, args.frp_mode)
             run([os.path.abspath(args.frpc), "verify", "-c", os.path.abspath(args.frpc_config)])
             run([os.path.abspath(args.frps), "verify", "-c", os.path.abspath(args.frps_config)])
         if args.caddy or args.caddy_config:
