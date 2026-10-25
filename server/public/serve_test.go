@@ -122,6 +122,11 @@ func startPublicEntrance(t *testing.T) *publicHarness {
 		}
 		harness.serveNode(t, id, added.NodeAddress)
 	}
+	return harness.serve(t, root)
+}
+
+func (harness *publicHarness) serve(t *testing.T, root string) *publicHarness {
+	t.Helper()
 	service, err := openPublicService(root)
 	if err != nil {
 		t.Fatal(err)

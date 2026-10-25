@@ -398,8 +398,8 @@ func (state State) Repair(preferred map[string]int) (State, error) {
 	return State{Schema: state.Schema, InstallationID: state.InstallationID, Origin: state.Origin, Listeners: listeners, Nodes: state.Nodes}, nil
 }
 
-// RepairNodePorts reallocates the address of every node, keeping each node's id
-// and name. It is for a shape that owns those addresses — a tunnel port the
+// RepairNodePorts reallocates the address of every node, keeping its other
+// fields. It is for a shape that owns those addresses — a tunnel port the
 // gateway's own tunnel server holds — rather than for one whose nodes are dialed
 // where they are. Every node's address is being replaced, so what the new ones
 // have to stay clear of is where this gateway itself serves.
@@ -418,7 +418,8 @@ func (state State) RepairNodePorts(preferredPort int) (State, error) {
 	}
 	repaired := State{Schema: state.Schema, InstallationID: state.InstallationID, Origin: state.Origin, Listeners: state.Listeners, Nodes: make([]Node, 0, len(state.Nodes))}
 	for index, node := range state.Nodes {
-		repaired.Nodes = append(repaired.Nodes, Node{ID: node.ID, Name: node.Name, Address: addresses[index]})
+		node.Address = addresses[index]
+		repaired.Nodes = append(repaired.Nodes, node)
 	}
 	if err := repaired.Validate(); err != nil {
 		return State{}, err

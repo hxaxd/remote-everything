@@ -64,9 +64,8 @@ func TestInitializeLAN(t *testing.T) {
 	if entries := entryNames(t, root); !sameNames(entries, want) {
 		t.Fatalf("entrance root holds %v, want %v", entries, want)
 	}
-	// There is nothing to reach until a node is added, and nothing to serve.
-	if _, err := openLANService(root); err == nil {
-		t.Fatal("an entrance serving no node was opened")
+	if _, err := openLANService(root); err != nil {
+		t.Fatalf("an initialized empty entrance did not open: %v", err)
 	}
 	second, err := initializeLAN(root, "127.0.0.1", "", 30)
 	if err != nil || second.CertificateFingerprint != first.CertificateFingerprint {
@@ -321,10 +320,8 @@ func TestRemoveLANNodeForgetsTheNodeEntirely(t *testing.T) {
 	if _, err := removeLANNode(root, ids[1]); err != nil {
 		t.Fatal(err)
 	}
-	// An entrance with nothing behind it is one that cannot be opened, which is what
-	// it was before the first node was added.
-	if _, err := openLANService(root); err == nil {
-		t.Fatal("an entrance serving no node was opened")
+	if _, err := openLANService(root); err != nil {
+		t.Fatalf("an entrance did not open after removing its last node: %v", err)
 	}
 }
 

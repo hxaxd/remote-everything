@@ -69,10 +69,8 @@ func TestInitializePublicState(t *testing.T) {
 			t.Fatalf("obsolete state was created: %s", obsolete)
 		}
 	}
-	// A gateway that serves no node is not one to start: it has nothing to route a
-	// request to.
-	if _, err := openPublicService(root); err == nil {
-		t.Fatal("a gateway with no node was opened")
+	if _, err := openPublicService(root); err != nil {
+		t.Fatalf("an initialized empty gateway did not open: %v", err)
 	}
 	tunnelCA, err := os.ReadFile(first.TunnelCAFile)
 	if err != nil {
