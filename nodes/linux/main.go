@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -38,12 +39,23 @@ func (linuxPlatform) RunCommand(ctx context.Context, name string, arguments ...s
 }
 
 func (linuxPlatform) Launch(app nodecore.AppDefinition, output io.Writer) (nodecore.ManagedProcess, error) {
-	command := exec.Command(app.Command, app.Arguments...)
-	command.Dir = app.WorkDir
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	arguments := []string{"guard", "--parent", strconv.Itoa(os.Getpid())}
+	if app.WorkDir != "" {
+		arguments = append(arguments, "--workdir", app.WorkDir)
+	}
+	arguments = append(arguments, "--", app.Command)
+	arguments = append(arguments, app.Arguments...)
+	command := exec.Command(executable, arguments...)
 	command.Stdin = nil
 	command.Stdout = output
 	command.Stderr = output
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	// The guardian must outlive the node long enough to kill the application's
+	// process group. A parent-death SIGKILL here would bypass that cleanup.
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
@@ -65,5 +77,12 @@ func (process *linuxProcess) Terminate() {
 }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "guard" {
+		if err := runGuard(os.Args[2:]); err != nil {
+			_, _ = io.WriteString(os.Stderr, err.Error()+"\n")
+			os.Exit(1)
+		}
+		return
+	}
 	os.Exit(nodecore.Run(os.Args[1:], linuxPlatform{}, os.Stdout, os.Stderr))
 }
