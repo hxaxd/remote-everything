@@ -10,6 +10,7 @@ import com.remoteeverything.core.model.Cadence
 import com.remoteeverything.core.model.ClientError
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.Node
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +36,8 @@ class CatalogController(
 
     private var catalogJob: Job? = null
     private var watchingNodeId: String? = null
+    /** One visit to a node, including a later visit to the same node. */
+    private var catalogGeneration = 0L
 
     /**
      * Watches one node's catalog.
@@ -55,21 +58,32 @@ class CatalogController(
     fun watchNode(node: Node, force: Boolean = false) {
         if (!force && watchingNodeId == node.id && catalogJob?.isActive == true) return
         val nodeId = node.id
+        val generation = ++catalogGeneration
         watchingNodeId = nodeId
         catalogJob?.cancel()
         _catalog.value = CatalogUiState.Loading
         catalogJob = scope.launch {
-            while (true) {
-                _catalog.value = fetchCatalog(currentNode(nodeId) ?: node)
+            while (isCurrent(nodeId, generation)) {
+                refreshCatalog(currentNode(nodeId) ?: node, generation)
                 delay(Cadence.catalogRefreshMs)
             }
         }
     }
 
     fun stopWatching() {
+        catalogGeneration++
+        watchingNodeId = null
         catalogJob?.cancel()
         catalogJob = null
-        watchingNodeId = null
+    }
+
+    private fun isCurrent(nodeId: String, generation: Long): Boolean =
+        watchingNodeId == nodeId && catalogGeneration == generation
+
+    private suspend fun refreshCatalog(node: Node, generation: Long) {
+        if (!isCurrent(node.id, generation)) return
+        val answer = fetchCatalog(node)
+        if (isCurrent(node.id, generation)) _catalog.value = answer
     }
 
     /**
@@ -90,6 +104,8 @@ class CatalogController(
             val client = nodesController.clientFor(identity) ?: continue
             try {
                 return CatalogOutcome.forAnswer(client.catalog(node.id)).toUiState()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: ClientError) {
                 answer = CatalogOutcome.forRefusal(e).toUiState()
                 // An answer that is not "the machine is off" is the gateway talking:
@@ -124,8 +140,11 @@ class CatalogController(
      * when the application settles.
      */
     fun control(node: Node, appId: String, start: Boolean) {
-        applyState(appId, if (start) AppState.STARTING else AppState.STOPPING)
+        val generation = catalogGeneration
+        if (!isCurrent(node.id, generation)) return
+        applyState(node.id, generation, appId, if (start) AppState.STARTING else AppState.STOPPING)
         scope.launch {
+            if (!isCurrent(node.id, generation)) return@launch
             val path = nodesController.choosePath(node, currentNetworkKey())
             if (path == null) {
                 _catalog.value = CatalogUiState.Offline
@@ -134,16 +153,20 @@ class CatalogController(
             val identity = currentIdentities().firstOrNull { it.origin == path.origin }
             val client = identity?.let { nodesController.clientFor(it) }
             if (client == null) {
-                _catalog.value = fetchCatalog(node)
+                refreshCatalog(node, generation)
                 return@launch
             }
             val answer = try {
                 if (start) client.start(node.id, appId) else client.stop(node.id, appId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
+                if (!isCurrent(node.id, generation)) return@launch
                 onNotice(R.string.error_control_failed)
-                _catalog.value = fetchCatalog(node)
+                refreshCatalog(node, generation)
                 return@launch
             }
+            if (!isCurrent(node.id, generation)) return@launch
             if (!answer.ok && answer.code == ControlCode.STATE_UPDATE_FAILED) {
                 onNotice(R.string.error_stop_failed)
             }
@@ -153,13 +176,13 @@ class CatalogController(
             }
             if (answer.code == ControlCode.APP_NOT_FOUND) {
                 onNotice(R.string.error_app_gone)
-                _catalog.value = fetchCatalog(node)
+                refreshCatalog(node, generation)
                 return@launch
             }
             // Starting and stopping are not instant: the screen keeps asking until
             // the application settles, so the row never shows a state it left.
-            pollUntilSettled(client, node.id, appId)
-            _catalog.value = fetchCatalog(currentNode(node.id) ?: node)
+            pollUntilSettled(client, node.id, appId, generation)
+            refreshCatalog(currentNode(node.id) ?: node, generation)
         }
     }
 
@@ -167,17 +190,22 @@ class CatalogController(
         client: GatewayClient,
         nodeId: String,
         appId: String,
+        generation: Long,
     ) {
         var waited = 0L
         var interval = Cadence.controlPollMs
-        while (waited < Cadence.controlPollTimeoutMs) {
+        while (isCurrent(nodeId, generation) && waited < Cadence.controlPollTimeoutMs) {
             delay(interval)
+            if (!isCurrent(nodeId, generation)) return
             waited += interval
             val status = try {
                 client.status(nodeId, appId)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 return
             }
+            if (!isCurrent(nodeId, generation)) return
             if (status.code == ControlCode.COMPUTER_OFFLINE) {
                 _catalog.value = CatalogUiState.Offline
                 return
@@ -187,14 +215,15 @@ class CatalogController(
                 return
             }
             // The node's answer is the row's state, not the client's guess.
-            status.app?.let { applyState(appId, it.toAppInfo().code) }
+            status.app?.let { applyState(nodeId, generation, appId, it.toAppInfo().code) }
             if (status.code == ControlCode.READY || status.code == ControlCode.STOPPED) return
             interval = (interval * Cadence.controlPollFactor).toLong().coerceAtMost(Cadence.controlPollCeilingMs)
         }
     }
 
     /** Writes one application's state into the catalog that is on screen. */
-    private fun applyState(appId: String, code: AppState) {
+    private fun applyState(nodeId: String, generation: Long, appId: String, code: AppState) {
+        if (!isCurrent(nodeId, generation)) return
         val current = _catalog.value
         if (current !is CatalogUiState.Ready) return
         _catalog.value = CatalogUiState.Ready(

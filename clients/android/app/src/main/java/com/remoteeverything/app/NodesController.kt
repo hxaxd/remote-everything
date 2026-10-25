@@ -1,7 +1,6 @@
 package com.remoteeverything.app
 
 import com.remoteeverything.core.api.GatewayClient
-import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.NodesResponse
 import com.remoteeverything.core.api.mergeNodes
 import com.remoteeverything.core.diag.LinkAttempt
@@ -9,13 +8,13 @@ import com.remoteeverything.core.diag.LinkAttemptsKept
 import com.remoteeverything.core.diag.LinkFailure
 import com.remoteeverything.core.diag.LinkTrouble
 import com.remoteeverything.core.diag.classifyFailure
-import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.Node
 import com.remoteeverything.core.model.NodeStatus
 import com.remoteeverything.core.model.Path
 import com.remoteeverything.core.pathselect.PathSelector
 import com.remoteeverything.core.store.NodeCacheStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,12 +60,20 @@ class NodesController(
     /** Per gateway, the last few failed probes, newest first. */
     private val failedProbes = mutableMapOf<String, MutableList<LinkAttempt>>()
 
-    /** The cache, read once: it is the fallback for a cold start, then the wire takes over. */
-    private var coldCache: Map<String, NodesResponse>? = null
+    private var cacheLoaded = false
+
+    /** Called under lock before reading or replacing the combined cache. */
+    private fun loadCacheLocked() {
+        if (!cacheLoaded) {
+            lastGoodAnswers.putAll(cache?.load().orEmpty())
+            cacheLoaded = true
+        }
+    }
 
     private class Probe(val origin: String, val response: NodesResponse?, val latencyMs: Long?)
 
     suspend fun refresh(identities: List<Identity>, networkKey: String): List<Node> = coroutineScope {
+        synchronized(lock) { loadCacheLocked() }
         val probes = identities.map { identity ->
             async(Dispatchers.IO) { probe(identity) }
         }.awaitAll().associateBy { it.origin }
@@ -74,7 +81,6 @@ class NodesController(
             val probe = probes[identity.origin]
             val response = probe?.response
                 ?: lastGoodAnswerFor(identity.origin)
-                ?: cached(identity.origin)
                 ?: NodesResponse(ok = true, nodes = emptyList())
             identity to response
         }
@@ -87,11 +93,6 @@ class NodesController(
         lastGoodAnswers[origin]
     }
 
-    private fun cached(origin: String): NodesResponse? = synchronized(lock) {
-        val cold = coldCache ?: cache?.load().also { coldCache = it } ?: emptyMap()
-        cold[origin]
-    }
-
     private suspend fun probe(identity: Identity): Probe {
         val client = clientFactory(identity) ?: return Probe(identity.origin, response = null, latencyMs = null)
         val started = clock()
@@ -99,6 +100,8 @@ class NodesController(
             val response = client.nodes()
             recordAnswer(identity.origin, response)
             Probe(identity.origin, response, clock() - started)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             recordFailure(identity.origin, classifyFailure(e, offline()))
             Probe(identity.origin, response = null, latencyMs = null)
@@ -111,17 +114,18 @@ class NodesController(
      * a report stops offering, which is the point of keeping this at all.
      */
     private fun recordAnswer(origin: String, response: NodesResponse) {
-        val snapshot: Map<String, NodesResponse>
         synchronized(lock) {
+            loadCacheLocked()
             lastGoodAnswers[origin] = response
             lastAnswerAt[origin] = clock()
             failedProbes.remove(origin)
-            snapshot = HashMap(lastGoodAnswers)
+            // Persist the complete cache while holding the same lock: independent
+            // gateway probes must not race over AtomicFile's shared temporary file.
+            cache?.save(HashMap(lastGoodAnswers))
         }
         troubleState.update { current ->
             if (current.containsKey(origin)) current - origin else current
         }
-        cache?.save(snapshot)
     }
 
     /**
@@ -202,24 +206,15 @@ class NodesController(
 
     /** Drops one origin from memory and on-disk node cache when forgotten. */
     fun drop(origin: String) {
-        val snapshot: Map<String, NodesResponse>
         synchronized(lock) {
+            loadCacheLocked()
             lastGoodAnswers.remove(origin)
             lastAnswerAt.remove(origin)
             failedProbes.remove(origin)
-            snapshot = HashMap(lastGoodAnswers)
+            cache?.save(HashMap(lastGoodAnswers))
         }
         troubleState.update { current ->
             if (current.containsKey(origin)) current - origin else current
         }
-        // The on-disk cache is the cold-start promise for every gateway this device
-        // holds; forgetting one removes only its own entry, and a fresh answer from
-        // this run is not lost to an older file. An empty cache file is then
-        // genuinely empty, which is when the file goes.
-        val disk = cache?.load().orEmpty()
-        val kept = HashMap(disk)
-        kept.remove(origin)
-        snapshot.forEach { (o, r) -> if (o != origin) kept[o] = r }
-        cache?.save(kept)
     }
 }
