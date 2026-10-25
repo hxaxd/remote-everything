@@ -26,9 +26,7 @@ func (linuxPlatform) PrepareLifetime() (func(), error) { return func() {}, nil }
 
 func (linuxPlatform) RunCommand(ctx context.Context, name string, arguments ...string) error {
 	command := exec.CommandContext(ctx, name, arguments...)
-	command.Stdin = nil
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
+	// Null-device streams let Wait finish even when descendants inherit stdio.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	if err := command.Start(); err != nil {
 		return err

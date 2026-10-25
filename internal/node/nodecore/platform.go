@@ -15,6 +15,8 @@ type ManagedProcess interface {
 
 type Platform interface {
 	PrepareLifetime() (func(), error)
+	// RunCommand waits for the helper and reaps its descendants on success,
+	// failure or context cancellation before returning.
 	RunCommand(context.Context, string, ...string) error
 	Launch(AppDefinition, io.Writer) (ManagedProcess, error)
 }

@@ -29,9 +29,7 @@ func (macPlatform) PrepareLifetime() (func(), error) { return func() {}, nil }
 
 func (macPlatform) RunCommand(ctx context.Context, name string, arguments ...string) error {
 	command := exec.CommandContext(ctx, name, arguments...)
-	command.Stdin = nil
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
+	// Null-device streams let Wait finish even when descendants inherit stdio.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := command.Start(); err != nil {
 		return err

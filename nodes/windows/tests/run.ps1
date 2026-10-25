@@ -55,6 +55,8 @@ try {
     New-Item -ItemType Directory -Path $temporaryRoot, $stateParent, $stateRoot | Out-Null
     $appPort = Get-FreePort
     $childPort = Get-FreePort
+    $stopChildPort = Get-FreePort
+    $stopChildPidFile = Join-Path $temporaryRoot 'stop-child.pid'
     $script:token = '01' * 32
     $installationId = '02' * 32
 
@@ -117,8 +119,8 @@ try {
         proxy_url = "http://127.0.0.1:$appPort"
         command = $python.Source
         arguments = @((Join-Path $testsRoot 'fixture_server.py'), [string]$appPort, [string]$childPort)
-        stop_command = ''
-        stop_arguments = @()
+        stop_command = $python.Source
+        stop_arguments = @((Join-Path $repoRoot 'internal/nodecore/testharness/fixture_server.py'), '--stop-child', [string]$stopChildPort, $stopChildPidFile)
         workdir = ''
     }
     $definitionPath = Join-Path $temporaryRoot 'fixture.json'
@@ -158,6 +160,10 @@ try {
     Wait-Port $appPort $false
     Wait-Port $childPort $false
     Assert-True (-not (Test-Port $childPort)) 'stop closes the full managed process tree'
+    Assert-True (Test-Path -LiteralPath $stopChildPidFile) 'stop helper created a listening descendant'
+    Wait-Port $stopChildPort $false
+    $stopChildPid = [int](Get-Content -LiteralPath $stopChildPidFile)
+    Assert-True ($null -eq (Get-Process -Id $stopChildPid -ErrorAction SilentlyContinue)) 'stop helper job reaps its descendant while the node remains alive'
 
     Invoke-Control '{"action":"start","id":"fixture"}' | Out-Null
     Wait-Port $appPort
@@ -174,7 +180,7 @@ try {
     $removedAgain = (& $controlPath app remove --state $stateRoot fixture | ConvertFrom-Json)
     Assert-True ($LASTEXITCODE -eq 0 -and $removedAgain.ok -and -not $removedAgain.changed) 'app remove is idempotent'
 
-    Write-Output '{"ok":true,"suite":"windows-node","semantics":27}'
+    Write-Output '{"ok":true,"suite":"windows-node","semantics":29}'
 }
 finally {
     if ($controlProcess -and -not $controlProcess.HasExited) { Stop-Process -Id $controlProcess.Id -Force -ErrorAction SilentlyContinue }
