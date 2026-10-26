@@ -75,6 +75,8 @@ export class AppModel {
   get web(): WebSession | null { return this.catalogController.web; }
   get webFailed(): string { return this.catalogController.webFailed; }
   get pairing(): PairingState { return this.pairingSession.pairing; }
+  get pendingSetups(): StagedSetup[] { return this.pairingSession.pendingSetups; }
+  get pairingNameLocked(): boolean { return this.pairingSession.nameLocked; }
   get pairingInvitationText(): string { return this.pairingSession.invitationText; }
   get pairingBusy(): boolean { return this.pairingSession.pairingBusy; }
 
@@ -99,9 +101,6 @@ export class AppModel {
   private openingApp: boolean = false;
   /** The pushed screens, mirroring the navigation stack, to know which one is on top. */
   private paneStack: string[] = [];
-  /** The node page to return to after a cold start, until it is either found or given up. */
-  private pendingRestoreNode: string = '';
-
   constructor() {
     this.client = new ProtocolClient(this.vault);
     this.transaction = new StagedSetupStore(this.vault);
@@ -128,7 +127,7 @@ export class AppModel {
     };
 
     pairingSess.onFinished = (): void => {
-      this.popPane();
+      if (this.paneStack[this.paneStack.length - 1] === 'add') { this.popPane(); }
     };
   }
 
@@ -153,12 +152,11 @@ export class AppModel {
     };
     this.environment.start();
     this.nodesController.reloadIdentities();
-    const staged: StagedSetup | null = await this.transaction.reconcile();
-    if (staged !== null) {
+    const staged: StagedSetup[] = await this.transaction.reconcile();
+    if (staged.length > 0) {
       this.pairingSession.beginApprovalPolling();
     }
     this.loaded = true;
-    this.pendingRestoreNode = this.settingsStore.readLastNode();
     await this.refreshNodes();
   }
 
@@ -237,22 +235,6 @@ export class AppModel {
 
   async refreshNodes(force: boolean = false): Promise<void> {
     await this.nodesController.refreshNodes(force);
-    this.maybeRestoreNode();
-  }
-
-  /** Returns to the node page a cold start was asked to, once it is on the list. */
-  private maybeRestoreNode(): void {
-    if (this.pendingRestoreNode === '') {
-      return;
-    }
-    const nodeId: string = this.pendingRestoreNode;
-    if (this.nodeRow(nodeId) === null) {
-      // The gateway has not answered for it yet — or it is gone. Either way it is
-      // not on the list to be opened, and the next refresh tries again.
-      return;
-    }
-    this.pendingRestoreNode = '';
-    this.selectNode(nodeId);
   }
 
   nodeRow(nodeId: string): NodeRow | null {
@@ -497,7 +479,7 @@ export class AppModel {
     // The pairing still staged for this gateway is part of what is being
     // forgotten — its staged file and its approval polling go with the identity
     // (behavior README: forgetting leaves no half-pairing).
-    this.pairingSession.forget(origin);
+    await this.pairingSession.forget(origin);
     await this.nodesController.forget(origin);
     this.catalogController.forgetApplicationHosts(origin);
     if (this.catalogController.catalogNodeId !== '') {
@@ -524,8 +506,12 @@ export class AppModel {
   }
 
   /** Asking a pending pairing to ask again, from the banner or the waiting screen. */
-  retryStaged(): Promise<void> {
-    return this.pairingSession.retryStaged();
+  retryStaged(origin?: string): Promise<void> {
+    return this.pairingSession.retryStaged(origin);
+  }
+
+  async abandonPending(origin: string): Promise<void> {
+    if (await this.pairingSession.forget(origin)) { await this.nodesController.forget(origin); }
   }
 
   /** A network came or went: ask every gateway again, now, not on the next timer. */
@@ -562,7 +548,6 @@ export class AppModel {
   }
 
   selectNode(nodeId: string): void {
-    this.settingsStore.writeLastNode(nodeId);
     this.catalogController.catalogNodeId = nodeId;
     this.catalogController.catalog = new CatalogState(CatalogPhase.Loading, nodeId, [], null, '');
     this.loadCatalog(nodeId);
@@ -572,7 +557,6 @@ export class AppModel {
 
   backToList(): void {
     this.stopCatalogRefresh();
-    this.settingsStore.writeLastNode('');
     this.popPane();
   }
 
@@ -626,6 +610,7 @@ export class AppModel {
     if (this.stack === null) {
       return;
     }
+    if (this.paneStack[this.paneStack.length - 1] === 'add') { this.pairingSession.cancelPairing(); }
     this.stack.pop();
     this.paneStack.pop();
     this.syncPane();

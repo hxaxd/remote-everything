@@ -28,6 +28,7 @@
 
 import { abilityAccessCtrl, common, PermissionRequestResult, Permissions } from '@kit.AbilityKit';
 import { picker } from '@kit.CoreFileKit';
+import { uniformTypeDescriptor } from '@kit.ArkData';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { webview } from '@kit.ArkWeb';
 import { ServerPin } from '../../core/model/Models';
@@ -57,6 +58,8 @@ export struct WebScreen {
   @Local private prefs: WebAppPrefs = WebAppPrefs.defaults();
   @Local private panelShown: boolean = false;
   @Local private controller: webview.WebviewController = new webview.WebviewController();
+  @Local private popupShown: boolean = false;
+  @Local private popupController: webview.WebviewController = new webview.WebviewController();
   private prepared: boolean = false;
   private disposed: boolean = false;
   private closing: boolean = false;
@@ -70,6 +73,7 @@ export struct WebScreen {
   /** Renderer crashes this visit has rebuilt from, before the page gives up. */
   private renderCrashes: number = 0;
   private videoFullscreen: FullScreenExitHandler | null = null;
+  private permissionEpoch: number = 0;
 
   build() {
     NavDestination() {
@@ -105,7 +109,13 @@ export struct WebScreen {
             // The address is the component's static initial value; every navigation
             // after it goes through the controller (pitfalls §2.4).
             Web({ src: this.url, controller: this.controller, incognitoMode: true })
-              .multiWindowAccess(false)
+              .multiWindowAccess(true)
+              .onWindowNew((event: OnWindowNewEvent) => {
+                this.closePopup();
+                this.popupController = new webview.WebviewController();
+                event.handler.setWebController(this.popupController);
+                this.popupShown = true;
+              })
               .layoutWeight(1)
               .width('100%')
               .javaScriptAccess(true)
@@ -127,7 +137,7 @@ export struct WebScreen {
               .onClientAuthenticationRequest((event: OnClientAuthenticationEvent) => {
                 this.presentCertificate(event);
               })
-              .onSslErrorEventReceive((event: OnSslErrorEventReceiveEvent) => {
+              .onSslErrorEvent((event: SslErrorEvent) => {
                 this.decideAboutCertificate(event);
               })
               .onShowFileSelector((event: OnShowFileSelectorEvent) => {
@@ -155,6 +165,7 @@ export struct WebScreen {
               .onPageEnd(() => {
                 this.loadFailed = false;
               })
+              .onPageBegin(() => { this.permissionEpoch += 1; })
               .onErrorReceive((event: OnErrorReceiveEvent) => {
                 // A resource that failed is not a page that failed: only the main frame
                 // turns this screen into its failed state.
@@ -171,7 +182,7 @@ export struct WebScreen {
                 if (this.renderCrashes > MAX_RENDER_REBUILDS) {
                   this.loadFailed = true;
                 } else {
-                  this.retry();
+                  this.retry(false);
                 }
               })
               // The page follows the app's own mode, and the background under it too, so
@@ -205,6 +216,36 @@ export struct WebScreen {
             })
 
           }
+
+        if (this.popupShown) {
+          Stack({ alignContent: Alignment.TopEnd }) {
+            Web({ src: 'about:blank', controller: this.popupController, incognitoMode: true })
+              .width('100%').height('100%')
+              .javaScriptAccess(true).domStorageAccess(true).fileAccess(false)
+              .mediaPlayGestureAccess(false).multiWindowAccess(false)
+              .onControllerAttached(() => {
+                WebDownloads.bind(this.popupController);
+                this.popupController.setCustomUserAgent(this.controller.getUserAgent());
+              })
+              .onPageBegin(() => { this.permissionEpoch += 1; })
+              .onClientAuthenticationRequest((event: OnClientAuthenticationEvent) => { this.presentCertificate(event); })
+              .onSslErrorEvent((event: SslErrorEvent) => { this.decideAboutCertificate(event); })
+              .onShowFileSelector((event: OnShowFileSelectorEvent) => { this.pickFiles(event); return true; })
+              .onPermissionRequest((event: OnPermissionRequestEvent) => { this.decideAboutPermission(event); })
+              .onGeolocationShow((event: OnGeolocationShowEvent) => { this.decideAboutLocation(event); })
+              .onLoadIntercept((event: OnLoadInterceptEvent) => {
+                const url: string = event.data.getRequestUrl();
+                if (url.startsWith('https://') || url.startsWith('about:')) { return false; }
+                return this.interceptLoad(event);
+              })
+              .onFullScreenEnter((event: FullScreenEnterEvent) => { this.videoFullscreen = event.handler; })
+              .onFullScreenExit(() => { this.videoFullscreen = null; })
+              .onWindowExit(() => { this.closePopup(); })
+              .onRenderExited(() => { this.closePopup(); })
+            Button(Strings.text(MessageKeys.ACTION_BACK))
+              .margin(Metrics.gapM).onClick(() => { this.closePopup(); })
+          }.width('100%').height('100%')
+        }
 
         if (this.panelShown) {
           WebPanel({
@@ -299,8 +340,9 @@ export struct WebScreen {
     }
   }
 
-  private async retry(): Promise<void> {
+  private async retry(manual: boolean = true): Promise<void> {
     if (this.closing || this.disposed || model.selectedApp === null) { return; }
+    if (manual) { this.renderCrashes = 0; }
     try {
       await this.release();
       this.releaseTask = null;
@@ -329,6 +371,7 @@ export struct WebScreen {
   private release(): Promise<void> {
     if (this.releaseTask !== null) { return this.releaseTask; }
     this.closing = true;
+    this.closePopup();
     this.panelShown = false;
     this.releaseTask = this.finishSession();
     return this.releaseTask;
@@ -396,16 +439,21 @@ export struct WebScreen {
 
   /** The page again, on purpose: what the panel's refresh means. */
   private reload(): void {
-    try {
-      this.controller.refresh();
-    } catch (error) {
-      // No controller bound yet: nothing to refresh.
+    this.retry();
+  }
+
+  private closePopup(): void {
+    this.permissionEpoch += 1;
+    if (this.popupShown) {
+      try { this.popupController.stop(); } catch (error) {}
+      this.popupShown = false;
     }
   }
 
   /** The back gesture: out of full screen, then the panel, and only then nothing. */
   private handleBack(): boolean {
     if (this.closing) { return true; }
+    if (this.popupShown) { this.closePopup(); return true; }
     const fullscreen: FullScreenExitHandler | null = this.videoFullscreen;
     if (fullscreen !== null) {
       this.videoFullscreen = null;
@@ -543,15 +591,16 @@ export struct WebScreen {
       }
     }
     if (mediaOnly) {
-      this.pickPhotos(event, multiple);
+      this.pickPhotos(event, multiple, accepts);
       return;
     }
     this.pickDocuments(context, event, multiple);
   }
 
-  private pickPhotos(event: OnShowFileSelectorEvent, multiple: boolean): void {
+  private pickPhotos(event: OnShowFileSelectorEvent, multiple: boolean, accepts: string[]): void {
     const options: photoAccessHelper.PhotoSelectOptions = new photoAccessHelper.PhotoSelectOptions();
-    options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_VIDEO_TYPE;
+    options.MIMEType = accepts.every((accept: string) => accept.startsWith('image/')) ? photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE :
+      accepts.every((accept: string) => accept.startsWith('video/')) ? photoAccessHelper.PhotoViewMIMETypes.VIDEO_TYPE : photoAccessHelper.PhotoViewMIMETypes.IMAGE_VIDEO_TYPE;
     options.maxSelectNumber = multiple ? MAX_PICKED_FILES : 1;
     const photoPicker: photoAccessHelper.PhotoViewPicker = new photoAccessHelper.PhotoViewPicker();
     photoPicker.select(options).then((result: photoAccessHelper.PhotoSelectResult) => {
@@ -563,6 +612,22 @@ export struct WebScreen {
 
   private pickDocuments(context: common.UIAbilityContext, event: OnShowFileSelectorEvent, multiple: boolean): void {
     const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    const extensions: string[] = [];
+    let canFilter: boolean = true;
+    for (const accept of event.fileSelector.getAcceptType()) {
+      if (/^\.[a-zA-Z0-9]+$/.test(accept)) { extensions.push(accept); continue; }
+      try {
+        const types: string[] = uniformTypeDescriptor.getUniformDataTypesByMIMEType(accept);
+        let found: boolean = false;
+        for (const type of types) {
+          for (const extension of uniformTypeDescriptor.getTypeDescriptor(type).filenameExtensions) {
+            extensions.push(extension.startsWith('.') ? extension : `.${extension}`); found = true;
+          }
+        }
+        if (!found) { canFilter = false; }
+      } catch (error) { canFilter = false; }
+    }
+    if (canFilter && extensions.length > 0) { options.fileSuffixFilters = [Array.from(new Set<string>(extensions)).join(',')]; }
     if (multiple) {
       options.maxSelectNumber = MAX_PICKED_FILES;
     }
@@ -579,8 +644,9 @@ export struct WebScreen {
    * the platform has actually granted them.
    */
   private decideAboutPermission(event: OnPermissionRequestEvent): void {
+    const epoch: number = this.permissionEpoch;
     const host: string = hostOf(event.request.getOrigin());
-    if (!this.isKnownApplicationHost(host)) {
+    if (!event.request.getOrigin().startsWith('https://') || !this.isKnownApplicationHost(host)) {
       event.request.deny();
       return;
     }
@@ -600,14 +666,14 @@ export struct WebScreen {
     }
     abilityAccessCtrl.createAtManager().requestPermissionsFromUser(context, needed)
       .then((result: PermissionRequestResult) => {
-        let granted: boolean = true;
+        let granted: boolean = epoch === this.permissionEpoch && !this.closing && !this.disposed && result.authResults.length === needed.length;
         for (const answer of result.authResults) {
           if (answer !== abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED) {
             granted = false;
           }
         }
         if (granted) {
-          event.request.grant(wanted);
+          event.request.grant(needed);
         } else {
           event.request.deny();
         }
@@ -619,9 +685,10 @@ export struct WebScreen {
 
   /** A page that asks where it is, for the gateway's own pages only. */
   private decideAboutLocation(event: OnGeolocationShowEvent): void {
+    const epoch: number = this.permissionEpoch;
     const host: string = hostOf(event.origin);
     const context: common.UIAbilityContext | null = model.abilityContext();
-    if (!this.isKnownApplicationHost(host) || context === null) {
+    if (!event.origin.startsWith('https://') || !this.isKnownApplicationHost(host) || context === null) {
       event.geolocation.invoke(event.origin, false, false);
       return;
     }
@@ -634,7 +701,7 @@ export struct WebScreen {
             granted = true;
           }
         }
-        event.geolocation.invoke(event.origin, granted, false);
+        event.geolocation.invoke(event.origin, granted && epoch === this.permissionEpoch && !this.closing && !this.disposed, false);
       })
       .catch((error: Object) => {
         event.geolocation.invoke(event.origin, false, false);
@@ -722,7 +789,7 @@ export struct WebScreen {
   }
 
   /** Whether the gateway's own certificate may be used. */
-  private decideAboutCertificate(event: OnSslErrorEventReceiveEvent): void {
+  private decideAboutCertificate(event: SslErrorEvent): void {
     const session = model.web;
     const pin: ServerPin | null = session === null ? null : session.serverPin;
     if (pin === null) {
@@ -732,7 +799,9 @@ export struct WebScreen {
       return;
     }
     const chain: Uint8Array[] = event.certChainData === undefined ? [] : event.certChainData;
-    if (chain.length === 0 || chainMatchesPin(chain, pin) === PinVerdict.Refused) {
+    const host: string = hostOf(event.url);
+    if (host === '' || !this.isKnownApplicationHost(host) ||
+      chain.length === 0 || chainMatchesPin(chain, pin, host) === PinVerdict.Refused) {
       this.refuse(event);
       return;
     }
@@ -743,7 +812,7 @@ export struct WebScreen {
     }
   }
 
-  private refuse(event: OnSslErrorEventReceiveEvent): void {
+  private refuse(event: SslErrorEvent): void {
     try {
       event.handler.handleCancel();
     } catch (error) {

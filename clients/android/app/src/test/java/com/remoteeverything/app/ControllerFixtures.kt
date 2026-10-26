@@ -17,7 +17,8 @@ internal open class ControllerClient(override val origin: String = "https://gate
     override suspend fun activate(nodeId: String): CatalogResponse = error("unused")
     override suspend fun nodes(): NodesResponse = error("unused")
     override suspend fun catalog(nodeId: String): CatalogResponse = error("unused")
-    override suspend fun status(nodeId: String, appId: String): ControlResponse = error("unused")
+    override suspend fun status(nodeId: String, appId: String) = ControlResponse(true,
+        com.remoteeverything.core.api.ControlAction.STATUS, true, true, true, com.remoteeverything.core.api.ControlCode.READY)
     override suspend fun start(nodeId: String, appId: String): ControlResponse = error("unused")
     override suspend fun stop(nodeId: String, appId: String): ControlResponse = error("unused")
     override suspend fun open(nodeId: String, appId: String): String = error("unused")

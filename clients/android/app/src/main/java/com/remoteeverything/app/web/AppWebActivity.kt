@@ -41,6 +41,10 @@ import androidx.lifecycle.lifecycleScope
 import com.remoteeverything.app.BuildConfig
 import com.remoteeverything.app.R
 import com.remoteeverything.core.api.GatewayClients
+import com.remoteeverything.core.api.GatewayClientPool
+import com.remoteeverything.core.api.ControlCode
+import com.remoteeverything.core.api.isGatewayHost
+import com.remoteeverything.app.NodesController
 import com.remoteeverything.core.identity.AndroidKeyStoreIdentityVault
 import com.remoteeverything.core.identity.Pkcs12
 import com.remoteeverything.core.model.ServerPin
@@ -49,6 +53,10 @@ import com.remoteeverything.core.store.WebAppPrefs
 import com.remoteeverything.core.store.WebOrientation
 import com.remoteeverything.core.store.WebUserAgent
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -96,6 +104,11 @@ class AppWebActivity : ComponentActivity() {
     private var webDestroyed: Boolean = false
     /** The failure screen, kept so a refusal that repeats does not pile views up. */
     private var errorView: View? = null
+    private var resolveJob: Job? = null
+    private val vault = AndroidKeyStoreIdentityVault()
+    private val pool = GatewayClientPool()
+    private val routes = NodesController({ pool.deviceClient(it,vault) })
+    private var launchFragment: String = ""
 
     private val dark: Boolean get() = intent.getBooleanExtra(ExtraDark, false)
 
@@ -107,6 +120,7 @@ class AppWebActivity : ComponentActivity() {
         val pinFingerprint = intent.getStringExtra(ExtraPinFingerprint)
         val pinPublicKey = intent.getStringExtra(ExtraPinPublicKey)
         appUrl = url
+        launchFragment = Uri.parse(url).encodedFragment?.let { "#$it" }.orEmpty()
         serverPin = if (pinFingerprint != null && pinPublicKey != null) {
             ServerPin(certFingerprint = pinFingerprint, publicKeyPin = pinPublicKey)
         } else null
@@ -136,34 +150,9 @@ class AppWebActivity : ComponentActivity() {
             showFailure(getString(R.string.web_isolation_unavailable))
             return
         }
-        try {
-            browserProfile = WebSessionScope.profileName(identityOrigin, appKey)
-            profileCookies = ProfileStore.getInstance().getOrCreateProfile(browserProfile).cookieManager
-        } catch (_: Exception) {
-            showFailure(getString(R.string.web_session_failed))
-            return
-        }
-
-        val vault = AndroidKeyStoreIdentityVault()
-        material = vault.load(identityOrigin)
-        if (material == null) {
-            // No credential is a state this screen can explain; staying silent here
-            // is how the old client turned "the key is gone" into a blank page.
-            showFailure(getString(R.string.pair_gateway_trouble))
-            return
-        }
-        downloads = WebDownloadBridge(
-            context = this,
-            gatewayOrigin = identityOrigin,
-            cookieManager = profileCookies,
-            clientProvider = {
-                material?.let { runCatching { GatewayClients.rawTransport(identityOrigin, it, serverPin) }.getOrNull() }
-            },
-        )
         lifecycleScope.launch {
             prefs = runCatching { SettingsStore(this@AppWebActivity).webAppPrefs(appKey) }.getOrDefault(WebAppPrefs())
             applyOrientation(prefs.orientation)
-            createWebView()
             panel = WebPanelView(
                 host = this@AppWebActivity,
                 palette = palette,
@@ -182,8 +171,7 @@ class AppWebActivity : ComponentActivity() {
                 onExit = { finish() },
             )
             panel?.let { container.addView(it.root, matchParent()) }
-            applyUserAgent(prefs.userAgent, reload = false)
-            web.loadUrl(appUrl)
+            reloadPage()
         }
     }
 
@@ -278,9 +266,68 @@ class AppWebActivity : ComponentActivity() {
      * is the same page, read again, now.
      */
     private fun reloadPage() {
-        if (!::web.isInitialized || webDestroyed) return
+        resolvePage(manual = true)
+    }
+
+    private fun resolvePage(manual: Boolean) {
+        resolveJob?.cancel()
+        if (manual) crashCount = 0
+        cancelPagePermissions()
+        closePopup(popup)
         progressBar?.visibility = View.VISIBLE
-        web.loadUrl(web.url ?: appUrl)
+        resolveJob = lifecycleScope.launch {
+            try {
+                val repository = SettingsStore(this@AppWebActivity)
+                val ids = appKey.split('/')
+                require(ids.size == 2)
+                val identities = repository.currentIdentities()
+                val node = routes.refresh(identities,"web").firstOrNull { it.id == ids[0] }
+                    ?: error("node is unavailable")
+                val target = withTimeout(60_000) {
+                    while (true) {
+                        var starting = false
+                        for (path in routes.pathsFor(node,"web")) {
+                            val identity = repository.currentIdentities().firstOrNull { it.origin == path.origin } ?: continue
+                            val client = pool.deviceClient(identity,vault) ?: continue
+                            try {
+                                val status = client.status(ids[0],ids[1])
+                                if (repository.currentIdentities().none { it == identity }) continue
+                                if (status.code == ControlCode.STARTING) { starting = true; break }
+                                if (status.code != ControlCode.READY) continue
+                                val next = client.open(ids[0],ids[1])
+                                if (repository.currentIdentities().none { it == identity }) continue
+                                return@withTimeout next to identity
+                            } catch (error: CancellationException) { throw error }
+                            catch (_: Exception) { routes.markPath(node.id,path.origin,false) }
+                        }
+                        if (!starting) error("application is unavailable")
+                        delay(1000)
+                    }
+                    @Suppress("UNREACHABLE_CODE")
+                    error("unreachable")
+                }
+                destroyMainWeb()
+                identityOrigin = target.second.origin
+                identityHost = Uri.parse(identityOrigin).host.orEmpty()
+                serverPin = target.second.serverPin
+                material = vault.load(identityOrigin) ?: error("identity is unavailable")
+                appUrl = target.first + launchFragment
+                browserProfile = WebSessionScope.profileName(identityOrigin,appKey)
+                profileCookies = ProfileStore.getInstance().getOrCreateProfile(browserProfile).cookieManager
+                val origin = identityOrigin
+                val credential = material
+                val pin = serverPin
+                downloads = WebDownloadBridge(context = this@AppWebActivity,gatewayOrigin = origin,cookieManager = profileCookies,
+                    clientProvider = { credential?.let { GatewayClients.rawTransport(origin,it,pin) } })
+                errorView?.let { container.removeView(it) }; errorView = null
+                panel?.let { container.removeView(it.root) }
+                createWebView()
+                panel?.let { container.addView(it.root,matchParent()) }
+                applyOrientation(prefs.orientation)
+                web.loadUrl(appUrl)
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { showFailure(getString(R.string.web_load_failed)) }
+        }
     }
 
     /**
@@ -326,6 +373,7 @@ class AppWebActivity : ComponentActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             setSupportMultipleWindows(true)
             javaScriptCanOpenWindowsAutomatically = true
+            userAgentString = if (prefs.userAgent == WebUserAgent.DESKTOP) desktopUserAgent(WebSettings.getDefaultUserAgent(this@AppWebActivity)) else WebSettings.getDefaultUserAgent(this@AppWebActivity)
         }
         // The theme already refuses algorithmic darkening (themes.xml
         // forceDarkAllowed=false): the page's own dark styles are what apply.
@@ -350,7 +398,15 @@ class AppWebActivity : ComponentActivity() {
     // origin the device paired with — and deliberately nothing else, so the
     // credential never rides on a host outside the gateway's namespace.
     private fun allowedHost(host: String): Boolean =
-        host == identityHost || host.endsWith("." + identityHost)
+        isGatewayHost(identityOrigin,host)
+
+    private fun allowedOrigin(origin: String): Boolean = Uri.parse(origin).let { it.scheme == "https" && allowedHost(it.host.orEmpty()) }
+
+    private fun cancelPagePermissions() {
+        pendingWebPermission?.deny(); pendingWebPermission = null
+        pendingGeolocation?.let { it.second.invoke(it.first,false,false) }; pendingGeolocation = null
+        fileChooserCallback?.onReceiveValue(null); fileChooserCallback = null
+    }
 
     private inner class GatewayChromeClient : WebChromeClient() {
 
@@ -388,6 +444,7 @@ class AppWebActivity : ComponentActivity() {
 
         /** A page asks for the camera or the microphone: the system's own question comes first. */
         override fun onPermissionRequest(request: PermissionRequest) {
+            if (!allowedOrigin(request.origin.toString())) { request.deny(); return }
             val wanted = request.resources.filter {
                 it == PermissionRequest.RESOURCE_VIDEO_CAPTURE || it == PermissionRequest.RESOURCE_AUDIO_CAPTURE
             }
@@ -417,6 +474,7 @@ class AppWebActivity : ComponentActivity() {
         /** A page asks where it is: granted once the platform permission is actually there. */
         override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
             if (origin == null || callback == null) return
+            if (!allowedOrigin(origin)) { callback.invoke(origin,false,false); return }
             val needed = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
                 .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
             if (needed.isEmpty()) {
@@ -458,6 +516,7 @@ class AppWebActivity : ComponentActivity() {
 
     private fun closePopup(window: WebView?) {
         if (window != null && window === popup) {
+            cancelPagePermissions()
             container.removeView(window)
             window.destroy()
             popup = null
@@ -471,6 +530,7 @@ class AppWebActivity : ComponentActivity() {
      * view (it cannot be unset), so the flag is the truth about the view.
      */
     private fun destroyMainWeb() {
+        cancelPagePermissions()
         if (webDestroyed || !::web.isInitialized) return
         container.removeView(web)
         web.destroy()
@@ -533,7 +593,9 @@ class AppWebActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
             val request = pendingWebPermission ?: return@registerForActivityResult
             pendingWebPermission = null
-            if (grants.values.all { it }) request.grant(request.resources) else request.deny()
+            val wanted = request.resources.filter { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE || it == PermissionRequest.RESOURCE_AUDIO_CAPTURE }
+            val granted = wanted.filter { resource -> checkSelfPermission(if (resource == PermissionRequest.RESOURCE_VIDEO_CAPTURE) Manifest.permission.CAMERA else Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED }
+            if (granted.size == wanted.size && wanted.isNotEmpty() && allowedOrigin(request.origin.toString())) request.grant(granted.toTypedArray()) else request.deny()
         }
 
     private val locationPermissionLauncher: ActivityResultLauncher<Array<String>> =
@@ -563,6 +625,7 @@ class AppWebActivity : ComponentActivity() {
     private inner class GatewayWebViewClient : WebViewClient() {
 
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+            cancelPagePermissions()
             super.onPageStarted(view, url, favicon)
             progressBar?.visibility = View.VISIBLE
         }
@@ -576,8 +639,9 @@ class AppWebActivity : ComponentActivity() {
             // A frame inside the page is the page's own affair: only a main-frame
             // navigation decides whether the visit stays inside the gateway.
             if (!request.isForMainFrame) return false
+            if (view === popup && request.url.scheme in listOf("https","about","blob","data")) return false
             val host = request.url.host.orEmpty()
-            if (allowedHost(host)) return false
+            if (request.url.scheme == "https" && allowedHost(host)) return false
             // Anything that leaves the gateway goes to the system browser: this
             // WebView carries a device certificate, and it is not for other sites.
             runCatching { startActivity(Intent(Intent.ACTION_VIEW, request.url)) }
@@ -590,7 +654,7 @@ class AppWebActivity : ComponentActivity() {
             // picture, not a broken visit. An error page that is already showing
             // is not replaced by another one.
             if (request?.isForMainFrame == true && errorView == null) {
-                showFailure(getString(R.string.web_load_failed))
+                if (view === popup) closePopup(view) else showFailure(getString(R.string.web_load_failed))
             }
         }
 
@@ -603,7 +667,7 @@ class AppWebActivity : ComponentActivity() {
                 handler = handler,
                 error = error,
                 onSuccess = {},
-                onFailure = { showFailure(getString(R.string.web_load_failed)) }
+                onFailure = { if (view === popup) closePopup(view) else showFailure(getString(R.string.web_load_failed)) }
             )
         }
 
@@ -629,10 +693,7 @@ class AppWebActivity : ComponentActivity() {
                         // The panel goes back on top, the order the screen was
                         // built in: a web added after it would lie over the panel
                         // and the back gesture would never reach it again.
-                        panel?.let { container.removeView(it.root) }
-                        createWebView()
-                        panel?.let { container.addView(it.root, matchParent()) }
-                        web.loadUrl(appUrl)
+                        resolvePage(manual = false)
                     } else {
                         showFailure(getString(R.string.web_load_failed))
                     }
@@ -671,22 +732,7 @@ class AppWebActivity : ComponentActivity() {
                 message = message,
                 dark = dark,
                 onRetry = {
-                    if (!::browserProfile.isInitialized || material == null) {
-                        recreate()
-                        return@create
-                    }
-                    container.removeAllViews()
-                    errorView = null
-                    crashCount = 0
-                    val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-                        isIndeterminate = true
-                        visibility = View.VISIBLE
-                    }
-                    progressBar = pBar
-                    container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
-                    createWebView()
-                    panel?.let { container.addView(it.root, matchParent()) }
-                    web.loadUrl(appUrl)
+                    reloadPage()
                 },
                 onClose = { finish() }
             )
@@ -696,6 +742,8 @@ class AppWebActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        resolveJob?.cancel()
+        cancelPagePermissions()
         hideVideoFullscreen(notify = false)
         closePopup(popup)
         destroyMainWeb()

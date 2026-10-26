@@ -12,14 +12,13 @@ import android.webkit.WebView
 import android.widget.Toast
 import androidx.annotation.StringRes
 import com.remoteeverything.app.R
-import com.remoteeverything.core.api.belongsToGateway
+import com.remoteeverything.core.api.ScopedDownload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -90,29 +89,12 @@ class WebDownloadBridge(
         // is fetched without it, because the credential is this gateway's and this
         // gateway's only, and a host outside it that asks for it is refused rather
         // than loaned it.
-        val transport = if (belongsToGateway(gatewayOrigin, url)) {
-            clientProvider() ?: run {
-                toast(R.string.web_download_failed)
-                return
-            }
-        } else {
-            plainTransport
-        }
-        val client = transport.newBuilder().addNetworkInterceptor { chain ->
-            val address = chain.request().url.toString()
-            val request = chain.request().newBuilder().removeHeader("Cookie")
-            cookieManager.getCookie(address)?.let { request.header("Cookie", it) }
-            val response = chain.proceed(request.build())
-            response.headers("Set-Cookie").forEach { cookieManager.setCookie(address, it) }
-            response
-        }.build()
+        val client = ScopedDownload(gatewayOrigin, clientProvider, plainTransport,
+            cookieManager::getCookie, cookieManager::setCookie)
         val name = fileName(url, contentDisposition, mimetype)
         scope.launch(Dispatchers.IO) {
             val saved = runCatching {
-                val request = Request.Builder().url(url)
-                    .header("User-Agent", userAgent)
-                    .build()
-                client.newCall(request).execute().use { response ->
+                client.execute(url, userAgent).use { response ->
                     if (!response.isSuccessful) return@use null
                     val body = response.body
                     val mime = mimetype?.takeIf { it.isNotBlank() }

@@ -4,6 +4,7 @@ import com.remoteeverything.core.model.ServerPin
 import com.remoteeverything.core.store.AtomicFile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
 
 /**
@@ -35,38 +36,53 @@ class StagedSetupStore(private val file: File) {
 
     private val json = Json { ignoreUnknownKeys = false }
 
+    @Synchronized
     fun stage(staged: StagedSetup) {
-        AtomicFile.write(file, json.encodeToString(StagedSetup.serializer(), staged).toByteArray(Charsets.UTF_8))
+        val records = loadAll().toMutableList()
+        val index = records.indexOfFirst { it.origin == staged.origin }
+        if (index < 0) records.add(staged) else records[index] = staged
+        save(records)
     }
 
     /** The staged setup, when there is a readable one. An unreadable file is no setup. */
-    fun load(): StagedSetup? {
-        val bytes = AtomicFile.read(file) ?: return null
+    @Synchronized
+    fun loadAll(): List<StagedSetup> {
+        val bytes = AtomicFile.read(file) ?: return emptyList()
         return try {
-            json.decodeFromString(StagedSetup.serializer(), bytes.toString(Charsets.UTF_8))
+            json.decodeFromString(ListSerializer(StagedSetup.serializer()), bytes.toString(Charsets.UTF_8))
+                .also { records -> require(records.all { it.schema == 1 } && records.map { it.origin }.distinct().size == records.size) }
         } catch (e: Exception) {
-            null
+            emptyList()
         }
     }
+
+    fun load(origin: String? = null): StagedSetup? = loadAll().firstOrNull { origin == null || it.origin == origin }
 
     /**
      * What a restart resumes: a staged setup whose pending window is still open.
      * One whose window has passed is dropped — the gateway will not admit it any
      * more, and keeping it would only promise a resumption that cannot happen.
      */
-    fun resume(nowEpochMs: Long): StagedSetup? {
-        val staged = load() ?: return null
+    fun resume(nowEpochMs: Long, origin: String? = null): StagedSetup? {
+        val staged = load(origin) ?: return null
         if (nowEpochMs >= staged.pendingExpiresAtEpochMs) {
-            clear()
+            clear(staged.origin)
             return null
         }
         return staged
     }
 
-    fun clear() {
+    @Synchronized
+    fun clear(origin: String? = null) {
+        if (origin != null) { save(loadAll().filterNot { it.origin == origin }); return }
         if (file.exists()) {
             AtomicFile.delete(file)
         }
+    }
+
+    private fun save(records: List<StagedSetup>) {
+        if (records.isEmpty()) { clear(); return }
+        AtomicFile.write(file, json.encodeToString(ListSerializer(StagedSetup.serializer()), records).toByteArray(Charsets.UTF_8))
     }
 }
 

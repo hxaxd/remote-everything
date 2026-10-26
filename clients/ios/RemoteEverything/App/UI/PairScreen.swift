@@ -23,6 +23,18 @@ struct PairScreen: View {
                     switch model.pairingPhase {
                     case .pairing:
                         pairingView(theme)
+                    case .waitingApproval(let staged):
+                        VStack(spacing: Theme.gapM) {
+                            ProgressView()
+                            Text(l10n(MessageKeys.PAIR_WAITING_APPROVAL)).font(Theme.headline)
+                            Text(staged.nodeName).font(Theme.body)
+                            Button(l10n(MessageKeys.ACTION_RETRY)) {
+                                Task { await model.resumeStagedSetups(origin: staged.origin) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            Button(l10n(MessageKeys.ACTION_BACK)) { model.cancelAddNode(); dismiss() }
+                        }
+                        .frame(maxWidth: .infinity)
                     case .idle, .failed:
                         inputView(theme)
                         if let invitation = model.invitation {

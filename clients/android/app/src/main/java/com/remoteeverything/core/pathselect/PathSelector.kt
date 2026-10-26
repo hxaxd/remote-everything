@@ -34,8 +34,9 @@ object PathSelector {
                 choices.clear()
             }
             val best = choose(node.paths)
-            val remembered = choices[node.id]
-                ?.takeIf { cached -> node.paths.any { it.origin == cached.origin && it.reachable == true } }
+            val remembered = choices[node.id]?.let { cached ->
+                node.paths.firstOrNull { it.origin == cached.origin && it.reachable == true }
+            }
             val chosen = when {
                 best == null -> null
                 remembered == null -> best

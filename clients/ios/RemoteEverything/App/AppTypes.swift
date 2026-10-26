@@ -66,9 +66,7 @@ enum Notice: Equatable, Identifiable {
 enum PairingPhase: Equatable {
     case idle
     case pairing
-    /// The device paired and its operator has not approved it yet: the page
-    /// stays open on the same screen Android keeps, with a retry and a way back.
-    case pendingApproval(nodeName: String)
+    case waitingApproval(StagedSetup)
     case failed(PairingFailure)
 }
 

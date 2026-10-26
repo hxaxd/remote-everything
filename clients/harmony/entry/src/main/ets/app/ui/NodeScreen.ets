@@ -166,7 +166,7 @@ export struct NodeAppsScreen {
     .onClick(() => {
       // A stopped application that will not start itself on open is not a door:
       // tapping it does nothing, the way the other clients behave. Start it first.
-      if (app.code === AppState.Stopped && !app.enabled) {
+      if (app.code === AppState.Stopped || app.code === AppState.Stopping) {
         return;
       }
       model.openApp(model.catalogNodeId, app);

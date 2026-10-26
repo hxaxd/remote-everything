@@ -20,6 +20,8 @@ final class IdentityVault {
 
     private let keychain: KeychainCredentialStore
     private var imported: [String: DeviceCredential] = [:]
+    private var versions: [String: Int] = [:]
+    func version(origin: String) -> Int { versions[Self.alias(forOrigin:origin),default:0] }
 
     init(keychain: KeychainCredentialStore = KeychainCredentialStore()) {
         self.keychain = keychain
@@ -36,6 +38,7 @@ final class IdentityVault {
     func store(origin: String, pkcs12: Data, password: String) throws -> String {
         let alias = IdentityVault.alias(forOrigin: origin)
         try keychain.store(alias: alias, pkcs12: pkcs12, password: password)
+        versions[alias,default:0] += 1
         _ = imported.removeValue(forKey: alias)
         return alias
     }
@@ -76,12 +79,14 @@ final class IdentityVault {
     /// Deletes an origin's credential. The reference and the material go together.
     func forget(origin: String) {
         let alias = IdentityVault.alias(forOrigin: origin)
+        versions[alias,default:0] += 1
         keychain.delete(alias: alias)
         _ = imported.removeValue(forKey: alias)
     }
 
     /// Drops a credential that no identity and no staged setup refers to any more.
     func forget(aliasRef: String) {
+        versions[aliasRef,default:0] += 1
         keychain.delete(alias: aliasRef)
         _ = imported.removeValue(forKey: aliasRef)
     }

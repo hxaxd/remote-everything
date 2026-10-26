@@ -6,6 +6,7 @@ import java.security.Principal
 import java.security.PrivateKey
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLEngine
+import javax.net.ssl.SSLSocket
 import javax.net.ssl.X509ExtendedKeyManager
 
 /**
@@ -16,13 +17,15 @@ import javax.net.ssl.X509ExtendedKeyManager
 class IdentityKeyManager(
     private val alias: String,
     private val material: Pkcs12.Material,
+    private val gatewayOrigin: String,
 ) : X509ExtendedKeyManager() {
 
     override fun getClientAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> =
         if (keyType == null || matches(keyType)) arrayOf(alias) else emptyArray()
 
     override fun chooseClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, socket: Socket?): String? =
-        if (keyType == null || keyType.any { matches(it) }) alias else null
+        if (allows((socket as? SSLSocket)?.handshakeSession?.peerHost) &&
+            (keyType == null || keyType.any { matches(it) })) alias else null
 
     override fun getServerAliases(keyType: String?, issuers: Array<out Principal>?): Array<String> = emptyArray()
 
@@ -35,7 +38,9 @@ class IdentityKeyManager(
         if (alias == this.alias) material.privateKey else null
 
     override fun chooseEngineClientAlias(keyType: Array<out String>?, issuers: Array<out Principal>?, engine: SSLEngine?): String? =
-        chooseClientAlias(keyType, issuers, null)
+        if (allows(engine?.peerHost) && (keyType == null || keyType.any { matches(it) })) alias else null
+
+    private fun allows(host: String?): Boolean = host != null && isGatewayHost(gatewayOrigin, host)
 
     override fun chooseEngineServerAlias(keyType: String?, issuers: Array<out Principal>?, engine: SSLEngine?): String? = null
 

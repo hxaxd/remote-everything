@@ -75,6 +75,13 @@ export class Identity {
   }
 }
 
+export function sameIdentity(left: Identity, right: Identity): boolean {
+  return left.origin === right.origin && left.certFingerprint === right.certFingerprint &&
+    left.credentialRef === right.credentialRef && left.createdAt === right.createdAt &&
+    left.serverPin?.publicKeyPin === right.serverPin?.publicKeyPin &&
+    left.serverPin?.certFingerprint === right.serverPin?.certFingerprint;
+}
+
 /** One way to reach one node: an origin this device holds a credential for. */
 /** The two words a link is shown in: a local one, or one over a tunnel. */
 export enum LinkKind {
