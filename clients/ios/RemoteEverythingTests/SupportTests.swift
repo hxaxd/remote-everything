@@ -39,6 +39,10 @@ final class SupportTests: XCTestCase {
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://gw.example.com"), "gw.example.com")
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://GW.Example.com:8443"), "gw.example.com")
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://192.168.1.4:8443"), "192.168.1.4")
+        XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin:"https://[::1]:8443"),"::1")
+        let ipv6 = GatewayChallengeHandler(gatewayOrigin:"https://[::1]:8443",pin:nil,credential:nil)
+        XCTAssertTrue(ipv6.isGatewayHost("::1"))
+        XCTAssertFalse(GatewayChallengeHandler(gatewayOrigin:"https://127.0.0.1",pin:nil,credential:nil).isGatewayHost("evil.127.0.0.1"))
     }
 
     func testACertificateIsPresentedOnlyToTheGateway() {
@@ -87,6 +91,20 @@ final class SupportTests: XCTestCase {
     }
 
     // MARK: - Staged setups on disk
+    func testPendingApprovalsSurviveRestartAndClearIndependently() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let store = StagedSetupStore(directory:directory)
+        let first = stagedSetup(origin:"https://first.example")
+        let second = stagedSetup(origin:"https://second.example")
+        try store.stage(first)
+        try store.stage(second)
+        let restarted = StagedSetupStore(directory:directory)
+        XCTAssertEqual(restarted.loadAll().count,2)
+        restarted.clear(origin:first.origin)
+        XCTAssertNil(restarted.load(origin:first.origin))
+        XCTAssertEqual(restarted.load(origin:second.origin)?.certificateFingerprint,second.certificateFingerprint)
+    }
 
     private func stagedSetup(origin: String) -> StagedSetup {
         StagedSetup(

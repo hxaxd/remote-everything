@@ -1119,6 +1119,121 @@
       },
       "expect": "reject",
       "reason": "minimumPlatforms names exactly the three platforms of this project; a fourth is a field the client does not understand."
+    },
+    {
+      "name": "setup-reject-scheme-case",
+      "kind": "setup",
+      "payload": {
+        "uri": "REMOTE-EVERYTHING://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Setup links use the canonical scheme and authority and strictly decoded UTF-8."
+    },
+    {
+      "name": "setup-reject-host-case",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://SETUP?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Setup links use the canonical scheme and authority and strictly decoded UTF-8."
+    },
+    {
+      "name": "setup-reject-host-slash",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup/?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Setup links use the canonical scheme and authority and strictly decoded UTF-8."
+    },
+    {
+      "name": "setup-reject-invalid-utf8",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%FF%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://192.168.1.5:8080&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Setup links use the canonical scheme and authority and strictly decoded UTF-8."
+    },
+    {
+      "name": "release-reject-fractional-buildNumber",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5.0",
+        "buildNumber": 1.5,
+        "protocolVersion": 1,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "reject",
+      "reason": "Build and protocol numbers are positive integers."
+    },
+    {
+      "name": "release-reject-fractional-protocolVersion",
+      "kind": "release",
+      "payload": {
+        "schema": 1,
+        "versionName": "3.5.0",
+        "buildNumber": 28,
+        "protocolVersion": 1.5,
+        "minimumPlatforms": {
+          "androidSdk": 30,
+          "ios": "17.0",
+          "harmonyApi": "24"
+        }
+      },
+      "expect": "reject",
+      "reason": "Build and protocol numbers are positive integers."
+    },
+    {
+      "name": "setup-reject-origin-empty-host",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://:443&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "The origin has a nonempty lowercase host."
+    },
+    {
+      "name": "setup-reject-origin-host-case",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://Gateway.example&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "The origin has a nonempty lowercase host."
+    },
+    {
+      "name": "setup-reject-empty-ipv6-host",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://[]&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Gateway origins require a nonempty canonical host; IPv6 literals are bracketed."
+    },
+    {
+      "name": "setup-reject-unbracketed-ipv6",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://2001:db8::1&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "reject",
+      "reason": "Gateway origins require a nonempty canonical host; IPv6 literals are bracketed."
+    },
+    {
+      "name": "setup-accept-mapped-ipv6-origin",
+      "kind": "setup",
+      "payload": {
+        "uri": "remote-everything://setup?node=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&node_name=%E5%AE%A2%E5%8E%85%E7%94%B5%E8%84%91&origin=https://[::ffff:192.168.1.2]:8443&invitation=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&fingerprint=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&public_key_pin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "expect": "accept",
+      "reason": "Gateway origins require a nonempty canonical host; IPv6 literals are bracketed."
     }
   ]
 }

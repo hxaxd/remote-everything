@@ -24,6 +24,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -139,6 +141,48 @@ class BehaviorFixturesTest {
     }
 
     // --- paths.json ----------------------------------------------------------
+    @Test fun `shared TLS certificates require matching host validity and pin`() {
+        val document = json.parseToJsonElement(fixture("tls.json")).jsonObject
+        val certificates = document.getValue("certificates").jsonObject
+        val pin = document.getValue("pin").jsonObject
+        for (entry in document.getValue("cases").jsonArray.map { it.jsonObject }) {
+            val bytes = java.util.Base64.getDecoder().decode(certificates.getValue(entry.getValue("certificate").jsonPrimitive.content).jsonPrimitive.content)
+            val certificate = java.security.cert.CertificateFactory.getInstance("X.509").generateCertificate(bytes.inputStream()) as java.security.cert.X509Certificate
+            val mismatch = entry["mismatch"]?.jsonPrimitive?.content == "true"
+            val expectedPin = com.remoteeverything.core.model.ServerPin(
+                if(mismatch) "0".repeat(64) else pin.getValue("fingerprint").jsonPrimitive.content,
+                if(mismatch) "A".repeat(43)+"=" else pin.getValue("publicKeyPin").jsonPrimitive.content)
+            val host = entry.getValue("host").jsonPrimitive.content
+            val engine = javax.net.ssl.SSLContext.getDefault().createSSLEngine(host,443)
+            val trusted = runCatching { com.remoteeverything.core.api.PinnedTrustManager(expectedPin).checkServerTrusted(arrayOf(certificate),"ECDHE_ECDSA",engine) }.isSuccess
+            assertEquals(host,entry.getValue("trusted").jsonPrimitive.content.toBooleanStrict(),trusted)
+        }
+    }
+    @Serializable private data class HostsFixture(val privateHosts: List<HostFixture>)
+    @Serializable private data class UpdatesFixture(val updates: List<UpdateChain>)
+    @Serializable private data class UpdateChain(val name: String, val steps: List<RouteUpdate>)
+    @Serializable private data class UpdatedRoad(val origin:String,val reachable:Boolean,val latencyMs:Long,val isPrivate:Boolean,val link:String)
+    @Serializable private data class RouteUpdate(val paths: List<UpdatedRoad>, val chosen: String, val link: String)
+
+    @Test fun `route declaration fallback and restoration follow the shared action chain`() {
+        for (chain in json.decodeFromString<UpdatesFixture>(fixture("paths.json")).updates) {
+            val cache = PathSelector.Cache()
+            for (step in chain.steps) {
+                val paths = step.paths.map { Path(it.origin,reachable=it.reachable,latencyMs=it.latencyMs,isPrivate=it.isPrivate,
+                    link=if(it.link == "local") com.remoteeverything.core.model.LinkKind.LOCAL else com.remoteeverything.core.model.LinkKind.TUNNEL) }
+                val chosen = cache.resolve(Node("node",chain.name,paths),"wifi")
+                assertEquals(chain.name,step.chosen,chosen?.origin)
+                assertEquals(chain.name,step.link,chosen?.link?.name?.lowercase())
+            }
+        }
+    }
+    @Serializable private data class HostFixture(val host: String, @kotlinx.serialization.SerialName("private") val expected: Boolean)
+
+    @Test fun `private address parsing agrees for literal IPv4 IPv6 and mapped addresses`() {
+        for (entry in json.decodeFromString<HostsFixture>(fixture("paths.json")).privateHosts) {
+            assertEquals(entry.host,entry.expected,com.remoteeverything.core.api.isPrivateHost(entry.host))
+        }
+    }
 
     @Serializable
     private class PathsFixture(val cases: List<PathCase>, val remembered: List<RememberedCase> = emptyList())

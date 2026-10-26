@@ -27,6 +27,18 @@ function identity(origin: string, pin: ServerPin | null): Identity {
 
 export default function storeTests() {
   describe('StoreTests', () => {
+    it('pending approvals survive restart and clear independently',0,() => {
+      const store: StagedSetupStore = new StagedSetupStore(new IdentityVault());
+      store.clear();
+      store.stage(staged(9999999999999,null));
+      store.stage(new StagedSetup('https://second.example',NODE_ID,'Two','Phone',FINGERPRINT,'ref-2',9999999999999,null));
+      const restarted: StagedSetupStore = new StagedSetupStore(new IdentityVault());
+      expect(restarted.readAll().length).assertEqual(2);
+      restarted.clear('https://gw.example.com');
+      expect(restarted.readAll().length).assertEqual(1);
+      expect(restarted.readAll()[0].origin).assertEqual('https://second.example');
+      restarted.clear();
+    });
     const context: Context = abilityDelegatorRegistry.getAbilityDelegator().getAppContext();
     AtomicFile.init(`${context.filesDir}/storetests`);
 
