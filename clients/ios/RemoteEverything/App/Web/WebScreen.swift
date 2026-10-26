@@ -26,6 +26,8 @@ struct WebScreen: View {
     @State private var openFailure: String?
     @State private var isResolving = true
     @State private var generation = 0
+    @State private var crashes = 0
+    @State private var resolveRequest = 0
     @State private var prefs = WebAppPrefs()
     @State private var panelShown = false
     @State private var notice: String?
@@ -49,7 +51,7 @@ struct WebScreen: View {
                     onUserAgent: { choose($0) },
                     onRefresh: {
                         panelShown = false
-                        handle.reloadPage()
+                        Task { await resolve() }
                     },
                     onExit: { dismiss() },
                     onDismiss: { panelShown = false }
@@ -78,6 +80,7 @@ struct WebScreen: View {
             await resolve()
         }
         .onDisappear {
+            resolveRequest += 1
             // The next screen is not this application: the orientation goes back
             // to the system's, and the notice task has nothing left to say.
             OrientationLock.shared.release()
@@ -96,7 +99,11 @@ struct WebScreen: View {
                     handle: handle,
                     interfaceStyle: interfaceStyle,
                     prefs: prefs,
-                    onProcessTerminated: { generation += 1 },
+                    onProcessTerminated: {
+                        crashes += 1
+                        if crashes <= 2 { Task { await resolve(manual:false) } }
+                        else { handle.phase = .failed }
+                    },
                     onNotice: { show(notice: $0) }
                 )
                 .id("\(WebSessionScope.identifier(gatewayOrigin: target.gatewayOrigin, appKey: appKey))-\(generation)")
@@ -179,21 +186,23 @@ struct WebScreen: View {
 
     /// Every retry starts from the open request: the address is asked for again
     /// rather than remembered, which is what the contract asks for.
-    private func resolve() async {
+    private func resolve(manual: Bool = true) async {
+        resolveRequest += 1
+        let request = resolveRequest
+        if manual { crashes = 0 }
+        handle.phase = .loading
         isResolving = true
         openFailure = nil
-        let previous = target
         do {
             let resolved = try await model.resolveWebTarget(nodeID: nodeID, appID: appID)
+            guard request == resolveRequest, !Task.isCancelled else { return }
             target = resolved
-            if previous?.gatewayOrigin == resolved.gatewayOrigin, handle.webView != nil {
-                // The WebView is already up: a retry loads the address again,
-                // whether or not it is the same one.
-                handle.load(resolved.url)
-            }
+            generation += 1
         } catch let error as ClientError {
+            guard request == resolveRequest, !Task.isCancelled else { return }
             openFailure = ErrorText.text(for: error.code)
         } catch {
+            guard request == resolveRequest, !Task.isCancelled else { return }
             openFailure = l10n(MessageKeys.APP_OPEN_FAILED)
         }
         isResolving = false

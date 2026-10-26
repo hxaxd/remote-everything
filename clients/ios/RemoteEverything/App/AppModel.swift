@@ -76,7 +76,7 @@ final class AppModel: ObservableObject {
         self.settings = store.loadSettings()
 
         let stages = StagedSetupStore(directory: store.pairingDirectory)
-        let pairingCoord = PairingCoordinator(vault: vault, stages: stages) { origin, credential, pin in
+        let pairingCoord = PairingCoordinator(vault: vault, stages: stages, store: store) { origin, credential, pin in
             if credential == nil {
                 return clients.pairingClient(origin: origin, pin: pin)
             }
@@ -165,6 +165,7 @@ final class AppModel: ObservableObject {
     private func startForegroundLoops() {
         startRefreshLoop()
         pairingSession.startPendingLoop()
+        catalogController.resumeLoops()
     }
 
     private func stopForegroundLoops() {
@@ -219,8 +220,8 @@ final class AppModel: ObservableObject {
         catalogController.beginCatalogPolling(nodeID: nodeID)
     }
 
-    func endCatalogPolling() {
-        catalogController.endCatalogPolling()
+    func endCatalogPolling(nodeID: String) {
+        catalogController.endCatalogPolling(nodeID: nodeID)
     }
 
     func loadCatalog(nodeID: String) async {
@@ -278,8 +279,13 @@ final class AppModel: ObservableObject {
         addNodeText = ""
     }
 
-    func resumeStagedSetups() async {
-        await pairingSession.resumeStagedSetups()
+    func resumeStagedSetups(origin: String? = nil) async {
+        await pairingSession.resumeStagedSetups(origin: origin)
+    }
+
+    func abandonPending(origin: String) {
+        guard stagedSetups.contains(where: { $0.origin == origin }) else { return }
+        if pairingSession.discardStagedSetups(origin: origin) { nodesController.forget(origin: origin) }
     }
 
     static func defaultDeviceName() -> String {

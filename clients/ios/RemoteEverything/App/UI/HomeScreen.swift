@@ -48,7 +48,7 @@ struct HomeScreen: View {
     @ViewBuilder
     private func content(_ theme: Theme) -> some View {
         VStack(spacing: 0) {
-            if let staged = model.stagedSetups.first {
+            ForEach(model.stagedSetups, id: \.origin) { staged in
                 HStack(spacing: Theme.gapM) {
                     StatusBadge(text: l10n(MessageKeys.NODE_PENDING), color: theme.warn)
                     Text(staged.nodeName)
@@ -57,7 +57,7 @@ struct HomeScreen: View {
                         .lineLimit(1)
                     Spacer()
                     Button {
-                        Task { await model.resumeStagedSetups() }
+                        Task { await model.resumeStagedSetups(origin: staged.origin) }
                     } label: {
                         Text(l10n(MessageKeys.ACTION_RETRY))
                             .font(Theme.caption)
@@ -67,6 +67,8 @@ struct HomeScreen: View {
                             .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    Button(l10n(MessageKeys.ACTION_CANCEL)) { model.abandonPending(origin: staged.origin) }
+                        .buttonStyle(.borderless)
                 }
                 .padding(.horizontal, Theme.gapM)
                 .padding(.vertical, Theme.gapS + 2)

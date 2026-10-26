@@ -66,13 +66,16 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
 
     var input by rememberSaveable { mutableStateOf(vm.pendingInvitation.value ?: "") }
     var deviceName by rememberSaveable { mutableStateOf(android.os.Build.MODEL ?: "") }
+    var submittedInput by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(input) { if (submittedInput != input) submittedInput = null }
     val state by vm.state.collectAsStateWithLifecycle()
     val parsed = remember(input) { if (input.isBlank()) null else vm.parseInvitation(input) }
 
-    LaunchedEffect(Unit) {
-        val pending = vm.pendingInvitation.value
-        if (!pending.isNullOrBlank()) {
-            input = pending
+    val pending by vm.pendingInvitation.collectAsStateWithLifecycle()
+    LaunchedEffect(pending) {
+        val incoming = pending
+        if (!incoming.isNullOrBlank()) {
+            input = incoming
             vm.consumeInvitation()
         }
     }
@@ -253,6 +256,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
                                 Spacer(Modifier.height(12.dp))
                                 OutlinedTextField(
                                     value = deviceName,
+                                    enabled = submittedInput == null,
                                     onValueChange = { deviceName = it },
                                     label = { Text(l10n(MessageKeys.PAIR_DEVICE_NAME)) },
                                     supportingText = {
@@ -269,7 +273,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
                                 Spacer(Modifier.height(16.dp))
                                 Row {
                                     Button(
-                                        onClick = { vm.pair(parsed, deviceName) },
+                                        onClick = { submittedInput = input; vm.pair(parsed, deviceName) },
                                         enabled = deviceName.isNotBlank(),
                                         modifier = Modifier.weight(1f),
                                     ) {

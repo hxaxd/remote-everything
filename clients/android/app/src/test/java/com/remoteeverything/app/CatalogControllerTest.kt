@@ -158,6 +158,67 @@ class CatalogControllerTest {
         { id -> if (id == a.id) a else b }, {},
     )
 
+    @Test fun `two applications settle independently and top level status needs no app object`() = runBlocking {
+        withTimeout(10_000) {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            try {
+                val pending = listOf("one","two").associateWith { CompletableDeferred<ControlResponse>() }
+                val requested = listOf("one","two").associateWith { CompletableDeferred<Unit>() }
+                val reads = mutableMapOf<String,Int>()
+                var commands = 0
+                val client = object : ControllerClient(origin) {
+                    override suspend fun catalog(nodeId:String):CatalogResponse = controllerCatalog("app").let { answer ->
+                        answer.copy(apps=listOf(answer.apps[0].copy(id="one"),answer.apps[0].copy(id="two")))
+                    }
+                    override suspend fun start(nodeId:String,appId:String):ControlResponse {
+                        commands++
+                        return ControlResponse(true,ControlAction.START,true,true,false,ControlCode.STARTING)
+                    }
+                    override suspend fun status(nodeId:String,appId:String):ControlResponse {
+                        val count = (reads[appId] ?: 0) + 1; reads[appId] = count
+                        if (count == 1) return ControlResponse(true,ControlAction.STATUS,true,false,false,ControlCode.STOPPED)
+                        requested.getValue(appId).complete(Unit)
+                        return pending.getValue(appId).await()
+                    }
+                }
+                val c = controller(scope,client)
+                c.watchNode(a);c.control(a,"one",true);c.control(a,"two",true)
+                requested.values.forEach { it.await() }
+                pending.getValue("one").complete(ControlResponse(true,ControlAction.STATUS,true,true,true,ControlCode.READY))
+                kotlinx.coroutines.yield()
+                val apps = (c.catalog.value as CatalogUiState.Ready).apps
+                assertEquals(com.remoteeverything.core.model.AppState.READY,apps.first { it.id == "one" }.code)
+                assertEquals(com.remoteeverything.core.model.AppState.STARTING,apps.first { it.id == "two" }.code)
+                pending.getValue("two").complete(ControlResponse(true,ControlAction.STATUS,true,true,true,ControlCode.READY))
+                kotlinx.coroutines.yield()
+                assertEquals(2,commands)
+            } finally { scope.cancel() }
+        }
+    }
+
+    @Test fun `a lost command reply is reconciled with reads without repeating the command`() = runBlocking {
+        withTimeout(10_000) {
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+            try {
+                var commands = 0
+                var reads = 0
+                val polled = CompletableDeferred<Unit>()
+                val client = object : ControllerClient(origin) {
+                    override suspend fun catalog(nodeId:String) = controllerCatalog("A")
+                    override suspend fun start(nodeId:String,appId:String):ControlResponse { commands++;throw java.io.IOException("reply lost") }
+                    override suspend fun status(nodeId:String,appId:String):ControlResponse {
+                        if (++reads > 1) polled.complete(Unit)
+                        return ControlResponse(true,ControlAction.STATUS,true,true,true,ControlCode.READY)
+                    }
+                }
+                val c = controller(scope,client);c.watchNode(a);c.control(a,"dsh",true)
+                polled.await();kotlinx.coroutines.yield()
+                assertEquals(1,commands);assertTrue(reads >= 2)
+                assertEquals("A",readyName(c))
+            } finally { scope.cancel() }
+        }
+    }
+
     private fun offlineControl() = ControlResponse(false, ControlAction.START, false, false, false, ControlCode.COMPUTER_OFFLINE)
 
     private fun readyName(controller: CatalogController): String {

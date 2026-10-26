@@ -37,6 +37,7 @@ class NodesController(
     private val clock: () -> Long = System::currentTimeMillis,
     /** Whether this phone has any network to send on at all, asked when a probe fails. */
     private val offline: () -> Boolean = { false },
+    private val onPathChanged: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {
 
     private val selector = PathSelector.Cache()
@@ -61,6 +62,9 @@ class NodesController(
     private val failedProbes = mutableMapOf<String, MutableList<LinkAttempt>>()
 
     private var cacheLoaded = false
+    private val epochs = mutableMapOf<String, Long>()
+    private val liveIdentities = mutableMapOf<String, Identity>()
+    private val pathResults = mutableMapOf<Pair<String, String>, Boolean>()
 
     /** Called under lock before reading or replacing the combined cache. */
     private fun loadCacheLocked() {
@@ -73,11 +77,23 @@ class NodesController(
     private class Probe(val origin: String, val response: NodesResponse?, val latencyMs: Long?)
 
     suspend fun refresh(identities: List<Identity>, networkKey: String): List<Node> = coroutineScope {
-        synchronized(lock) { loadCacheLocked() }
+        val versions = synchronized(lock) {
+            loadCacheLocked()
+            identities.forEach { identity ->
+                if (liveIdentities[identity.origin] != identity) {
+                    epochs[identity.origin] = (epochs[identity.origin] ?: 0) + 1
+                    liveIdentities[identity.origin] = identity
+                }
+            }
+            pathResults.clear()
+            identities.associate { it.origin to (epochs[it.origin] ?: 0) }
+        }
         val probes = identities.map { identity ->
-            async(Dispatchers.IO) { probe(identity) }
+            async(Dispatchers.IO) { probe(identity, versions.getValue(identity.origin)) }
         }.awaitAll().associateBy { it.origin }
-        val answers = identities.map { identity ->
+        val answers = identities.filter { identity -> synchronized(lock) {
+            epochs[identity.origin] == versions[identity.origin] && liveIdentities[identity.origin] == identity
+        } }.map { identity ->
             val probe = probes[identity.origin]
             val response = probe?.response
                 ?: lastGoodAnswerFor(identity.origin)
@@ -93,17 +109,17 @@ class NodesController(
         lastGoodAnswers[origin]
     }
 
-    private suspend fun probe(identity: Identity): Probe {
+    private suspend fun probe(identity: Identity, epoch: Long): Probe {
         val client = clientFactory(identity) ?: return Probe(identity.origin, response = null, latencyMs = null)
         val started = clock()
         return try {
             val response = client.nodes()
-            recordAnswer(identity.origin, response)
+            recordAnswer(identity.origin, epoch, response)
             Probe(identity.origin, response, clock() - started)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            recordFailure(identity.origin, classifyFailure(e, offline()))
+            recordFailure(identity.origin, epoch, classifyFailure(e, offline()))
             Probe(identity.origin, response = null, latencyMs = null)
         }
     }
@@ -113,8 +129,9 @@ class NodesController(
      * here, and with it the reason it was failing — the screen that offered to copy
      * a report stops offering, which is the point of keeping this at all.
      */
-    private fun recordAnswer(origin: String, response: NodesResponse) {
+    private fun recordAnswer(origin: String, epoch: Long, response: NodesResponse) {
         synchronized(lock) {
+            if (epochs[origin] != epoch) return
             loadCacheLocked()
             lastGoodAnswers[origin] = response
             lastAnswerAt[origin] = clock()
@@ -133,16 +150,18 @@ class NodesController(
      * and described by the latest failure rather than the first — a phone that
      * walked out of its Wi-Fi is still failing, but it is failing differently.
      */
-    private fun recordFailure(origin: String, failure: LinkFailure) {
+    private fun recordFailure(origin: String, epoch: Long, failure: LinkFailure) {
         val now = clock()
         val lastGood: Long?
         synchronized(lock) {
+            if (epochs[origin] != epoch) return
             val log = failedProbes.getOrPut(origin) { mutableListOf() }
             log.add(0, LinkAttempt(now, failure.kind))
             while (log.size > LinkAttemptsKept) log.removeAt(log.lastIndex)
             lastGood = lastAnswerAt[origin]
         }
         troubleState.update { current ->
+            if (synchronized(lock) { epochs[origin] != epoch }) return@update current
             val previous = current[origin]
             current + (
                 origin to LinkTrouble(
@@ -175,7 +194,25 @@ class NodesController(
     )
 
     /** Which path a node is reached by right now: private before public, fast before slow. */
-    fun choosePath(node: Node, networkKey: String): Path? = selector.resolve(node, networkKey)
+    fun choosePath(node: Node, networkKey: String): Path? = selector.resolve(withPathResults(node), networkKey)
+
+    fun pathsFor(node: Node, networkKey: String): List<Path> {
+        val current = withPathResults(node)
+        val first = selector.resolve(current, networkKey)
+        return listOfNotNull(first) + current.paths.filter { it.reachable == true && it.origin != first?.origin }
+    }
+
+    fun markPath(nodeId: String, origin: String, reachable: Boolean) {
+        synchronized(lock) { pathResults[nodeId to origin] = reachable }
+        selector.invalidate(nodeId)
+        onPathChanged(nodeId,origin,reachable)
+    }
+
+    private fun withPathResults(node: Node): Node = synchronized(lock) {
+        node.copy(paths = node.paths.map { path ->
+            pathResults[node.id to path.origin]?.let { path.copy(reachable = it) } ?: path
+        })
+    }
 
     /** The path a node is reached by right now, which is also what the row shows. */
     fun pathFor(node: Node, networkKey: String): Path? = choosePath(node, networkKey)
@@ -207,6 +244,9 @@ class NodesController(
     /** Drops one origin from memory and on-disk node cache when forgotten. */
     fun drop(origin: String) {
         synchronized(lock) {
+            epochs[origin] = (epochs[origin] ?: 0) + 1
+            liveIdentities.remove(origin)
+            pathResults.keys.removeAll { it.second == origin }
             loadCacheLocked()
             lastGoodAnswers.remove(origin)
             lastAnswerAt.remove(origin)

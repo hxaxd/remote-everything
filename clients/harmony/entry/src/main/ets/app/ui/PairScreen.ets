@@ -114,7 +114,7 @@ export struct AddNodeScreen {
         .borderRadius(Metrics.radiusControl)
         .height(Metrics.rowSettings)
         .width('100%')
-        .enabled(!model.pairingBusy)
+        .enabled(!model.pairingBusy && !model.pairingNameLocked)
         .onChange((value: string) => {
           model.editDeviceNameForPairing(value);
         })

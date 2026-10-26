@@ -27,6 +27,7 @@ private val Context.settingsStore by preferencesDataStore(name = "settings")
 interface IdentityRepository {
     suspend fun currentIdentities(): List<Identity>
     suspend fun saveIdentities(identities: List<Identity>)
+    suspend fun updateIdentities(transform: (List<Identity>) -> List<Identity>)
 }
 
 /**
@@ -74,6 +75,15 @@ class SettingsStore(
     override suspend fun saveIdentities(identities: List<Identity>) {
         dataStore.edit {
             it[Keys.IDENTITIES] = json.encodeToString(ListSerializer(Identity.serializer()), identities)
+        }
+    }
+
+    override suspend fun updateIdentities(transform: (List<Identity>) -> List<Identity>) {
+        dataStore.edit { preferences ->
+            val current = preferences[Keys.IDENTITIES]?.let {
+                json.decodeFromString(ListSerializer(Identity.serializer()), it)
+            }.orEmpty()
+            preferences[Keys.IDENTITIES] = json.encodeToString(ListSerializer(Identity.serializer()), transform(current))
         }
     }
 

@@ -5,7 +5,7 @@
 import { GatewayPath, LinkKind, NodeStatus } from '../../core/model/Models';
 import { MessageKeys } from '../../core/model/MessageKeys';
 import { model, NodeRow } from '../AppModel';
-import { PairingStage, PairingState } from '../State';
+import { StagedSetup } from '../../core/pairing/StagedSetup';
 import { Strings } from '../i18n/Strings';
 import { Metrics, TypeScale, withAlpha, tileAlpha } from '../theme/Tokens';
 import { BusyLine, EmptyState, Header, StateBadge, nodeTone, palette } from './Components';
@@ -34,7 +34,7 @@ export struct HomeScreen {
       })
       // The list's pull-refresh indicator is the one spinner; the header's arrow
       // stays a quiet icon, the way the other clients draw it.
-      if (model.pairing.stage === PairingStage.WaitingApproval) {
+      ForEach(model.pendingSetups, (pending: StagedSetup) => {
         // A device that paired but is not approved yet: saying so is the difference
         // between "it did not work" and "it is waiting" — with the one thing a
         // person can do about it right on the banner.
@@ -44,7 +44,7 @@ export struct HomeScreen {
             color: palette(model.dark).warn,
             dark: model.dark
           })
-          Text(this.pendingNodeName())
+          Text(pending.nodeName)
             .fontSize(TypeScale.body)
             .fontColor(palette(model.dark).textPrimary)
             .maxLines(1)
@@ -58,13 +58,19 @@ export struct HomeScreen {
             .height(Metrics.rowSettings)
             .padding({ left: Metrics.gapM, right: Metrics.gapM })
             .onClick(() => {
-              model.retryStaged();
+              model.retryStaged(pending.origin);
             })
+          Button(Strings.text(MessageKeys.ACTION_CANCEL))
+            .fontSize(TypeScale.caption)
+            .fontColor(palette(model.dark).textSecondary)
+            .backgroundColor(palette(model.dark).bgElevated)
+            .height(Metrics.rowSettings)
+            .onClick(() => { model.abandonPending(pending.origin); })
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
         .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin, top: Metrics.gapS, bottom: Metrics.gapS })
-      }
+      }, (pending: StagedSetup) => `${pending.origin}|${pending.certificateFingerprint}`)
       // The gesture is the pull; the progress is the Refresh's own spinner
       // (pitfalls §5). An empty list is a list: the empty state pulls the same way,
       // so both live inside the one Refresh.
@@ -112,15 +118,6 @@ export struct HomeScreen {
     .width('100%')
     .height('100%')
     .backgroundColor(palette(model.dark).bg)
-  }
-
-  /** The machine a pending pairing is waiting on, from wherever the state kept it. */
-  private pendingNodeName(): string {
-    const pairing: PairingState = model.pairing;
-    if (pairing.setup !== null) {
-      return pairing.setup.nodeName;
-    }
-    return pairing.nodeName;
   }
 
   /** One dot and one word per way in that exists, the one in use standing out. */

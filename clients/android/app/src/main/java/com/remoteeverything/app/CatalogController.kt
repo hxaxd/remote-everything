@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import com.remoteeverything.core.api.ControlResponse
 
 /**
  * Manages the live catalog of one node: periodic background refresh, application
@@ -38,6 +40,8 @@ class CatalogController(
     private var watchingNodeId: String? = null
     /** One visit to a node, including a later visit to the same node. */
     private var catalogGeneration = 0L
+    private val controls = mutableMapOf<String, Long>()
+    private var controlSerial = 0L
 
     /**
      * Watches one node's catalog.
@@ -59,6 +63,7 @@ class CatalogController(
         if (!force && watchingNodeId == node.id && catalogJob?.isActive == true) return
         val nodeId = node.id
         val generation = ++catalogGeneration
+        controls.clear()
         watchingNodeId = nodeId
         catalogJob?.cancel()
         _catalog.value = CatalogUiState.Loading
@@ -75,6 +80,7 @@ class CatalogController(
         watchingNodeId = null
         catalogJob?.cancel()
         catalogJob = null
+        controls.clear()
     }
 
     private fun isCurrent(nodeId: String, generation: Long): Boolean =
@@ -83,7 +89,14 @@ class CatalogController(
     private suspend fun refreshCatalog(node: Node, generation: Long) {
         if (!isCurrent(node.id, generation)) return
         val answer = fetchCatalog(node)
-        if (isCurrent(node.id, generation)) _catalog.value = answer
+        if (isCurrent(node.id, generation)) {
+            val previous = _catalog.value as? CatalogUiState.Ready
+            _catalog.value = if (answer is CatalogUiState.Ready && previous != null) {
+                CatalogUiState.Ready(answer.apps.map { app ->
+                    if (controls.containsKey(app.id)) previous.apps.firstOrNull { it.id == app.id } ?: app else app
+                })
+            } else answer
+        }
     }
 
     /**
@@ -95,28 +108,35 @@ class CatalogController(
      * different: it is the gateway's answer, and another road would answer the same.
      */
     suspend fun fetchCatalog(node: Node): CatalogUiState {
-        val best = nodesController.choosePath(node, currentNetworkKey())
-        val roads = (listOfNotNull(best) + node.paths.filter { it.reachable == true && it.origin != best?.origin })
+        val roads = nodesController.pathsFor(node, currentNetworkKey())
         if (roads.isEmpty()) return CatalogUiState.Offline
         var answer: CatalogUiState = CatalogUiState.Offline
         for (path in roads) {
             val identity = currentIdentities().firstOrNull { it.origin == path.origin } ?: continue
             val client = nodesController.clientFor(identity) ?: continue
             try {
-                return CatalogOutcome.forAnswer(client.catalog(node.id)).toUiState()
+                val outcome = CatalogOutcome.forAnswer(client.catalog(node.id)).toUiState()
+                if (currentIdentities().none { it == identity }) continue
+                if (outcome is CatalogUiState.Ready) {
+                    nodesController.markPath(node.id, path.origin, true)
+                    return outcome
+                }
+                answer = outcome
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ClientError) {
+                if (currentIdentities().none { it == identity }) continue
                 answer = CatalogOutcome.forRefusal(e).toUiState()
                 // An answer that is not "the machine is off" is the gateway talking:
                 // asking it again by another road would say the same thing.
                 if (answer !is CatalogUiState.Offline) return answer
             } catch (e: Exception) {
+                if (currentIdentities().none { it == identity }) continue
                 answer = CatalogUiState.Offline
             }
             // This road is not answering: the next one gets the turn, and the
             // remembered choice stops pointing here.
-            nodesController.dropChoice(node.id)
+            nodesController.markPath(node.id, path.origin, false)
         }
         return answer
     }
@@ -141,32 +161,51 @@ class CatalogController(
      */
     fun control(node: Node, appId: String, start: Boolean) {
         val generation = catalogGeneration
-        if (!isCurrent(node.id, generation)) return
+        if (!isCurrent(node.id, generation) || controls.containsKey(appId)) return
+        val serial = ++controlSerial
+        controls[appId] = serial
         applyState(node.id, generation, appId, if (start) AppState.STARTING else AppState.STOPPING)
         scope.launch {
+          try {
             if (!isCurrent(node.id, generation)) return@launch
-            val path = nodesController.choosePath(node, currentNetworkKey())
-            if (path == null) {
-                _catalog.value = CatalogUiState.Offline
+            var chosen: Pair<GatewayClient, Identity>? = null
+            for (path in nodesController.pathsFor(currentNode(node.id) ?: node, currentNetworkKey())) {
+                val identity = currentIdentities().firstOrNull { it.origin == path.origin } ?: continue
+                val client = nodesController.clientFor(identity) ?: continue
+                try {
+                    val status = client.status(node.id, appId)
+                    if (!isCurrent(node.id, generation) || currentIdentities().none { it == identity }) return@launch
+                    if (status.code == ControlCode.COMPUTER_OFFLINE) {
+                        nodesController.markPath(node.id, path.origin, false)
+                        continue
+                    }
+                    if (status.code == ControlCode.APP_NOT_FOUND) { onNotice(R.string.error_app_gone); return@launch }
+                    chosen = client to identity
+                    break
+                } catch (e: CancellationException) { throw e
+                } catch (e: ClientError) {
+                    if (!isCurrent(node.id,generation) || currentIdentities().none { it == identity }) return@launch
+                    if (e.code != com.remoteeverything.core.model.ErrorCode.COMPUTER_OFFLINE) { onNotice(R.string.error_control_failed); return@launch }
+                } catch (e: Exception) { }
+                nodesController.markPath(node.id, path.origin, false)
+            }
+            if (chosen == null) {
+                if (isCurrent(node.id,generation)) _catalog.value = CatalogUiState.Offline
                 return@launch
             }
-            val identity = currentIdentities().firstOrNull { it.origin == path.origin }
-            val client = identity?.let { nodesController.clientFor(it) }
-            if (client == null) {
-                refreshCatalog(node, generation)
-                return@launch
-            }
+            val (client, identity) = chosen
             val answer = try {
                 if (start) client.start(node.id, appId) else client.stop(node.id, appId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!isCurrent(node.id, generation)) return@launch
+                if (!isCurrent(node.id, generation) || currentIdentities().none { it == identity }) return@launch
                 onNotice(R.string.error_control_failed)
-                refreshCatalog(node, generation)
+                // A lost response is not permission to repeat a command on another route.
+                pollUntilSettled(node, appId, generation)
                 return@launch
             }
-            if (!isCurrent(node.id, generation)) return@launch
+            if (!isCurrent(node.id, generation) || currentIdentities().none { it == identity }) return@launch
             if (!answer.ok && answer.code == ControlCode.STATE_UPDATE_FAILED) {
                 onNotice(R.string.error_stop_failed)
             }
@@ -181,44 +220,53 @@ class CatalogController(
             }
             // Starting and stopping are not instant: the screen keeps asking until
             // the application settles, so the row never shows a state it left.
-            pollUntilSettled(client, node.id, appId, generation)
-            refreshCatalog(currentNode(node.id) ?: node, generation)
+            pollUntilSettled(node, appId, generation)
+          } finally {
+            if (isCurrent(node.id, generation) && controls[appId] == serial) {
+                controls.remove(appId)
+                refreshCatalog(currentNode(node.id) ?: node, generation)
+            }
+          }
         }
     }
 
     private suspend fun pollUntilSettled(
-        client: GatewayClient,
-        nodeId: String,
+        node: Node,
         appId: String,
         generation: Long,
     ) {
-        var waited = 0L
+        val nodeId = node.id
         var interval = Cadence.controlPollMs
-        while (isCurrent(nodeId, generation) && waited < Cadence.controlPollTimeoutMs) {
+        val settled = withTimeoutOrNull(Cadence.controlPollTimeoutMs) {
+          while (isCurrent(nodeId, generation)) {
             delay(interval)
-            if (!isCurrent(nodeId, generation)) return
-            waited += interval
-            val status = try {
-                client.status(nodeId, appId)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                return
+            if (!isCurrent(nodeId, generation)) return@withTimeoutOrNull true
+            for (path in nodesController.pathsFor(currentNode(nodeId) ?: node, currentNetworkKey())) {
+              val identity = currentIdentities().firstOrNull { it.origin == path.origin } ?: continue
+              val client = nodesController.clientFor(identity) ?: continue
+              val status = try { client.status(nodeId, appId) } catch (e: CancellationException) { throw e
+              } catch (e: Exception) { nodesController.markPath(nodeId, path.origin, false); continue }
+              if (!isCurrent(nodeId, generation) || currentIdentities().none { it == identity }) return@withTimeoutOrNull true
+              if (status.code == ControlCode.COMPUTER_OFFLINE) { nodesController.markPath(nodeId, path.origin, false); continue }
+              if (status.code == ControlCode.APP_NOT_FOUND) { onNotice(R.string.error_app_gone); return@withTimeoutOrNull true }
+              nodesController.markPath(nodeId, path.origin, true)
+              stateOf(status)?.let { applyState(nodeId, generation, appId, it) }
+              if (status.code == ControlCode.READY || status.code == ControlCode.STOPPED) return@withTimeoutOrNull true
+              break
             }
-            if (!isCurrent(nodeId, generation)) return
-            if (status.code == ControlCode.COMPUTER_OFFLINE) {
-                _catalog.value = CatalogUiState.Offline
-                return
-            }
-            if (status.code == ControlCode.APP_NOT_FOUND) {
-                onNotice(R.string.error_app_gone)
-                return
-            }
-            // The node's answer is the row's state, not the client's guess.
-            status.app?.let { applyState(nodeId, generation, appId, it.toAppInfo().code) }
-            if (status.code == ControlCode.READY || status.code == ControlCode.STOPPED) return
             interval = (interval * Cadence.controlPollFactor).toLong().coerceAtMost(Cadence.controlPollCeilingMs)
+          }
+          true
         }
+        if (settled == null && isCurrent(nodeId, generation)) onNotice(R.string.error_control_failed)
+    }
+
+    private fun stateOf(status: ControlResponse): AppState? = when (status.code) {
+        ControlCode.READY -> AppState.READY
+        ControlCode.STARTING -> AppState.STARTING
+        ControlCode.STOPPING -> AppState.STOPPING
+        ControlCode.STOPPED -> AppState.STOPPED
+        else -> status.app?.toAppInfo()?.code
     }
 
     /** Writes one application's state into the catalog that is on screen. */

@@ -101,7 +101,7 @@ final class GatewayClient {
         case 202:
             let refusal = try refusal(from: data, status: 202)
             if refusal.code == .approvalPending { return .pendingApproval }
-            throw refusal
+            throw UnreadableAnswer("invalid pending activation answer")
         default:
             throw try refusal(from: data, status: response.statusCode)
         }
@@ -123,8 +123,8 @@ final class GatewayClient {
         return try decode(CatalogResponse.self, from: data)
     }
 
-    func status(nodeID: String, appID: String) async throws -> ControlResponse {
-        let request = try makeRequest(method: "GET", path: Paths.status(appID), nodeID: nodeID, timeout: Cadence.requestTimeout)
+    func status(nodeID: String, appID: String, timeout: TimeInterval = Cadence.requestTimeout) async throws -> ControlResponse {
+        let request = try makeRequest(method: "GET", path: Paths.status(appID), nodeID: nodeID, timeout: timeout)
         return try await control(request)
     }
 
@@ -134,7 +134,7 @@ final class GatewayClient {
     }
 
     func stop(nodeID: String, appID: String) async throws -> ControlResponse {
-        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: Cadence.requestTimeout)
+        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: 30)
         return try await control(request)
     }
 
@@ -210,6 +210,7 @@ final class GatewayClient {
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        guard String(data:data,encoding:.utf8) != nil else { throw UnreadableAnswer("invalid response encoding") }
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
@@ -224,6 +225,7 @@ final class GatewayClient {
     /// because "the gateway refused this device" and "the gateway said something I do not understand"
     /// send the operator to two different places.
     private func refusal(from data: Data, status: Int) throws -> ClientError {
+        guard String(data:data,encoding:.utf8) != nil else { throw UnreadableAnswer("invalid response encoding") }
         guard let body = try? JSONDecoder().decode(ErrorResponse.self, from: data) else {
             throw UnreadableAnswer("HTTP \(status) without a refusal this client can read")
         }

@@ -61,6 +61,7 @@ enum Notice: Equatable, Identifiable {
 enum PairingPhase: Equatable {
     case idle
     case pairing
+    case waitingApproval(StagedSetup)
     case failed(PairingFailure)
 }
 

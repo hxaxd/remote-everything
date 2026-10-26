@@ -35,12 +35,11 @@ struct NodeScreen: View {
                 }
             }
         }
-        .task {
+        .task(id: nodeID) {
             model.beginCatalogPolling(nodeID: nodeID)
-            await model.loadCatalog(nodeID: nodeID)
         }
         .onDisappear {
-            model.endCatalogPolling()
+            model.endCatalogPolling(nodeID: nodeID)
         }
     }
 
@@ -130,16 +129,12 @@ struct NodeScreen: View {
         return labels.isEmpty ? nil : labels
     }
 
-    /// Tapping an application opens it: running already, starting, or started
-    /// first and then opened (S4 shows the start it is waiting for).
+    /// Running and starting applications open S4; starting waits there for readiness.
     private func open(_ app: AppInfo) {
         switch app.code {
         case .ready, .starting:
             model.presentedApplication = PresentedApplication(nodeID: nodeID, appID: app.id)
-        case .stopped:
-            model.startApplication(nodeID: nodeID, appID: app.id)
-            model.presentedApplication = PresentedApplication(nodeID: nodeID, appID: app.id)
-        case .stopping:
+        case .stopped, .stopping:
             break
         }
     }
@@ -177,6 +172,7 @@ private struct ApplicationRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(app.code == .stopped || app.code == .stopping)
 
             StatusBadge(text: stateText, color: theme.color(for: app.code))
 

@@ -132,7 +132,7 @@ enum SetupUri {
         let prefix = "https://"
         guard value.hasPrefix(prefix) else { return false }
         let authority = String(value.dropFirst(prefix.count))
-        guard !authority.isEmpty else { return false }
+        guard !authority.isEmpty, authority == authority.lowercased() else { return false }
         guard !authority.contains("/"), !authority.contains("?"), !authority.contains("#") else { return false }
         guard !authority.contains("@") else { return false }
         let host: Substring
@@ -143,6 +143,8 @@ enum SetupUri {
             // from the host's own colons.
             guard let closing = authority.firstIndex(of: "]") else { return false }
             host = authority[authority.startIndex...closing]
+            let literal = host.dropFirst().dropLast()
+            guard literal.contains(":"), !literal.isEmpty, literal.allSatisfy({ "0123456789abcdef:.".contains($0) }) else { return false }
             let rest = authority[authority.index(after: closing)...]
             if rest.isEmpty {
                 port = nil
@@ -158,6 +160,7 @@ enum SetupUri {
             port = nil
         }
         guard !host.isEmpty else { return false }
+        if !authority.hasPrefix("[") && !host.allSatisfy({ "abcdefghijklmnopqrstuvwxyz0123456789.-".contains($0) }) { return false }
         if let port {
             guard !port.isEmpty, port.allSatisfy({ $0.isNumber }) else { return false }
             guard let number = Int(port), (1...65535).contains(number) else { return false }

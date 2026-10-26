@@ -131,10 +131,17 @@ function normalizeOrigin(value: string): string {
     throw new SetupError(SetupErrorReason.InvalidValue, 'origin', 'setup origin must be an HTTPS origin');
   }
   const authority: string = value.substring('https://'.length);
-  if (authority.length === 0) {
+  if (authority.length === 0 || authority !== authority.toLowerCase()) {
     throw new SetupError(SetupErrorReason.InvalidValue, 'origin', 'setup origin has no host');
   }
   const colon: number = authority.lastIndexOf(':');
+  const host: string = authority.startsWith('[') ? authority.substring(0, authority.indexOf(']') + 1) :
+    (colon < 0 ? authority : authority.substring(0, colon));
+  if (host.length === 0 || /[^a-z0-9.\-:\[\]]/.test(host) || host === '[]' ||
+    (authority.startsWith('[') && (!/^\[[0-9a-f:.]+\](:[0-9]+)?$/.test(authority) || !host.includes(':'))) ||
+    (!authority.startsWith('[') && host.includes(':'))) {
+    throw new SetupError(SetupErrorReason.InvalidValue, 'origin', 'setup origin has no valid host');
+  }
   if (colon >= 0 && authority.indexOf(']') < colon) {
     const port: string = authority.substring(colon + 1);
     const parsed: number = Number.parseInt(port, 10);
@@ -173,7 +180,7 @@ export function parseSetupUri(raw: string): SetupUri {
   if (/[^A-Za-z0-9\-._~!$&'()*+,;=:@/?%#\[\]]/.test(trimmed)) {
     throw new SetupError(SetupErrorReason.Malformed, '', 'a setup link carries a character a URI cannot');
   }
-  if (!trimmed.toLowerCase().startsWith(SCHEME_PREFIX)) {
+  if (!trimmed.startsWith(SCHEME_PREFIX)) {
     throw new SetupError(SetupErrorReason.UnsupportedScheme, '', 'not a remote-everything setup link');
   }
   let remainder: string = trimmed.substring(SCHEME_PREFIX.length);
@@ -187,8 +194,7 @@ export function parseSetupUri(raw: string): SetupUri {
     query = remainder.substring(question + 1);
     remainder = remainder.substring(0, question);
   }
-  const host: string = remainder.endsWith('/') ? remainder.substring(0, remainder.length - 1) : remainder;
-  if (host.toLowerCase() !== SETUP_HOST) {
+  if (remainder !== SETUP_HOST) {
     throw new SetupError(SetupErrorReason.UnsupportedScheme, '', 'not a remote-everything setup link');
   }
 

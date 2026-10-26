@@ -7,6 +7,7 @@ import Foundation
 /// The one-shot password lives in this type and nowhere else: it is generated
 /// per attempt, held only while the attempt runs, and written to the Keychain
 /// only merged with the bytes it opens.
+@MainActor
 final class PairingService {
 
     /// One attempt, held in memory for as long as the flow is on screen. The
@@ -36,15 +37,18 @@ final class PairingService {
 
     private let vault: IdentityVault
     private let stages: StagedSetupStore
+    private let store: ClientStore
     private let makeClient: (String, DeviceCredential?, ServerPin?) -> GatewayClient
 
     init(
         vault: IdentityVault,
         stages: StagedSetupStore,
+        store: ClientStore,
         makeClient: @escaping (String, DeviceCredential?, ServerPin?) -> GatewayClient
     ) {
         self.vault = vault
         self.stages = stages
+        self.store = store
         self.makeClient = makeClient
     }
 
@@ -55,6 +59,11 @@ final class PairingService {
     /// reversible; from the pairing call on, the gateway is the authority.
     func run(_ attempt: Attempt) async throws -> Outcome {
         let origin = attempt.invitation.origin
+        let version = vault.version(origin:origin)
+        if let staged = stages.load(origin: origin) {
+            if !staged.isExpired { return try await resume(staged) }
+            discard(staged)
+        }
         let deviceName = attempt.deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SetupURI.isValidNodeName(deviceName) else { throw ClientError(.invalidDeviceName) }
 
@@ -64,6 +73,7 @@ final class PairingService {
             deviceName: deviceName,
             credentialPassword: attempt.credentialPassword
         )
+        guard vault.version(origin:origin) == version else { throw CancellationError() }
 
         guard let pkcs12 = Data(base64Encoded: response.credentialPKCS12) else {
             throw ClientError(.pairingFailed)
@@ -107,10 +117,13 @@ final class PairingService {
     func activate(_ staged: StagedSetup, credential: DeviceCredential) async throws -> Outcome {
         let client = makeClient(staged.origin, credential, staged.serverPin)
         do {
-            switch try await client.activate(nodeID: staged.nodeID) {
+            let answer = try await client.activate(nodeID: staged.nodeID)
+            guard stages.load(origin:staged.origin) == staged else { throw CancellationError() }
+            switch answer {
             case .pendingApproval:
                 return .pendingApproval(staged: staged)
             case .approved(let catalog):
+                guard stages.load(origin: staged.origin) == staged else { throw CancellationError() }
                 let identity = Identity(
                     origin: staged.origin,
                     deviceName: staged.deviceName,
@@ -119,6 +132,13 @@ final class PairingService {
                     serverPin: staged.serverPin,
                     createdAt: staged.createdAt
                 )
+                var identities = store.loadIdentities()
+                if let index = identities.firstIndex(where: { $0.origin == identity.origin }) {
+                    identities[index] = identity
+                } else {
+                    identities.append(identity)
+                }
+                store.saveIdentities(identities)
                 stages.clear(origin: staged.origin)
                 return .approved(identity: identity, catalog: catalog)
             }
@@ -164,16 +184,21 @@ final class PairingService {
 
     /// Drops a staged setup and the credential that went with it. Used when the
     /// attempt is over and it did not end in an identity.
-    func discard(_ staged: StagedSetup) {
+    @discardableResult
+    func discard(_ staged: StagedSetup) -> Bool {
+        guard stages.load(origin: staged.origin) == staged else { return false }
         stages.clear(origin: staged.origin)
         vault.forget(aliasRef: staged.credentialRef)
+        return true
     }
+
+    func staged(origin: String) -> StagedSetup? { stages.load(origin: origin) }
 
     // MARK: - Tokens
 
     /// 32 random bytes as base64url with the padding removed: 43 characters,
     /// which is the shape the gateway accepts and nothing else carries.
-    static func makeCredentialPassword() -> String {
+    nonisolated static func makeCredentialPassword() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         for index in bytes.indices {
             bytes[index] = UInt8.random(in: UInt8.min...UInt8.max)
@@ -186,9 +211,9 @@ final class PairingService {
 
     /// The refusals that mean this attempt cannot succeed: the invitation is
     /// gone, or the gateway says the operator has to look at it.
-    static func endsTheAttempt(_ code: ErrorCode) -> Bool {
+    nonisolated static func endsTheAttempt(_ code: ErrorCode) -> Bool {
         switch code {
-        case .invitationExpired, .invitationDenied, .activationFailed, .pairingFailed:
+        case .invitationExpired, .invitationDenied, .activationFailed, .pairingFailed, .unauthorized:
             return true
         default:
             return false

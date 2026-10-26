@@ -49,7 +49,7 @@ object SetupUri {
         if (uri.scheme != "remote-everything" || uri.host != "setup") {
             throw Rejected("not a setup URI")
         }
-        if (!uri.path.isNullOrEmpty() && uri.path != "/") {
+        if (!uri.path.isNullOrEmpty()) {
             throw Rejected("setup URI carries a path")
         }
         if (uri.rawFragment != null || trimmed.contains('#')) {
@@ -134,7 +134,13 @@ object SetupUri {
             }
         }
         flushLiteral(literalStart, value.length)
-        return String(bytes.toByteArray(), Charsets.UTF_8)
+        return try {
+            Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes.toByteArray())).toString()
+        } catch (e: java.nio.charset.CharacterCodingException) {
+            throw Rejected("bad UTF-8 encoding")
+        }
     }
 
     private fun isValidOrigin(value: String): Boolean {
@@ -147,11 +153,13 @@ object SetupUri {
         val portStr: String?
         val open = authority.indexOf('[')
         if (open >= 0) {
+            if (open != 0) return false
             // An IPv6 literal: the host is inside the brackets, and a port, when
             // one is given, follows the closing bracket — `[::1]` has no port.
             val close = authority.indexOf(']', open)
             if (close < 0) return false
             host = authority.substring(open + 1, close)
+            if (!host.contains(':') || !host.matches(Regex("[0-9a-f:.]+"))) return false
             val after = authority.substring(close + 1)
             portStr = when {
                 after.isEmpty() -> null
@@ -167,8 +175,9 @@ object SetupUri {
                 host = authority
                 portStr = null
             }
+            if (!host.matches(Regex("[a-z0-9.-]+"))) return false
         }
-        if (host.isEmpty()) return false
+        if (host.isEmpty() || host != host.lowercase()) return false
         if (portStr != null) {
             if (portStr.isEmpty() || !portStr.all { it.isDigit() }) return false
             val port = portStr.toIntOrNull() ?: return false

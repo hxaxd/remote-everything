@@ -12,6 +12,7 @@ import org.junit.Test
 import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.util.Date
+import javax.net.ssl.SSLContext
 
 class IdentityKeyManagerTest {
 
@@ -32,7 +33,7 @@ class IdentityKeyManagerTest {
             builder.build(JcaContentSignerBuilder("SHA256withECDSA").build(keyPair.private)),
         )
         val material = Pkcs12.Material(keyPair.private, listOf(cert))
-        val manager = IdentityKeyManager("my-alias", material)
+        val manager = IdentityKeyManager("my-alias", material, "https://gw.example.com")
 
         // Matches EC and EC_EC
         assertArrayEquals(arrayOf("my-alias"), manager.getClientAliases("EC", null))
@@ -44,7 +45,12 @@ class IdentityKeyManagerTest {
         assertNull(manager.chooseClientAlias(arrayOf("RSA"), null, null))
 
         // Chooses alias when EC is in requested array
-        assertEquals("my-alias", manager.chooseClientAlias(arrayOf("RSA", "EC"), null, null))
+        assertNull(manager.chooseClientAlias(arrayOf("RSA", "EC"), null, null))
+        val context = SSLContext.getDefault()
+        assertEquals("my-alias", manager.chooseEngineClientAlias(arrayOf("RSA", "EC"), null,
+            context.createSSLEngine("app.node.gw.example.com", 443)))
+        assertNull(manager.chooseEngineClientAlias(arrayOf("EC"), null,
+            context.createSSLEngine("outside.example.com", 443)))
 
         // Correctly returns keys and chains only for its alias
         assertEquals(material.privateKey, manager.getPrivateKey("my-alias"))

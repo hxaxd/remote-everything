@@ -72,7 +72,7 @@ export function decodeRelease(text: string): ReleaseManifest {
   }
   const buildNumber: number = reader.number('buildNumber');
   const protocolVersion: number = reader.number('protocolVersion');
-  if (buildNumber < 1 || protocolVersion < 1) {
+  if (!Number.isSafeInteger(buildNumber) || !Number.isSafeInteger(protocolVersion) || buildNumber < 1 || protocolVersion < 1) {
     throw new Error('the release manifest is not a monotone build');
   }
   // The three platforms are all required, exactly as the other two clients decode

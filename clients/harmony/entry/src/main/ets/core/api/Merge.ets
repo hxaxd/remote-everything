@@ -31,27 +31,48 @@ export class OriginProbe {
 
 /** Whether an address is one that only the local network can reach. */
 export function isPrivateHost(hostname: string): boolean {
-  const host: string = hostname.toLowerCase().replace('[', '').replace(']', '');
-  if (host === 'localhost' || host === '::1' || host.startsWith('127.') || host === '::ffff:127.0.0.1') {
-    return true;
+  let host: string = hostname.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) { host = host.substring(1,host.length - 1); }
+  if (host === 'localhost') { return true; }
+  if (!host.includes(':')) { const octets: number[] | null = ipv4Octets(host); return octets !== null && privateOctets(octets); }
+  if (host.includes('.')) {
+    const at: number = host.lastIndexOf(':');
+    const octets: number[] | null = ipv4Octets(host.substring(at + 1));
+    if (octets === null) { return false; }
+    host = host.substring(0,at + 1) + ((octets[0] << 8) + octets[1]).toString(16) + ':' + ((octets[2] << 8) + octets[3]).toString(16);
   }
-  const parts: string[] = host.split('.');
-  if (parts.length === 4) {
-    const first: number = Number.parseInt(parts[0], 10);
-    const second: number = Number.parseInt(parts[1], 10);
-    if (first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168) ||
-      (first === 169 && second === 254) || first === 127) {
-      return true;
-    }
-    return false;
+  const halves: string[] = host.split('::');
+  if (halves.length > 2) { return false; }
+  const left: number[] | null = ipv6Groups(halves[0]);
+  const right: number[] | null = halves.length === 2 ? ipv6Groups(halves[1]) : [];
+  if (left === null || right === null) { return false; }
+  const missing: number = 8 - left.length - right.length;
+  if (halves.length === 1 && missing !== 0 || halves.length === 2 && missing <= 0) { return false; }
+  const words: number[] = left.concat(new Array<number>(missing).fill(0),right);
+  if (words.slice(0,5).every((word: number) => word === 0) && words[5] === 65535) {
+    return privateOctets([words[6] >> 8, words[6] & 255, words[7] >> 8, words[7] & 255]);
   }
-  if (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) {
-    return true;
-  }
-  if (host.startsWith('::ffff:')) {
-    return isPrivateHost(host.substring('::ffff:'.length));
-  }
-  return false;
+  return words.slice(0,7).every((word: number) => word === 0) && words[7] === 1 ||
+    (words[0] & 0xfe00) === 0xfc00 || (words[0] & 0xffc0) === 0xfe80;
+}
+
+function ipv4Octets(value: string): number[] | null {
+  const parts: string[] = value.split('.');
+  if (parts.length !== 4 || !parts.every((part: string) => /^(0|[1-9][0-9]{0,2})$/.test(part))) { return null; }
+  const octets: number[] = parts.map((part: string) => Number.parseInt(part,10));
+  return octets.every((part: number) => part <= 255) ? octets : null;
+}
+
+function privateOctets(octets: number[]): boolean {
+  return octets[0] === 10 || octets[0] === 127 || octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31 ||
+    octets[0] === 192 && octets[1] === 168 || octets[0] === 169 && octets[1] === 254;
+}
+
+function ipv6Groups(part: string): number[] | null {
+  if (part === '') { return []; }
+  const groups: string[] = part.split(':');
+  if (!groups.every((group: string) => /^[0-9a-f]{1,4}$/.test(group))) { return null; }
+  return groups.map((group: string) => Number.parseInt(group,16));
 }
 
 export function isPrivateOrigin(origin: string): boolean {
@@ -70,15 +91,10 @@ export function mergeNodes(probes: OriginProbe[], identities: Identity[], previo
   const order: string[] = [];
   const pathsByNode: Map<string, GatewayPath[]> = new Map<string, GatewayPath[]>();
   const namesByNode: Map<string, string> = new Map<string, string>();
-  for (const probe of probes) {
-    if (!probe.reachable) {
-      continue;
-    }
-    const identity: Identity | undefined = identityByOrigin.get(probe.origin);
-    if (identity === undefined) {
-      continue;
-    }
-    for (const summary of probe.nodes) {
+  for (const identity of identities) {
+    const probe: OriginProbe | undefined = probes.find((candidate: OriginProbe) => candidate.origin === identity.origin && candidate.reachable);
+    if (probe !== undefined) {
+      for (const summary of probe.nodes) {
       const path: GatewayPath = new GatewayPath(probe.origin, identity.credentialRef, true, probe.latencyMs,
         isPrivateHost(hostnameOf(probe.origin)), null,
         // A gateway that declared how it reaches the node is believed; one that said
@@ -95,21 +111,17 @@ export function mergeNodes(probes: OriginProbe[], identities: Identity[], previo
       } else {
         existing.push(path);
       }
-    }
-  }
-  // A gateway that did not answer keeps its nodes in the list, marked as not
-  // probed, so a list that was there a moment ago does not blink out of existence.
-  for (const identity of identities) {
-    const answered: boolean = probes.some((probe: OriginProbe) => probe.origin === identity.origin && probe.reachable);
-    if (answered) {
+      }
       continue;
     }
+  // A gateway that did not answer keeps its nodes in the list, marked as not
+  // probed, so a list that was there a moment ago does not blink out of existence.
     for (const node of previous) {
       for (const path of node.paths) {
         if (path.origin !== identity.origin) {
           continue;
         }
-        const stale: GatewayPath = new GatewayPath(path.origin, path.identityRef, null, null, path.isPrivate, null);
+        const stale: GatewayPath = new GatewayPath(path.origin, path.identityRef, null, null, path.isPrivate, null, path.link);
         const existing: GatewayPath[] | undefined = pathsByNode.get(node.id);
         if (existing === undefined) {
           pathsByNode.set(node.id, [stale]);

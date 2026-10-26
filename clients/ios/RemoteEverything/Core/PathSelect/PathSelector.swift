@@ -14,7 +14,7 @@ enum PathSelector {
             let leftLatency = left.latencyMs ?? Int.max
             let rightLatency = right.latencyMs ?? Int.max
             if leftLatency != rightLatency { return leftLatency < rightLatency }
-            return left.origin < right.origin
+            return false
         }
     }
 
@@ -32,7 +32,7 @@ enum PathSelector {
             }
             let best = PathSelector.choose(node.paths)
             let remembered = choices[node.id].flatMap { cached in
-                node.paths.contains(where: { $0.origin == cached.origin && $0.reachable == true }) ? cached : nil
+                node.paths.first(where: { $0.origin == cached.origin && $0.reachable == true })
             }
             let chosen: Path?
             switch (best, remembered) {

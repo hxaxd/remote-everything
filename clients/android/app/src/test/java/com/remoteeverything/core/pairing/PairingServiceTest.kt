@@ -46,6 +46,9 @@ class PairingServiceTest {
     }
 
     private class FakeRepo : IdentityRepository {
+        override suspend fun updateIdentities(transform: (List<Identity>) -> List<Identity>) {
+            saveIdentities(transform(currentIdentities()))
+        }
         var list = listOf<Identity>()
         override suspend fun currentIdentities(): List<Identity> = list
         override suspend fun saveIdentities(identities: List<Identity>) { this.list = identities }
@@ -80,9 +83,13 @@ class PairingServiceTest {
         var activateError: ClientError? = null,
     ) : GatewayClient {
         var pairCalls = 0
+        var pairError: Exception? = null
+        val requests = mutableListOf<PairRequest>()
         override val origin: String = "https://gw.example.com"
         override suspend fun pair(request: PairRequest): PairingResponse {
             pairCalls += 1
+            requests.add(request)
+            pairError?.let { throw it }
             return pairResponse ?: error("no pair response")
         }
         override suspend fun activate(nodeId: String): CatalogResponse {
@@ -211,7 +218,7 @@ class PairingServiceTest {
         val (p12, fp) = generatePkcs12(fixedPassword)
 
         // The redeem succeeds; the activation fails because the node cannot be
-        // reached — the outcome is a Failed and the staged setup stays.
+        // reached — the outcome is waiting and the staged setup stays.
         val client = TestApiClient(
             pairResponse = PairingResponse(
                 ok = true,
@@ -239,7 +246,7 @@ class PairingServiceTest {
         )
 
         val first = service.run(invitation, "Pixel")
-        assertTrue(first is PairingService.Outcome.Failed)
+        assertTrue(first is PairingService.Outcome.ApprovalPending)
         assertEquals(1, client.pairCalls)
         assertNotNull(transaction.load())
 
@@ -252,5 +259,34 @@ class PairingServiceTest {
         assertEquals("the spent invitation is never redeemed twice", 1, client.pairCalls)
         assertEquals(1, repo.currentIdentities().size)
         assertNull(transaction.load())
+    }
+
+    @Test fun `lost redeem reply retries the exact request with its original password and device name`() = runBlocking {
+        val password = "test-password-12345"
+        val (archive,fingerprint) = generatePkcs12(password)
+        val client = TestApiClient(pairResponse = PairingResponse(true,"Pixel",fingerprint,"pkcs12",archive,"2099-01-01T00:00:00Z"))
+        client.pairError = java.io.IOException("reply lost")
+        var generated = 0
+        val service = PairingService(FakeVault(),SetupTransaction(tempFolder.newFile("lost.json")),FakeRepo(),
+            generatePassword = { generated++;password },clientFactory = { _,_,_ -> client })
+        val invitation = SetupUri.Invitation("a".repeat(64),"Studio",client.origin,"b".repeat(43),null)
+        assertTrue(service.run(invitation,"Pixel") is PairingService.Outcome.Failed)
+        client.pairError = null
+        assertTrue(service.run(invitation,"Edited name") is PairingService.Outcome.Activated)
+        assertEquals(1,generated)
+        assertEquals(client.requests.first(),client.requests.last())
+    }
+
+    @Test fun `pending records survive restart independently and removing one leaves the other`() {
+        val file = tempFolder.newFile("multiple.json")
+        val store = SetupTransaction(file)
+        val first = StagedSetup(origin="https://one.example",nodeId="a".repeat(64),nodeName="One",deviceName="Phone",
+            certificateFingerprint="f".repeat(64),pendingExpiresAtEpochMs=9999999999999,createdAtEpochMs=0)
+        val second = first.copy(origin="https://two.example",nodeName="Two")
+        store.stage(first); store.stage(second)
+        val restarted = SetupTransaction(file)
+        assertEquals(listOf(first,second),restarted.loadAll())
+        restarted.clear(first.origin)
+        assertEquals(listOf(second),SetupTransaction(file).loadAll())
     }
 }

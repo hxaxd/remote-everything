@@ -131,6 +131,7 @@ struct GatewayWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.closePopup()
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -147,6 +148,18 @@ struct GatewayWebView: UIViewRepresentable {
         private let onNotice: (String) -> Void
         private(set) var loadedURL: URL?
         weak var webView: WKWebView?
+        private var popup: WKWebView?
+        private var popupClose: UIButton?
+
+        func closePopup() {
+            popup?.stopLoading()
+            popup?.navigationDelegate = nil
+            popup?.uiDelegate = nil
+            popup?.removeFromSuperview()
+            popupClose?.removeFromSuperview()
+            popup = nil
+            popupClose = nil
+        }
 
         private var appliedUserAgent: WebUserAgent?
         private var defaultUserAgent: String?
@@ -274,7 +287,7 @@ struct GatewayWebView: UIViewRepresentable {
             }
             switch scheme {
             case "https":
-                if target.handler.isGatewayHost(url.host ?? "") {
+                if target.handler.isGatewayHost(url.host ?? "") || webView === popup {
                     decisionHandler(.allow)
                 } else {
                     // Anything that leaves the gateway goes to the system browser:
@@ -284,13 +297,17 @@ struct GatewayWebView: UIViewRepresentable {
                     decisionHandler(.cancel)
                 }
             case "blob":
+                if webView === popup { decisionHandler(.allow); return }
                 // A blob only lives in the page: the page reads it and hands the
                 // bytes over, and the navigation is cancelled.
                 decisionHandler(.cancel)
                 fetchBlob(url)
             case "data":
+                if webView === popup { decisionHandler(.allow); return }
                 decisionHandler(.cancel)
                 saveDataURL(url)
+            case "about":
+                decisionHandler(url.absoluteString == "about:blank" ? .allow : .cancel)
             default:
                 // tel:, mailto:, and whatever else the page links to: the system's.
                 UIApplication.shared.open(url)
@@ -307,20 +324,24 @@ struct GatewayWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.phase = .loading
             handle.canGoBack = webView.canGoBack
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.canGoBack = webView.canGoBack
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.canGoBack = webView.canGoBack
             handle.phase = .loaded
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard webView === self.webView else { return }
             handle.phase = .failed
         }
 
@@ -329,10 +350,14 @@ struct GatewayWebView: UIViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
+            guard webView === self.webView else { return }
             handle.phase = .failed
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            if webView === popup { closePopup(); return }
+            guard webView === self.webView else { return }
+            closePopup()
             // The process that died is not this one: ask for the view to be
             // rebuilt rather than leaving a blank page behind.
             onProcessTerminated()
@@ -340,19 +365,32 @@ struct GatewayWebView: UIViewRepresentable {
 
         // MARK: - What the page may ask the device for
 
-        /// window.open / target=_blank: the page arrives here, in the page that
-        /// asked; there is no second window to keep track of.
+        /// A child WebView keeps window.opener and returns to its parent when closed.
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-                webView.load(URLRequest(url: url))
-            }
-            return nil
+            guard popup == nil, let parent = self.webView else { return nil }
+            let child = WKWebView(frame:parent.bounds,configuration:configuration)
+            child.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+            child.navigationDelegate = self
+            child.uiDelegate = self
+            child.customUserAgent = parent.customUserAgent
+            child.overrideUserInterfaceStyle = parent.overrideUserInterfaceStyle
+            parent.addSubview(child)
+            popup = child
+            let close = UIButton(type:.close)
+            close.translatesAutoresizingMaskIntoConstraints = false
+            close.addAction(UIAction { [weak self] _ in self?.closePopup() },for:.touchUpInside)
+            parent.addSubview(close)
+            NSLayoutConstraint.activate([close.topAnchor.constraint(equalTo:parent.safeAreaLayoutGuide.topAnchor,constant:8),close.trailingAnchor.constraint(equalTo:parent.safeAreaLayoutGuide.trailingAnchor,constant:-12)])
+            popupClose = close
+            return child
         }
+
+        func webViewDidClose(_ webView: WKWebView) { if webView === popup { closePopup() } }
 
         /// The page asks for the camera or the microphone. The gateway's own
         /// pages may have them, and the platform's own question is asked before
@@ -364,7 +402,8 @@ struct GatewayWebView: UIViewRepresentable {
             type: WKMediaCaptureType,
             decisionHandler: @escaping (WKPermissionDecision) -> Void
         ) {
-            guard target.handler.isGatewayHost(origin.host) else {
+            guard origin.protocol == "https", target.handler.isGatewayHost(origin.host),
+                  webView === self.webView || webView === popup else {
                 decisionHandler(.deny)
                 return
             }
@@ -380,7 +419,13 @@ struct GatewayWebView: UIViewRepresentable {
                 group.enter()
                 AVCaptureDevice.requestAccess(for: media) { _ in group.leave() }
             }
-            group.notify(queue: .main) { decisionHandler(.grant) }
+            let page = webView.url
+            group.notify(queue: .main) { [weak self, weak webView] in
+                guard let self, let webView, webView.url == page,
+                      webView === self.webView || webView === self.popup,
+                      needed.allSatisfy({ AVCaptureDevice.authorizationStatus(for:$0) == .authorized }) else { decisionHandler(.deny); return }
+                decisionHandler(.grant)
+            }
         }
 
         // MARK: - Downloads

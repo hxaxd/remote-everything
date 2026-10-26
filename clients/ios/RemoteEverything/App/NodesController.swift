@@ -12,6 +12,8 @@ final class NodesController: ObservableObject {
 
     private var failedProbes: [String: [LinkAttempt]] = [:]
     private var lastAnswerAt: [String: Date] = [:]
+    private var refreshQueued = false
+    private var identityEpoch: [String: Int] = [:]
 
     private let store: ClientStore
     private let vault: IdentityVault
@@ -62,9 +64,17 @@ final class NodesController: ObservableObject {
 
     /// Asks every gateway what it serves, in parallel, and rebuilds the merged list.
     func refreshNodes() async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else { refreshQueued = true; return }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            if refreshQueued {
+                refreshQueued = false
+                Task { await self.refreshNodes() }
+            }
+        }
+        let snapshot = identities
+        let epochs = identityEpoch
 
         var prepared: [(identity: Identity, client: GatewayClient)] = []
         for identity in identities {
@@ -88,8 +98,11 @@ final class NodesController: ObservableObject {
                 return collected
             }
 
-            for result in results {
+            for result in results.sorted(by: { left, right in
+                snapshot.firstIndex(of: left.identity)! < snapshot.firstIndex(of: right.identity)!
+            }) {
                 let origin = result.identity.origin
+                guard identities.contains(result.identity), identityEpoch[origin] == epochs[origin] else { continue }
                 switch result.outcome {
                 case .answered(let response, let latency):
                     identityConditions[origin] = .ok
@@ -154,7 +167,7 @@ final class NodesController: ObservableObject {
 
     func orderedPaths(for node: Node) -> [Path] {
         let chosen = pathSelector.preferred(node: node, networkKey: network.key)
-        let rest = node.paths.filter { $0.origin != chosen?.origin }
+        let rest = node.paths.filter { $0.reachable == true && $0.origin != chosen?.origin }
         return (chosen.map { [$0] } ?? []) + rest
     }
 
@@ -183,8 +196,11 @@ final class NodesController: ObservableObject {
     }
 
     func record(_ identity: Identity) {
-        var updated = identities.filter { $0.origin != identity.origin }
-        updated.append(identity)
+        identityEpoch[identity.origin, default: 0] += 1
+        var updated = identities
+        if let index = updated.firstIndex(where: { $0.origin == identity.origin }) {
+            updated[index] = identity
+        } else { updated.append(identity) }
         identities = updated
         store.saveIdentities(updated)
     }
@@ -200,6 +216,7 @@ final class NodesController: ObservableObject {
     }
 
     func forget(origin: String) {
+        identityEpoch[origin, default: 0] += 1
         clients.drop(origin: origin)
         vault.forget(origin: origin)
         pathSelector.reset()
