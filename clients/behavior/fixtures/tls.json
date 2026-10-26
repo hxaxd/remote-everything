@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "app.gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "host": "a.b.gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "host": "outside.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "127.0.0.1"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "2001:db8::1"
+    },
+    {
+      "certificate": "expired",
+      "trusted": false,
+      "host": "gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "mismatch": true,
+      "host": "gateway.example"
+    }
+  ],
+  "pin": {
+    "fingerprint": "b697d90cf0fce721c4965e32fd685fa891acea1255a8db103981cea38e485e69",
+    "publicKeyPin": "Vg9XvYqiY7RQlzteEw+4UXkckVrtIws3zLSlYBeZ9pc="
+  },
+  "certificates": {
+    "expired": "MIIBczCCARqgAwIBAgIJAKP6MmprOvJ6MAoGCCqGSM49BAMCMBoxGDAWBgNVBAMTD2dhdGV3YXkuZXhhbXBsZTAeFw0yMDAxMDEwMDAwMDBaFw0yMTAxMDEwMDAwMDBaMBoxGDAWBgNVBAMTD2dhdGV3YXkuZXhhbXBsZTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABLwa8yozDuRvRaRAhNGONpxO3k4GCkyRK6qEehDpoREAvRs+tTnG1STQvSmYAxykU2kZ78IBMl3Yqtdjvg1FQL+jSTBHMEUGA1UdEQQ+MDyCD2dhdGV3YXkuZXhhbXBsZYIRKi5nYXRld2F5LmV4YW1wbGWHBH8AAAGHECABDbgAAAAAAAAAAAAAAAEwCgYIKoZIzj0EAwIDRwAwRAIgJm6s0jsHcY5EpB6GEZ1u14bh6FbH8Y+bA+9rzMTcHWsCIBG9eM2XEORtvnU8+oY7UQSxpUXnFC28vP5HJHJEWFOB",
+    "valid": "MIIBdTCCARugAwIBAgIIUG3vb1R4yAMwCgYIKoZIzj0EAwIwGjEYMBYGA1UEAxMPZ2F0ZXdheS5leGFtcGxlMCAXDTIwMDEwMTAwMDAwMFoYDzIxMDAwMTAxMDAwMDAwWjAaMRgwFgYDVQQDEw9nYXRld2F5LmV4YW1wbGUwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAS8GvMqMw7kb0WkQITRjjacTt5OBgpMkSuqhHoQ6aERAL0bPrU5xtUk0L0pmAMcpFNpGe/CATJd2KrXY74NRUC/o0kwRzBFBgNVHREEPjA8gg9nYXRld2F5LmV4YW1wbGWCESouZ2F0ZXdheS5leGFtcGxlhwR/AAABhxAgAQ24AAAAAAAAAAAAAAABMAoGCCqGSM49BAMCA0gAMEUCIQC+CVO2H/7r8QNQwsjE9M0OGd2UFsaC6H+evLCq2qsuPgIgXCLGftEyrpTPtUrBETgqX1fvfQqsA5CE2eLvHqoaNew="
+  }
+}

@@ -8,11 +8,13 @@ on:
     branches: [main]
     paths:
       - 'clients/android/**'
+      - 'clients/behavior/**'
       - 'clients/release.json'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
       - 'clients/android/**'
+      - 'clients/behavior/**'
       - 'clients/release.json'
       - '.github/workflows/android.yml'
 

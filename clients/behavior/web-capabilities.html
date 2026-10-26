@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>客户端网页能力测试</title>
+<style>body{font:16px system-ui;margin:24px;max-width:800px}button,input,a{margin:8px;padding:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere}video{max-width:100%}</style>
+<h1>客户端网页能力测试</h1>
+<p>通过测试应用的 HTTPS 入口打开。操作记录只显示在此页，不上传数据。关闭再进入可检查存储是否保留。</p>
+<button id="popup">打开登录弹窗</button>
+<button id="camera">相机</button><button id="microphone">麦克风</button><button id="location">定位</button>
+<button id="fullscreen">全屏</button><button id="store">写入存储</button><button id="read">读取存储</button>
+<button id="download">下载文件</button><button id="reload">刷新页面</button>
+<p><label>单个 PNG 文件 <input id="single" type="file" accept="image/png"></label></p>
+<p><label>多个文本或图片文件 <input id="multiple" type="file" accept=".txt,image/png" multiple></label></p>
+<video id="preview" autoplay muted playsinline controls></video>
+<pre id="result" aria-live="polite"></pre>
+<script>
+const output=document.querySelector('#result');
+const log=(name,value)=>{output.textContent+=`${name}: ${typeof value==='string'?value:JSON.stringify(value)}\n`;};
+const report=(name,fn)=>async()=>{try{log(name,await fn());}catch(error){log(name,`${error.name}: ${error.message}`);}};
+const bind=(id,fn)=>document.getElementById(id).onclick=report(id,fn);
+if(new URL(location.href).searchParams.has('popup')){
+  document.body.innerHTML='<h1>登录弹窗</h1><button id="finish">完成并返回</button>';
+  document.querySelector('#finish').onclick=()=>{window.opener?.postMessage({fixture:'remote-everything',result:'complete'},location.origin);window.close();};
+}else{
+  log('environment',{secure:isSecureContext,userAgent:navigator.userAgent,width:innerWidth,height:innerHeight,orientation:screen.orientation?.type});
+  bind('popup',()=>{const child=window.open(location.pathname+'?popup','capability-login','width=480,height=600');if(!child)throw new Error('popup blocked');return 'opened';});
+  window.addEventListener('message',event=>{if(event.origin===location.origin&&event.data?.fixture==='remote-everything')log('popup-result',event.data.result);});
+  for(const [id,constraints] of [['camera',{video:true}],['microphone',{audio:true}]]){
+    bind(id,async()=>{const stream=await navigator.mediaDevices.getUserMedia(constraints);document.querySelector('#preview').srcObject=stream;setTimeout(()=>{stream.getTracks().forEach(track=>track.stop());document.querySelector('#preview').srcObject=null;},3000);return stream.getTracks().map(track=>({kind:track.kind,state:track.readyState}));});
+  }
+  bind('location',()=>new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(()=>resolve('granted'),reject,{timeout:10000})));
+  bind('fullscreen',async()=>{await document.documentElement.requestFullscreen();return 'entered';});
+  const db=()=>new Promise((resolve,reject)=>{const request=indexedDB.open('client-capability-fixture',1);request.onupgradeneeded=()=>request.result.createObjectStore('state');request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+  bind('store',async()=>{const value=crypto.randomUUID();localStorage.setItem('fixture',value);document.cookie=`fixture=${value};Path=/;Secure;SameSite=Lax`;const database=await db();await new Promise((resolve,reject)=>{const tx=database.transaction('state','readwrite');tx.objectStore('state').put(value,'value');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});database.close();return value;});
+  bind('read',async()=>{const database=await db();const value=await new Promise((resolve,reject)=>{const request=database.transaction('state').objectStore('state').get('value');request.onsuccess=()=>resolve(request.result??null);request.onerror=()=>reject(request.error);});database.close();return {localStorage:localStorage.getItem('fixture'),indexedDB:value,cookie:document.cookie};});
+  for(const id of ['single','multiple']){
+    const input=document.getElementById(id);input.onchange=()=>log(id,[...input.files].map(file=>({name:file.name,type:file.type,size:file.size})));input.oncancel=()=>log(id,'cancelled');
+  }
+  bind('download',()=>{const url=URL.createObjectURL(new Blob(['client capability fixture\n'],{type:'text/plain'}));const link=document.createElement('a');link.href=url;link.download='client-capability.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);return 'requested';});
+  bind('reload',()=>location.reload());
+}
+</script>
+</html>

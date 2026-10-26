@@ -10,11 +10,13 @@ on:
     branches: [main]
     paths:
       - 'clients/ios/**'
+      - 'clients/behavior/**'
       - 'clients/release.json'
       - '.github/workflows/ios.yml'
   pull_request:
     paths:
       - 'clients/ios/**'
+      - 'clients/behavior/**'
       - 'clients/release.json'
       - '.github/workflows/ios.yml'
 

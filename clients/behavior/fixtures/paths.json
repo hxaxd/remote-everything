@@ -176,5 +176,202 @@
       ],
       "chosen": null
     }
+  ],
+  "privateHosts": [
+    {
+      "host": "localhost",
+      "private": true
+    },
+    {
+      "host": "LOCALHOST",
+      "private": true
+    },
+    {
+      "host": "127.0.0.2",
+      "private": true
+    },
+    {
+      "host": "10.1.2.3",
+      "private": true
+    },
+    {
+      "host": "172.31.255.255",
+      "private": true
+    },
+    {
+      "host": "172.32.0.1",
+      "private": false
+    },
+    {
+      "host": "169.254.1.1",
+      "private": true
+    },
+    {
+      "host": "192.168.3.4",
+      "private": true
+    },
+    {
+      "host": "10.999.1.1",
+      "private": false
+    },
+    {
+      "host": "10.1.2",
+      "private": false
+    },
+    {
+      "host": "010.1.2.3",
+      "private": false
+    },
+    {
+      "host": "10.1.2.-1",
+      "private": false
+    },
+    {
+      "host": "10.1.2.3 ",
+      "private": false
+    },
+    {
+      "host": "fc.example",
+      "private": false
+    },
+    {
+      "host": "::1",
+      "private": true
+    },
+    {
+      "host": "0:0:0:0:0:0:0:1",
+      "private": true
+    },
+    {
+      "host": "[fd00::1]",
+      "private": true
+    },
+    {
+      "host": "fe90::1",
+      "private": true
+    },
+    {
+      "host": "febf:ffff::1",
+      "private": true
+    },
+    {
+      "host": "fec0::1",
+      "private": false
+    },
+    {
+      "host": "::ffff:192.168.1.4",
+      "private": true
+    },
+    {
+      "host": "::ffff:c0a8:104",
+      "private": true
+    },
+    {
+      "host": "::ffff:8.8.8.8",
+      "private": false
+    },
+    {
+      "host": "fd00:::1",
+      "private": false
+    },
+    {
+      "host": "fe80:not-an-address",
+      "private": false
+    },
+    {
+      "host": "::1:2:3:4:5:6:7:8",
+      "private": false
+    },
+    {
+      "host": "2001:db8::1",
+      "private": false
+    }
+  ],
+  "updates": [
+    {
+      "name": "current declaration then fallback then restored private path",
+      "steps": [
+        {
+          "paths": [
+            {
+              "origin": "https://192.168.1.1:8443",
+              "reachable": true,
+              "latencyMs": 10,
+              "isPrivate": true,
+              "link": "local"
+            },
+            {
+              "origin": "https://gateway.example",
+              "reachable": true,
+              "latencyMs": 20,
+              "isPrivate": false,
+              "link": "tunnel"
+            }
+          ],
+          "chosen": "https://192.168.1.1:8443",
+          "link": "local"
+        },
+        {
+          "paths": [
+            {
+              "origin": "https://192.168.1.1:8443",
+              "reachable": true,
+              "latencyMs": 10,
+              "isPrivate": true,
+              "link": "tunnel"
+            },
+            {
+              "origin": "https://gateway.example",
+              "reachable": true,
+              "latencyMs": 20,
+              "isPrivate": false,
+              "link": "tunnel"
+            }
+          ],
+          "chosen": "https://192.168.1.1:8443",
+          "link": "tunnel"
+        },
+        {
+          "paths": [
+            {
+              "origin": "https://192.168.1.1:8443",
+              "reachable": false,
+              "latencyMs": 10,
+              "isPrivate": true,
+              "link": "tunnel"
+            },
+            {
+              "origin": "https://gateway.example",
+              "reachable": true,
+              "latencyMs": 20,
+              "isPrivate": false,
+              "link": "tunnel"
+            }
+          ],
+          "chosen": "https://gateway.example",
+          "link": "tunnel"
+        },
+        {
+          "paths": [
+            {
+              "origin": "https://192.168.1.1:8443",
+              "reachable": true,
+              "latencyMs": 10,
+              "isPrivate": true,
+              "link": "tunnel"
+            },
+            {
+              "origin": "https://gateway.example",
+              "reachable": true,
+              "latencyMs": 20,
+              "isPrivate": false,
+              "link": "tunnel"
+            }
+          ],
+          "chosen": "https://192.168.1.1:8443",
+          "link": "tunnel"
+        }
+      ]
+    }
   ]
 }
