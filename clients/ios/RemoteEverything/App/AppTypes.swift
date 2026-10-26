@@ -1,13 +1,16 @@
 import Foundation
 
-/// Where a detail column can go. S1 → S3 → S4, and S2 pushed over any of them;
-/// settings is a pushed page on a phone (a sheet cannot follow an appearance
-/// change reliably) and a pane beside the list on a wide screen.
+/// Navigation within the node list and detail column.
 enum AppRoute: Hashable {
     case node(String)
-    case application(nodeID: String, appID: String)
-    case pair
-    case settings
+}
+
+/// An application owns the whole window above either navigation layout.
+struct PresentedApplication: Identifiable {
+    let nodeID: String
+    let appID: String
+
+    var id: String { "\(nodeID)/\(appID)" }
 }
 
 /// S3's whole-page state — the five phases all three clients share: loading,

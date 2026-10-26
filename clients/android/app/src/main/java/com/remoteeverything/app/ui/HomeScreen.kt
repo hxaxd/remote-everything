@@ -108,7 +108,7 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                         Button(onClick = { vm.resumePendingPairing() }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
                     }
                 }
-                if (state.nodes.isEmpty()) {
+                if (state.nodes.isEmpty() && !wide) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         verticalArrangement = Arrangement.Center,
@@ -133,7 +133,15 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                                 onSettings = { pane = PaneSettings },
                                 embedded = true,
                             )
-                            NodeList(
+                            if (state.nodes.isEmpty()) {
+                                CenteredMessage(
+                                    title = l10n(MessageKeys.EMPTY_TITLE),
+                                    body = l10n(MessageKeys.EMPTY_BODY),
+                                    action = l10n(MessageKeys.ACTION_ADD_NODE),
+                                    onAction = { pane = PaneAdd },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            } else NodeList(
                                 vm = vm,
                                 state = state,
                                 selectedId = selected,

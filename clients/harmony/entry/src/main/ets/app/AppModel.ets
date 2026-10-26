@@ -75,6 +75,7 @@ export class AppModel {
   get web(): WebSession | null { return this.catalogController.web; }
   get webFailed(): string { return this.catalogController.webFailed; }
   get pairing(): PairingState { return this.pairingSession.pairing; }
+  get pairingInvitationText(): string { return this.pairingSession.invitationText; }
   get pairingBusy(): boolean { return this.pairingSession.pairingBusy; }
 
   private readonly vault: IdentityVault = new IdentityVault();

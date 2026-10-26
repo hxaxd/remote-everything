@@ -14,10 +14,7 @@ final class AppModel: ObservableObject {
     @Published var notice: Notice?
     @Published var path: [AppRoute] = []
     @Published var selectedNodeID: String?
-    /// What the wide (two-column) layout's right pane shows instead of a node:
-    /// settings or pairing, embedded beside the list the way Android embeds
-    /// them (084aa92). On a phone these are a sheet and a pushed page instead.
-    @Published var pane: AppPane?
+    @Published var presentedApplication: PresentedApplication?
     @Published private(set) var updateState: UpdateState = .idle
 
     /// The two panes a wide screen may hold beside the node list.

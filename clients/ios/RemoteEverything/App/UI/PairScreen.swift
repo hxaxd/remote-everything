@@ -2,14 +2,7 @@ import SwiftUI
 
 /// S2: the invitation goes in, the node comes out.
 ///
-/// One screen, the way Android's pair screen is one screen: the input field
-/// stays where it is, a scanned or pasted invitation stays readable inside it,
-/// and the confirm card appears below it. A failure is a line of text under
-/// the field, not a screen of its own. Only a pairing in flight and a pairing
-/// waiting for its operator fill the page. Success closes the page itself.
-///
-/// The camera is its own full-screen cover, because a camera that has to fit a
-/// page it is not part of is a camera that asks to be cropped.
+/// Scan or paste, inspect the destination, name the device and join in one form.
 struct PairScreen: View {
 
     @EnvironmentObject private var model: AppModel
@@ -17,10 +10,30 @@ struct PairScreen: View {
 
     @State private var showingScanner = false
 
+    private var resumingAttempt: Bool {
+        if case .failed(.network) = model.pairingPhase { return true }
+        return false
+    }
+
     var body: some View {
         let theme = Theme(colorScheme)
-        content(theme)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.gapL) {
+                    switch model.pairingPhase {
+                    case .pairing:
+                        pairingView(theme)
+                    case .idle, .failed:
+                        inputView(theme)
+                        if let invitation = model.invitation {
+                            confirmView(theme, invitation: invitation)
+                        }
+                    }
+                }
+                .padding(Theme.gapM)
+                .frame(maxWidth: Theme.contentMaxWidth)
+                .frame(maxWidth: .infinity)
+            }
             .background(theme.bg)
             .navigationTitle(l10n(MessageKeys.PAIR_TITLE))
             .navigationBarTitleDisplayMode(.inline)
@@ -34,17 +47,16 @@ struct PairScreen: View {
                     } label: {
                         Label(l10n(MessageKeys.ACTION_BACK), systemImage: "chevron.left")
                     }
+                    .disabled(model.pairingPhase == .pairing)
                 }
             }
-            .fullScreenCover(isPresented: $showingScanner) {
-                ScannerScreen { code in
-                    showingScanner = false
-                    // A scanned invitation is pasted into the field, the way a
-                    // typed one sits there: visible, editable, confirmable.
-                    model.addNodeText = code
-                    model.parseInvitation(code)
-                }
-                .environmentObject(model)
+        }
+        .interactiveDismissDisabled(model.pairingPhase == .pairing)
+        .sheet(isPresented: $showingScanner) {
+            ScannerScreen { code in
+                showingScanner = false
+                model.addNodeText = code
+                model.parseInvitation(code)
             }
             .onAppear {
                 if model.deviceNameDraft.isEmpty {
@@ -67,12 +79,19 @@ struct PairScreen: View {
         }
     }
 
-    /// The invitation is on its way: a spinner, the node's name, and a cancel
-    /// that goes back to the input with the invitation kept.
-    private func workingView(_ theme: Theme) -> some View {
-        VStack(spacing: Theme.gapM) {
-            ProgressView()
-            Text(l10n(MessageKeys.PAIR_WORKING))
+    // MARK: - Steps
+
+    private func inputView(_ theme: Theme) -> some View {
+        VStack(alignment: .leading, spacing: Theme.gapM) {
+            Button {
+                showingScanner = true
+            } label: {
+                Label(l10n(MessageKeys.PAIR_SCAN), systemImage: "qrcode.viewfinder")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            Text(l10n(MessageKeys.PAIR_INPUT_HINT))
                 .font(Theme.body)
                 .foregroundStyle(theme.textPrimary)
             if let nodeName = model.invitation?.nodeName {
@@ -162,13 +181,7 @@ struct PairScreen: View {
                 .lineLimit(2...3)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
-                .accessibilityIdentifier("pair.invitation")
-                .padding(Theme.gapS + 4)
-                .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                        .strokeBorder(model.invitationError == nil ? theme.hairline : theme.danger, lineWidth: Theme.hairlineWidth)
-                )
+                .textFieldStyle(.roundedBorder)
             if model.invitationError != nil {
                 Text(l10n(MessageKeys.PAIR_BAD_INVITATION))
                     .font(Theme.caption)
@@ -196,15 +209,17 @@ struct PairScreen: View {
                     .font(Theme.body)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
-                    .padding(Theme.gapS + 4)
-                    .background(theme.bg, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                            .strokeBorder(nameBlank ? theme.danger : theme.hairline, lineWidth: Theme.hairlineWidth)
-                    )
-                Text(nameBlank ? l10n(MessageKeys.PAIR_DEVICE_NAME_REQUIRED) : l10n(MessageKeys.PAIR_DEVICE_NAME_HINT))
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(resumingAttempt)
+                Text(l10n(model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                          ? MessageKeys.PAIR_DEVICE_NAME_REQUIRED : MessageKeys.PAIR_DEVICE_NAME_HINT))
                     .font(Theme.caption)
-                    .foregroundStyle(nameBlank ? theme.danger : theme.textSecondary)
+                    .foregroundStyle(theme.textSecondary)
+            }
+            if case .failed(let failure) = model.pairingPhase {
+                Text(ErrorText.text(for: failure))
+                    .font(Theme.body)
+                    .foregroundStyle(theme.danger)
             }
             Button {
                 Task { await model.confirmPairing() }
@@ -215,10 +230,20 @@ struct PairScreen: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(nameBlank)
-            .accessibilityIdentifier("pair.join")
+            .disabled(model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(Theme.gapM)
-        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: Theme.radiusCard, style: .continuous))
+        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func pairingView(_ theme: Theme) -> some View {
+        VStack(alignment: .leading, spacing: Theme.gapM) {
+            HStack(spacing: Theme.gapS) {
+                ProgressView()
+                Text(l10n(MessageKeys.PAIR_WORKING))
+                    .font(Theme.body)
+                    .foregroundStyle(theme.textSecondary)
+            }
+        }
     }
 }

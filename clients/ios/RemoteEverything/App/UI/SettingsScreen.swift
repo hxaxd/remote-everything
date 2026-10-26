@@ -100,15 +100,15 @@ struct SettingsScreen: View {
 
     private func languageSection(_ theme: Theme) -> some View {
         Section {
-            Picker(l10n(MessageKeys.SETTINGS_LANGUAGE), selection: Binding(
-                get: { model.settings.language },
-                set: { model.setLanguage($0) }
-            )) {
-                Text(l10n(MessageKeys.SETTINGS_LANGUAGE_SYSTEM)).tag(Language.system)
-                Text(l10n(MessageKeys.LANGUAGE_ZH)).tag(Language.zh)
-                Text(l10n(MessageKeys.LANGUAGE_EN)).tag(Language.en)
+            choiceRow(l10n(MessageKeys.SETTINGS_LANGUAGE_SYSTEM), selected: model.settings.language == .system, theme: theme) {
+                model.setLanguage(.system)
             }
-            .pickerStyle(.segmented)
+            choiceRow(l10n(MessageKeys.LANGUAGE_ZH), selected: model.settings.language == .zh, theme: theme) {
+                model.setLanguage(.zh)
+            }
+            choiceRow(l10n(MessageKeys.LANGUAGE_EN), selected: model.settings.language == .en, theme: theme) {
+                model.setLanguage(.en)
+            }
         } header: {
             Text(l10n(MessageKeys.SETTINGS_LANGUAGE))
                 .foregroundStyle(theme.textSecondary)
@@ -117,19 +117,38 @@ struct SettingsScreen: View {
 
     private func appearanceSection(_ theme: Theme) -> some View {
         Section {
-            Picker(l10n(MessageKeys.SETTINGS_APPEARANCE), selection: Binding(
-                get: { model.settings.appearance },
-                set: { model.setAppearance($0) }
-            )) {
-                Text(l10n(MessageKeys.SETTINGS_APPEARANCE_SYSTEM)).tag(Appearance.system)
-                Text(l10n(MessageKeys.SETTINGS_APPEARANCE_LIGHT)).tag(Appearance.light)
-                Text(l10n(MessageKeys.SETTINGS_APPEARANCE_DARK)).tag(Appearance.dark)
+            choiceRow(l10n(MessageKeys.SETTINGS_APPEARANCE_SYSTEM), selected: model.settings.appearance == .system, theme: theme) {
+                model.setAppearance(.system)
             }
-            .pickerStyle(.segmented)
+            choiceRow(l10n(MessageKeys.SETTINGS_APPEARANCE_LIGHT), selected: model.settings.appearance == .light, theme: theme) {
+                model.setAppearance(.light)
+            }
+            choiceRow(l10n(MessageKeys.SETTINGS_APPEARANCE_DARK), selected: model.settings.appearance == .dark, theme: theme) {
+                model.setAppearance(.dark)
+            }
         } header: {
             Text(l10n(MessageKeys.SETTINGS_APPEARANCE))
                 .foregroundStyle(theme.textSecondary)
         }
+    }
+
+    private func choiceRow(_ title: String, selected: Bool, theme: Theme, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Theme.gapM) {
+                Text(title)
+                    .font(Theme.body)
+                    .foregroundStyle(theme.textPrimary)
+                Spacer(minLength: Theme.gapS)
+                Image(systemName: "checkmark")
+                    .foregroundStyle(theme.accent)
+                    .opacity(selected ? 1 : 0)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private func connectionsSection(_ theme: Theme) -> some View {

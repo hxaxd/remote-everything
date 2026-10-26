@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// Whether the screen is wide enough for S1 and S3 to stand side by side: the
-/// line sits at 840 points on the short side, which is a
-/// tablet or an unfolded foldable, and never changes by rotating.
+/// Whether the current window has room for the node list and detail column.
 private struct WideLayoutKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -56,6 +54,23 @@ struct AppRootView: View {
         }
         .ignoresSafeArea(.keyboard, edges: .bottom)
         .preferredColorScheme(model.preferredColorScheme)
+        .sheet(isPresented: $model.isAddingNode) {
+            PairScreen()
+                .environmentObject(model)
+        }
+        .sheet(isPresented: $model.isShowingSettings) {
+            SettingsScreen()
+                .environmentObject(model)
+        }
+        .fullScreenCover(item: $model.presentedApplication) { application in
+            WebScreen(
+                nodeID: application.nodeID,
+                appID: application.appID,
+                appName: applicationName(nodeID: application.nodeID, appID: application.appID)
+            )
+            .environmentObject(model)
+            .preferredColorScheme(model.preferredColorScheme)
+        }
         .onOpenURL { url in
             model.handleIncomingURL(url)
         }
@@ -70,10 +85,8 @@ struct AppRootView: View {
     /// Keep navigation state seamless when resizing or rotating between single-column and split-column.
     private func handleLayoutTransition(toWide: Bool) {
         if toWide {
-            // Narrow -> Wide: what was a full-screen page becomes the pane or the
-            // detail beside the list — a pushed pairing becomes the add-node pane,
-            // a pushed settings becomes the settings pane, a node at the root
-            // becomes the selected detail.
+            // Narrow -> Wide:
+            // Move the node selection into the detail column without losing it.
             if let first = model.path.first {
                 switch first {
                 case .pair:
@@ -85,10 +98,6 @@ struct AppRootView: View {
                 case .node(let nodeID):
                     model.selectedNodeID = nodeID
                     model.path.removeFirst()
-                case .application(let nodeID, _):
-                    if model.selectedNodeID == nil {
-                        model.selectedNodeID = nodeID
-                    }
                 }
             }
         } else {
@@ -178,18 +187,6 @@ struct AppRootView: View {
         switch route {
         case .node(let nodeID):
             NodeScreen(nodeID: nodeID)
-        case .application(let nodeID, let appID):
-            WebScreen(
-                nodeID: nodeID,
-                appID: appID,
-                appName: applicationName(nodeID: nodeID, appID: appID)
-            )
-        case .pair:
-            PairScreen()
-                .environmentObject(model)
-        case .settings:
-            SettingsScreen()
-                .environmentObject(model)
         }
     }
 
