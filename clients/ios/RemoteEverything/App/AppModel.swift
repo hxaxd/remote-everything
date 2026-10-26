@@ -15,6 +15,7 @@ final class AppModel: ObservableObject {
     @Published var isShowingSettings = false
     @Published var path: [AppRoute] = []
     @Published var selectedNodeID: String?
+    @Published var presentedApplication: PresentedApplication?
     @Published private(set) var updateState: UpdateState = .idle
 
     // S2 View Bindings (delegated to pairingSession)

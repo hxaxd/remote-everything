@@ -57,6 +57,7 @@ final class PairingSession: ObservableObject {
     }
 
     func parseInvitation(_ text: String) {
+        guard pairingPhase != .pairing else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             invitation = nil
@@ -65,6 +66,10 @@ final class PairingSession: ObservableObject {
         }
         do {
             let parsed = try SetupURI.parse(trimmed)
+            if case .failed = pairingPhase, parsed != pairingAttempt?.invitation {
+                pairingPhase = .idle
+                pairingAttempt = nil
+            }
             invitation = parsed
             invitationError = nil
         } catch let rejection as SetupURI.Rejected {
@@ -86,7 +91,12 @@ final class PairingSession: ObservableObject {
     }
 
     func confirmPairing() async {
-        guard let invitation, case .idle = pairingPhase else { return }
+        guard let invitation, pairingPhase != .pairing,
+              !deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if case .failed(.network) = pairingPhase, let attempt = pairingAttempt {
+            await runPairing(attempt)
+            return
+        }
         let attempt = PairingCoordinator.Attempt(
             invitation: invitation,
             deviceName: deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)

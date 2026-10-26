@@ -114,7 +114,9 @@ struct HomeScreen: View {
                             )
                         }
                         .buttonStyle(.plain)
-                        .listRowBackground(isSelected ? theme.tint(theme.accent) : theme.bgElevated)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 }
                 .listStyle(.plain)
@@ -152,40 +154,29 @@ private struct NodeRow: View {
     var body: some View {
         let theme = Theme(colorScheme)
         HStack(spacing: Theme.gapM) {
-            StatusDot(color: theme.color(for: status))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(node.name)
-                    .font(Theme.headline)
-                    .foregroundStyle(isSelected ? theme.accent : (status == .offline || status == .unknown ? theme.textSecondary : theme.textPrimary))
-                    .lineLimit(1)
-                if let detail {
-                    Text(detail)
-                        .font(Theme.caption)
-                        .foregroundStyle(theme.textSecondary)
-                }
-            }
-            Spacer(minLength: Theme.gapS)
+            Text(node.name)
+                .font(Theme.headline)
+                .foregroundStyle(isSelected ? theme.accent : (status == .offline || status == .unknown ? theme.textSecondary : theme.textPrimary))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
             // Which ways in this phone has, and which one it would take.
-            if status == .pendingApproval {
+            if status == .pendingApproval || status == .unknown {
                 StatusBadge(text: l10n(MessageKeys.forNodeStatus(status)), color: theme.color(for: status))
-            } else if status != .unknown {
+            } else {
                 LinkDots(paths: node.paths, inUse: inUse)
             }
-            Image(systemName: "chevron.right")
-                .font(Theme.caption)
-                .foregroundStyle(isSelected ? theme.accent : theme.textTertiary)
         }
+        .padding(.horizontal, 14)
         .frame(minHeight: Theme.nodeRowHeight)
+        .background(
+            isSelected ? theme.tint(theme.accent) : theme.bgElevated,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
+        )
         .contentShape(Rectangle())
-    }
-
-    /// The state's own name, from the one mapping all three clients share. An
-    /// online row says nothing here: the path label already said it.
-    private var detail: String? {
-        switch status {
-        case .onlineLan, .onlineTunnel: return nil
-        case .pendingApproval, .offline, .unknown:
-            return l10n(MessageKeys.forNodeStatus(status))
-        }
+        .accessibilityElement(children: .combine)
     }
 }

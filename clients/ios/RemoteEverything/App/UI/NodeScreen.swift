@@ -135,10 +135,10 @@ struct NodeScreen: View {
     private func open(_ app: AppInfo) {
         switch app.code {
         case .ready, .starting:
-            model.path.append(.application(nodeID: nodeID, appID: app.id))
+            model.presentedApplication = PresentedApplication(nodeID: nodeID, appID: app.id)
         case .stopped:
             model.startApplication(nodeID: nodeID, appID: app.id)
-            model.path.append(.application(nodeID: nodeID, appID: app.id))
+            model.presentedApplication = PresentedApplication(nodeID: nodeID, appID: app.id)
         case .stopping:
             break
         }

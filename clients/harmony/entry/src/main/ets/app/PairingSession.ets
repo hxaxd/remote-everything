@@ -46,6 +46,7 @@ export class PairingSession {
   private readonly nodesController: NodesController;
 
   @Trace pairing: PairingState = PairingState.idle();
+  @Trace invitationText: string = '';
   @Trace pairingBusy: boolean = false;
 
   private approvalTimer: number = -1;
@@ -79,6 +80,7 @@ export class PairingSession {
   }
 
   beginPairing(deviceName: string): void {
+    this.invitationText = '';
     this.pairing = new PairingState(PairingStage.Input, null, deviceName, null);
   }
 
@@ -86,6 +88,7 @@ export class PairingSession {
     // Leaving mid-flight is a verdict of its own: the run in progress is marked
     // gone, so its answer, whenever it arrives, lands nowhere.
     this.pairingRun += 1;
+    this.invitationText = '';
     this.stopApprovalPolling();
     this.pairing = PairingState.idle();
   }
@@ -99,10 +102,19 @@ export class PairingSession {
     this.pairingRun += 1;
     this.stopApprovalPolling();
     this.transaction.discard(origin);
+    this.invitationText = '';
     this.pairing = PairingState.idle();
   }
 
   submitLink(raw: string): void {
+    if (this.pairingBusy) {
+      return;
+    }
+    this.invitationText = raw;
+    if (raw.trim() === '') {
+      this.editLink();
+      return;
+    }
     const outcome: PairingOutcome = this.parseLink(raw);
     if (outcome.stage === PairingStage.Confirm && outcome.setup !== null) {
       this.pairing = new PairingState(PairingStage.Confirm, outcome.setup, this.pairing.deviceName, null);
@@ -121,7 +133,7 @@ export class PairingSession {
 
   async confirmPairing(): Promise<void> {
     const setup: SetupUri | null = this.pairing.setup;
-    if (setup === null || this.pairingBusy) {
+    if (setup === null || this.pairingBusy || this.pairing.deviceName.trim() === '') {
       return;
     }
     const run: number = this.pairingRun;
@@ -148,6 +160,7 @@ export class PairingSession {
   private async applyPairingResult(result: PairingResult): Promise<void> {
     this.nodesController.reloadIdentities();
     if (result.verdict === PairingVerdict.Activated) {
+      this.invitationText = '';
       this.stopApprovalPolling();
       this.pairing = PairingState.idle();
       await this.nodesController.refreshNodes();
@@ -155,6 +168,7 @@ export class PairingSession {
       return;
     }
     if (result.verdict === PairingVerdict.WaitingApproval) {
+      this.invitationText = '';
       const waitingOn: string = this.pairing.setup === null ? this.pairing.nodeName : this.pairing.setup.nodeName;
       this.pairing = new PairingState(PairingStage.WaitingApproval, null, this.pairing.deviceName,
         result.errorKey, waitingOn);
@@ -201,6 +215,7 @@ export class PairingSession {
       const effectivePin = staged.serverPin ?? (identity === null ? null : identity.serverPin);
       const result: PairingResult = await this.pairingService.resume(staged, effectivePin);
       if (result.verdict === PairingVerdict.Activated) {
+        this.invitationText = '';
         this.stopApprovalPolling();
         this.nodesController.reloadIdentities();
         this.pairing = PairingState.idle();
@@ -237,6 +252,7 @@ export class PairingSession {
     const effectivePin = staged.serverPin ?? (identity === null ? null : identity.serverPin);
     const result: PairingResult = await this.pairingService.resume(staged, effectivePin);
     if (result.verdict === PairingVerdict.Activated) {
+      this.invitationText = '';
       this.stopApprovalPolling();
       this.nodesController.reloadIdentities();
       this.pairing = PairingState.idle();

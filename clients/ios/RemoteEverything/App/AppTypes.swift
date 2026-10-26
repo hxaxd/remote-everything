@@ -1,9 +1,16 @@
 import Foundation
 
-/// Where a detail column can go. S1 → S3 → S4.
+/// Navigation within the node list and detail column.
 enum AppRoute: Hashable {
     case node(String)
-    case application(nodeID: String, appID: String)
+}
+
+/// An application owns the whole window above either navigation layout.
+struct PresentedApplication: Identifiable {
+    let nodeID: String
+    let appID: String
+
+    var id: String { "\(nodeID)/\(appID)" }
 }
 
 /// S3's whole-page state (ui-contract §2/S3).

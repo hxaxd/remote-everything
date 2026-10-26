@@ -1,8 +1,6 @@
 import SwiftUI
 
-/// Whether the screen is wide enough for S1 and S3 to stand side by side:
-/// ui-contract §6 puts the line at 840 points on the short side, which is a
-/// tablet or an unfolded foldable, and never changes by rotating.
+/// Whether the current window has room for the node list and detail column.
 private struct WideLayoutKey: EnvironmentKey {
     static let defaultValue = false
 }
@@ -60,6 +58,15 @@ struct AppRootView: View {
             SettingsScreen()
                 .environmentObject(model)
         }
+        .fullScreenCover(item: $model.presentedApplication) { application in
+            WebScreen(
+                nodeID: application.nodeID,
+                appID: application.appID,
+                appName: applicationName(nodeID: application.nodeID, appID: application.appID)
+            )
+            .environmentObject(model)
+            .preferredColorScheme(model.preferredColorScheme)
+        }
         .onOpenURL { url in
             model.handleIncomingURL(url)
         }
@@ -75,18 +82,12 @@ struct AppRootView: View {
     private func handleLayoutTransition(toWide: Bool) {
         if toWide {
             // Narrow -> Wide:
-            // If the user navigated into a node in narrow layout, extract the root node route
-            // to selectedNodeID so detailColumn displays it directly, leaving any child routes (e.g. .application)
-            // pushed cleanly in the detail stack.
+            // Move the node selection into the detail column without losing it.
             if let first = model.path.first {
                 switch first {
                 case .node(let nodeID):
                     model.selectedNodeID = nodeID
                     model.path.removeFirst()
-                case .application(let nodeID, _):
-                    if model.selectedNodeID == nil {
-                        model.selectedNodeID = nodeID
-                    }
                 }
             }
         } else {
@@ -153,12 +154,6 @@ struct AppRootView: View {
         switch route {
         case .node(let nodeID):
             NodeScreen(nodeID: nodeID)
-        case .application(let nodeID, let appID):
-            WebScreen(
-                nodeID: nodeID,
-                appID: appID,
-                appName: applicationName(nodeID: nodeID, appID: appID)
-            )
         }
     }
 
