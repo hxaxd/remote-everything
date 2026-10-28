@@ -40,6 +40,7 @@ class CatalogController(
     private var watchingNodeId: String? = null
     /** One visit to a node, including a later visit to the same node. */
     private var catalogGeneration = 0L
+    private var catalogRequest = 0L
     private val controls = mutableMapOf<String, Long>()
     private var controlSerial = 0L
 
@@ -88,8 +89,9 @@ class CatalogController(
 
     private suspend fun refreshCatalog(node: Node, generation: Long) {
         if (!isCurrent(node.id, generation)) return
+        val request = ++catalogRequest
         val answer = fetchCatalog(node)
-        if (isCurrent(node.id, generation)) {
+        if (isCurrent(node.id, generation) && request == catalogRequest) {
             val previous = _catalog.value as? CatalogUiState.Ready
             _catalog.value = if (answer is CatalogUiState.Ready && previous != null) {
                 CatalogUiState.Ready(answer.apps.map { app ->
@@ -206,7 +208,7 @@ class CatalogController(
                 return@launch
             }
             if (!isCurrent(node.id, generation) || currentIdentities().none { it == identity }) return@launch
-            if (!answer.ok && answer.code == ControlCode.STATE_UPDATE_FAILED) {
+            if (!answer.ok && (answer.code == ControlCode.STATE_UPDATE_FAILED || answer.error_code == "stop_command_failed")) {
                 onNotice(R.string.error_stop_failed)
             }
             if (answer.code == ControlCode.COMPUTER_OFFLINE) {
@@ -274,6 +276,8 @@ class CatalogController(
         if (!isCurrent(nodeId, generation)) return
         val current = _catalog.value
         if (current !is CatalogUiState.Ready) return
+        // A catalog requested before this state was observed is no longer authoritative.
+        catalogRequest++
         _catalog.value = CatalogUiState.Ready(
             current.apps.map { app -> if (app.id == appId) app.copy(code = code) else app },
         )

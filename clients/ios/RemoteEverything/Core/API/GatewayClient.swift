@@ -29,6 +29,7 @@ final class GatewayClient {
     /// The header that names the node a request is for. Every request except the
     /// node list carries it, because a gateway serves several nodes.
     static let nodeHeader = "X-Remote-Everything-Node"
+    static let stopTimeout: TimeInterval = 30
 
     let origin: String
     let originURL: URL
@@ -37,16 +38,15 @@ final class GatewayClient {
     private let session: URLSession
     private let sessionDelegate: GatewaySessionDelegate
 
-    init(origin: String, credential: DeviceCredential?, pin: ServerPin?) {
+    init(origin: String, credential: DeviceCredential?, pin: ServerPin?, configuration: URLSessionConfiguration = .ephemeral) {
         self.origin = origin
         self.originURL = GatewayClient.url(forOrigin: origin)
         let handler = GatewayChallengeHandler(gatewayOrigin: origin, pin: pin, credential: credential)
         self.handler = handler
         self.sessionDelegate = GatewaySessionDelegate(handler: handler)
 
-        let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = Cadence.requestTimeout
-        configuration.timeoutIntervalForResource = Cadence.requestTimeout * 2
+        configuration.timeoutIntervalForResource = max(Cadence.requestTimeout * 2, Self.stopTimeout)
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -134,7 +134,7 @@ final class GatewayClient {
     }
 
     func stop(nodeID: String, appID: String) async throws -> ControlResponse {
-        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: 30)
+        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: Self.stopTimeout)
         return try await control(request)
     }
 
