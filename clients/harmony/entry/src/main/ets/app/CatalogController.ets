@@ -242,9 +242,7 @@ export class CatalogController {
         this.catalog = new CatalogState(CatalogPhase.Offline, nodeId, [], ErrorCode.ComputerOffline, '');
         return;
       }
-      if (answer.code === ControlCode.StateUpdateFailed) {
-        // The state could not move: that is a stop that failed, and it is named
-        // for what it is — the same word every client says here.
+      if (!answer.ok && (answer.code === ControlCode.StateUpdateFailed || answer.errorCode === 'stop_command_failed')) {
         this.onToast?.(MessageKeys.ERROR_STOP_FAILED);
       }
       this.pollUntilSettled(nodeId, app, visit);

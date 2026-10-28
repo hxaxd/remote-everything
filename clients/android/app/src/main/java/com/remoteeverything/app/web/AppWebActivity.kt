@@ -55,7 +55,6 @@ import com.remoteeverything.core.store.WebUserAgent
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -283,7 +282,7 @@ class AppWebActivity : ComponentActivity() {
                 val identities = repository.currentIdentities()
                 val node = routes.refresh(identities,"web").firstOrNull { it.id == ids[0] }
                     ?: error("node is unavailable")
-                val target = withTimeout(60_000) {
+                val target = withWebResolutionTimeout {
                     while (true) {
                         var starting = false
                         for (path in routes.pathsFor(node,"web")) {
@@ -296,7 +295,7 @@ class AppWebActivity : ComponentActivity() {
                                 if (status.code != ControlCode.READY) continue
                                 val next = client.open(ids[0],ids[1])
                                 if (repository.currentIdentities().none { it == identity }) continue
-                                return@withTimeout next to identity
+                                return@withWebResolutionTimeout next to identity
                             } catch (error: CancellationException) { throw error }
                             catch (_: Exception) { routes.markPath(node.id,path.origin,false) }
                         }

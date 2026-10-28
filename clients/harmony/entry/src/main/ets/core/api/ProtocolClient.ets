@@ -80,6 +80,10 @@ export class ProtocolClient {
       if ((this.epochs.get(origin) ?? 0) !== epoch || this.vault.version(origin) !== version || this.generation !== generation) {
         throw ClientError.transport('identity changed while opening the session');
       }
+      // Another caller may have opened this same session while the credential was loading.
+      if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version) {
+        return;
+      }
       const identity: SessionIdentity = new SessionIdentity(copyOf(material.archive), material.password, serverPin);
       this.transport.close(origin);
       this.transport.open(origin, identity);

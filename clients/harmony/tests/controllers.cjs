@@ -89,10 +89,20 @@ const watchdog=setTimeout(()=>{console.error('Host regression stalled');process.
     check('reconciliation reads never resend a control',()=>assert.equal(commands,2));
   }
   {
+    const notices=[];
+    const status=new D.ControlResponse(true,'status',true,false,false,D.ControlCode.Stopped,null,null);
+    const c=new CatalogController({connect:async()=>{},apps:async()=>catalog('DSH'),status:async()=>status,
+      stop:async()=>new D.ControlResponse(false,'stop',true,false,false,D.ControlCode.Stopped,null,'stop_command_failed')},{},nodes);
+    c.onToast=message=>notices.push(message);
+    await c.loadCatalog('A');await c.toggleApp('A',c.catalog.apps[0]);await r.next();
+    check('a failed stop helper is reported even when the app has stopped',()=>
+      assert(notices.includes(r.load('core/model/MessageKeys').MessageKeys.ERROR_STOP_FAILED)));
+  }
+  {
     class Transport {
-      constructor(){this.sessions=new Map();Transport.instance=this;}
+      constructor(){this.sessions=new Map();this.liveClosures=0;Transport.instance=this;}
       has(origin){return this.sessions.has(origin);}open(origin,identity){this.sessions.set(origin,identity);}
-      close(origin){this.sessions.delete(origin);}closeAll(){this.sessions.clear();}
+      close(origin){if(this.sessions.has(origin))this.liveClosures++;this.sessions.delete(origin);}closeAll(){this.sessions.clear();}
     }
     class SessionIdentity {constructor(archive,password,pin){Object.assign(this,{archive,password,pin});}}
     const isolated=runtime({[moduleKey('core/api/Transport')]:{Transport,SessionIdentity}});
@@ -106,6 +116,18 @@ const watchdog=setTimeout(()=>{console.error('Host regression stalled');process.
     waiting=deferred();const fresh=client.connect('https://gateway.example',null);waiting.resolve(material);await fresh;
     version++;waiting=deferred();const replacement=client.connect('https://gateway.example',null);waiting.resolve({...material,password:'new'});await replacement;
     check('same pin with a renewed identity opens a fresh transport',()=>assert.equal(Transport.instance.sessions.get('https://gateway.example').password,'new'));
+    client.releaseAll();
+    const firstMaterial=deferred(),secondMaterial=deferred();let reads=0,wipes=0;
+    const concurrent=new ProtocolClient({version:()=>0,material:()=>++reads===1?firstMaterial.promise:secondMaterial.promise});
+    const first=concurrent.connect('https://gateway.example',null),second=concurrent.connect('https://gateway.example',null);
+    firstMaterial.resolve({...material,wipe:()=>wipes++});await first;
+    const session=Transport.instance.sessions.get('https://gateway.example');
+    secondMaterial.resolve({...material,wipe:()=>wipes++});await second;
+    check('concurrent connects preserve the live session and wipe both credential copies',()=>{
+      assert.equal(Transport.instance.liveClosures,0);
+      assert.equal(Transport.instance.sessions.get('https://gateway.example'),session);
+      assert.equal(wipes,2);
+    });
   }
   {
     const files=new Map();const atomic={read:f=>files.get(f)??null,readText:f=>files.get(f)??null,writeAtomic:(f,s)=>files.set(f,s),removeWithTemporary:f=>files.delete(f),ensureDirectory:()=>{},originKey:s=>Buffer.from(s).toString('hex')};

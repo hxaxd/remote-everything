@@ -59,11 +59,11 @@ final class PairingService {
     /// reversible; from the pairing call on, the gateway is the authority.
     func run(_ attempt: Attempt) async throws -> Outcome {
         let origin = attempt.invitation.origin
-        let version = vault.version(origin:origin)
         if let staged = stages.load(origin: origin) {
             if !staged.isExpired { return try await resume(staged) }
             discard(staged)
         }
+        let version = vault.version(origin:origin)
         let deviceName = attempt.deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard SetupURI.isValidNodeName(deviceName) else { throw ClientError(.invalidDeviceName) }
 
