@@ -177,18 +177,18 @@ func (node *Node) supervise() {
 						node.log("app %s launch failed; retry in %s: %v", app.ID, delay, startErr)
 					}
 				}
-				// Call OnStart when port first opens
+				// A port can open before the app prints its startup credentials.
 				if managed != nil && !managed.started && probeOpen(probeAddress(app)) {
-					managed.started = true
 					node.adaptersMu.RLock()
 					adapter := node.adapters[app.ID]
 					node.adaptersMu.RUnlock()
+					managed.started = adapter == nil
 					if adapter != nil {
 						stdout, readErr := readStartupOutput(managed.logPath, managed.logStart)
 						if readErr != nil {
 							node.log("app %s startup output unavailable: %v", app.ID, readErr)
 						}
-						adapter.OnStart(stdout, node.appPort(app), app.ID)
+						managed.started = adapter.OnStart(stdout, node.appPort(app), app.ID)
 					}
 				}
 			}

@@ -1,5 +1,5 @@
-// DSH adapter: extracts the launch token from stdout and injects it
-// into proxied requests until the client has acquired the dsh-auth session cookie.
+// DSH adapter: waits for the launch token, then authenticates requests until
+// the client has acquired this process's dsh-auth session cookie.
 //
 // DSH 0.1.5+ generates a random token on startup and prints a URL
 // containing it (e.g. http://127.0.0.1:PORT/?token=xxx). When accessed
@@ -9,9 +9,11 @@
 
 function onStart() {
     var m = __stdout.match(/token=([A-Za-z0-9_-]+)/);
-    if (m) {
-        __state.set("token", m[1]);
+    if (!m) {
+        return false;
     }
+    __state.set("token", m[1]);
+    return true;
 }
 
 // DSH was started with --trusted-host naming exactly one origin, and it answers API
@@ -49,8 +51,20 @@ function onRequest() {
     if (__req.getHeader) {
         cookie = __req.getHeader("Cookie") || __req.getHeader("cookie") || "";
     }
-    if (cookie.indexOf("dsh-auth-") === -1) {
+    var cookieName = __state.get("cookieName");
+    var hasCurrentSession = cookieName && cookie.split(";").some(function (part) {
+        return part.trim().indexOf(cookieName + "=") === 0;
+    });
+    if (!hasCurrentSession) {
         __req.setQuery("token", t);
+    }
+}
+
+function onResponse() {
+    var cookie = __resp.getHeader("Set-Cookie") || "";
+    var match = cookie.match(/^(dsh-auth-[A-Za-z0-9_-]+)=/);
+    if (match) {
+        __state.set("cookieName", match[1]);
     }
 }
 

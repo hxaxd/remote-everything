@@ -105,27 +105,42 @@ func (a *Adapter) respObject(resp *http.Response) *goja.Object {
 }
 
 // OnStart is called after the app port opens, with the output the app wrote to
-// its log while starting. Errors are logged but do not block the app.
-func (a *Adapter) OnStart(stdout []byte, port int, appID string) {
-	if a.unavailable || a.onStart == nil {
-		close(a.ready)
-		return
-	}
+// its log while starting. Returning false asks the supervisor to retry with newer
+// output. Errors are logged but do not block the app.
+func (a *Adapter) OnStart(stdout []byte, port int, appID string) (ready bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	select {
+	case <-a.ready:
+		return true
+	default:
+	}
+	ready = true
 	defer func() {
 		if r := recover(); r != nil {
 			a.log("adapter onStart panic: %v", r)
+			ready = true
 		}
-		close(a.ready)
+		if ready {
+			close(a.ready)
+		}
 	}()
+	if a.unavailable || a.onStart == nil {
+		return true
+	}
 	a.vm.Set("__state", a.stateObject())
 	a.vm.Set("__stdout", string(stdout))
 	a.vm.Set("__appId", appID)
 	a.vm.Set("__port", port)
-	if _, err := a.onStart(goja.Undefined()); err != nil {
+	value, err := a.onStart(goja.Undefined())
+	if err != nil {
 		a.log("adapter onStart error: %v", err)
+		return true
 	}
+	if complete, ok := value.Export().(bool); ok && !complete {
+		return false
+	}
+	return true
 }
 
 // OnRequest is called before each request is forwarded to the app.
