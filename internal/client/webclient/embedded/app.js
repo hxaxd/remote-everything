@@ -516,11 +516,18 @@
     if (state.actions.has(key) || !['ready','starting'].includes(app.code)) return;
     const popup = window.open('about:blank', '_blank');
     if (!popup) { state.errors.set(key, '浏览器阻止了新标签页，请允许此网站打开弹出窗口后重试。'); renderApps(); return; }
-    popup.opener = null; popup.document.title = `正在打开 ${app.name}`; popup.document.body.textContent = `正在连接 ${app.name}…`;
+    const theme = getComputedStyle(document.documentElement);
+    popup.document.title = app.name;
+    popup.document.documentElement.style.backgroundColor = theme.getPropertyValue('--canvas').trim();
+    popup.document.documentElement.style.colorScheme = theme.colorScheme;
+    popup.document.body.style.margin = '0';
+    popup.document.body.style.backgroundColor = theme.getPropertyValue('--canvas').trim();
+    popup.document.body.replaceChildren();
+    popup.opener = null;
     state.actions.add(key); state.errors.delete(key); renderApps();
     try {
       if (app.code === 'starting') await pollApp(app,nodeId,epoch,'ready');
-      const data = await request(`/__remote_everything/open/${encodeURIComponent(app.id)}`, {nodeId});
+      const data = await request(`/__remote_everything/open/${encodeURIComponent(app.id)}`, {nodeId, headers: {'X-Remote-Everything-Web-Appearance': theme.colorScheme === 'dark' ? 'dark' : 'light'}});
       if (state.epoch !== epoch || state.nodeId !== nodeId) throw staleError();
       const destination = new URL(data.location);
       if (destination.protocol !== 'https:' || destination.username || destination.password) throw new Error('应用地址无效，请刷新后重试。');

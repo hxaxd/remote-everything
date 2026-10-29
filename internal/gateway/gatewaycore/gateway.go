@@ -16,10 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/infra/logline"
-	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
-	"github.com/hxaxd/remote-everything/internal/protocol/wire"
+	"github.com/hxaxd/remote-everything/internal/logline"
+	"github.com/hxaxd/remote-everything/internal/netaddr"
+	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/webloading"
+	"github.com/hxaxd/remote-everything/internal/wire"
 )
 
 var (
@@ -278,7 +279,7 @@ func (gateway *Gateway) SetApplicationResponsePolicy(policy func(http.Header)) {
 		link.application.ModifyResponse = func(response *http.Response) error {
 			stripGatewaySetCookies(response.Header)
 			policy(response.Header)
-			return nil
+			return webloading.Apply(response)
 		}
 	}
 }
@@ -324,6 +325,7 @@ func newNodeLink(node Node, controlToken string) (*nodeLink, error) {
 		request.Out.Host = inboundHost
 		request.SetXForwarded()
 		proxysecurity.StripInternalHeaders(request.Out.Header)
+		webloading.Prepare(request.Out)
 	}}
 	proxy.ModifyResponse = func(response *http.Response) error {
 		stripGatewaySetCookies(response.Header)

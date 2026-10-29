@@ -37,9 +37,10 @@ let browser, server;
   let pending = false, failAction = false, failCatalog = false, offline = false, unauthorized = false, noNodes = false, delayA = false, empty = false, failLock = false;
   const requests = [];
   let nodeUnauthorized = false, invalidCatalog = false, invalidEncoding = false, stopFailure = false, statusOnly = false;
+  let releaseOpen = null, holdOpen = null;
   await context.route('**/__remote_everything**', async route => {
     const request = route.request(); const url = new URL(request.url()); const headers = request.headers();
-    requests.push({path:url.pathname, node:headers['x-remote-everything-node']});
+    requests.push({path:url.pathname, node:headers['x-remote-everything-node'], appearance:headers['x-remote-everything-web-appearance']});
     const fulfill = (data,status=200) => route.fulfill({status,contentType:'application/json',body:JSON.stringify(data)});
     if (url.pathname.endsWith('_pair')) {
       assert.equal(headers.authorization, `Invitation ${invitation}`);
@@ -71,6 +72,7 @@ let browser, server;
     }
     if (url.pathname.includes('/open/')) {
       assert.equal(headers.accept,'application/json'); assert.equal(headers['x-remote-everything-node'],nodeA);
+      if (holdOpen) await holdOpen;
       return fulfill({ok:true,location:'https://application.example.test/?_reticket=test-once'});
     }
     if (/\/(start|stop|status)$/.test(url.pathname)) {
@@ -122,8 +124,22 @@ let browser, server;
   failAction = true; await page.getByRole('button',{name:'启动 SillyTavern',exact:true}).click(); await checkText('.app-inline-error','繁忙');
   assert.equal(await page.getByRole('button',{name:'启动 SillyTavern',exact:true}).isEnabled(),true);
   failAction = false; await page.getByRole('button',{name:'启动 SillyTavern',exact:true}).click(); await page.getByRole('button',{name:'打开 SillyTavern',exact:true}).waitFor();
-  const popupPromise = context.waitForEvent('page'); await page.getByRole('button',{name:'打开 SillyTavern',exact:true}).click(); const popup = await popupPromise;
-  await popup.waitForURL('https://application.example.test/**'); assert(popup.url().endsWith('#/home')); assert.equal(await popup.evaluate(()=>window.opener),null); await popup.close();
+  for (const theme of ['dark','light','system']) {
+    await page.locator('#btn-settings').click(); await page.locator('#theme-select').selectOption(theme); await page.locator('#btn-close-settings').click();
+    if (theme === 'system') await page.emulateMedia({colorScheme:'dark'});
+    holdOpen = new Promise(resolve => { releaseOpen = resolve; });
+    const popupPromise = context.waitForEvent('page'); await page.getByRole('button',{name:'打开 SillyTavern',exact:true}).click(); const popup = await popupPromise;
+    await popup.waitForFunction(()=>document.title === 'SillyTavern');
+    const expected = await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim());
+    const actual = await popup.evaluate(()=>({background:getComputedStyle(document.documentElement).backgroundColor,body:document.body.textContent,opener:window.opener}));
+    const expectedRGB = await page.evaluate(color=>{const probe=document.createElement('span');probe.style.color=color;document.body.append(probe);const rgb=getComputedStyle(probe).color;probe.remove();return rgb;},expected);
+    assert.equal(actual.background,expectedRGB);assert.equal(actual.body,'');assert.equal(actual.opener,null);
+    await popup.screenshot({path:path.join(output,`application-opening-${theme}.png`)});
+    releaseOpen();holdOpen=null;
+    assert.equal(requests.filter(request=>request.path.includes('/open/')).at(-1).appearance,theme === 'light' ? 'light' : 'dark');
+    await popup.waitForURL('https://application.example.test/**'); assert(popup.url().endsWith('#/home')); assert.equal(await popup.evaluate(()=>window.opener),null); await popup.close();
+  }
+  await page.emulateMedia({colorScheme:'light'});
   await page.getByRole('button',{name:'停止 SillyTavern',exact:true}).click();
   await page.getByRole('button',{name:'启动 SillyTavern',exact:true}).waitFor();
   assert.equal(await page.locator('#modal-confirm').evaluate(el=>el.open),false);

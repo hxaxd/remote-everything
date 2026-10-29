@@ -44,6 +44,7 @@ var internalHeaderNames = [...]string{
 	"X-Remote-Everything-Web-Unlock",
 	"X-Remote-Everything-Web-Revoke",
 	"X-Remote-Everything-Web",
+	"X-Remote-Everything-Web-Appearance",
 }
 
 func StripInternalHeaders(header http.Header) {

@@ -40,6 +40,7 @@ var ErrUnauthorized = errors.New("unauthorized")
 // current access token. Unlock replaces that token; lock removes it.
 // Only hashes of the independent unlock and revocation credentials are stored.
 type Session struct {
+	Appearance  string `json:"-"`
 	Token       string `json:"token"`
 	Fingerprint string `json:"fingerprint"`
 	DeviceName  string `json:"device_name"`
@@ -285,4 +286,17 @@ func (m *SessionManager) RedeemTicket(ticket string) (Session, bool) {
 		return Session{}, false
 	}
 	return m.validateLocked(rec.token)
+}
+
+// SetAppearance remembers the resolved control-page theme for this unlocked browser connection.
+func (m *SessionManager) SetAppearance(token, theme string) {
+	if theme != "dark" && theme != "light" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.validateLocked(token); ok {
+		s.Appearance = theme
+		m.connections[s.RevokeHash] = s
+	}
 }
