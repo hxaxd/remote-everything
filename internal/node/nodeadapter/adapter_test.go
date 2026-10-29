@@ -4,12 +4,58 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
 func testLog(format string, args ...any) {}
+
+func TestDSHAdapterWaitsForTokenPrintedAfterPortOpens(t *testing.T) {
+	source, err := os.ReadFile("../../apps/dsh/adapter.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := New(strings.ReplaceAll(string(source), "{{TRUSTED_HOST}}", "dsh.example.test"), testLog)
+	if a.OnStart([]byte("loading plugins\n"), 8080, "dsh") {
+		t.Fatal("startup must wait for the authentication token")
+	}
+	select {
+	case <-a.ready:
+		t.Fatal("requests must wait for startup credentials")
+	default:
+	}
+	if !a.OnStart([]byte("loading plugins\ndsh web: http://127.0.0.1:8080/?token=fresh-token\n"), 8080, "dsh") {
+		t.Fatal("later output must complete startup")
+	}
+	req := httptest.NewRequest("GET", "http://127.0.0.1:8080/", nil)
+	a.OnRequest(req, "dsh")
+	if req.URL.Query().Get("token") != "fresh-token" || req.Host != "dsh.example.test" {
+		t.Fatal("the first request must use the current launch credential and trusted host")
+	}
+	if !a.OnStart([]byte("token=other"), 8080, "dsh") || a.GetState().Get("token") != "fresh-token" {
+		t.Fatal("completed startup must keep its original state")
+	}
+	stale := httptest.NewRequest("GET", "http://127.0.0.1:8080/", nil)
+	stale.Header.Set("Cookie", "dsh-auth-previous=old-session")
+	a.OnRequest(stale, "dsh")
+	if stale.URL.Query().Get("token") != "fresh-token" {
+		t.Fatal("a previous process's cookie must not block reauthentication")
+	}
+	a.OnResponse(&http.Response{Header: http.Header{"Set-Cookie": []string{"dsh-auth-current=session; Path=/; HttpOnly"}}}, "dsh")
+	returning := httptest.NewRequest("GET", "http://127.0.0.1:8080/", nil)
+	returning.Header.Set("Cookie", "dsh-auth-current=session")
+	a.OnRequest(returning, "dsh")
+	if returning.URL.Query().Get("token") != "" {
+		t.Fatal("authenticated requests must not restart the login redirect")
+	}
+	stale.URL.RawQuery = ""
+	a.OnRequest(stale, "dsh")
+	if stale.URL.Query().Get("token") != "fresh-token" {
+		t.Fatal("old cookies must remain distinct after the current cookie is learned")
+	}
+}
 
 func TestAdapterEmptySourceUnavailable(t *testing.T) {
 	a := New("", testLog)
