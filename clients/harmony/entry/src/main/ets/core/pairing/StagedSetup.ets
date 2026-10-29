@@ -32,10 +32,7 @@ export class StagedSetupStore {
   constructor(vault: IdentityVault) { this.vault = vault; }
 
   stage(staged: StagedSetup): void {
-    const records: StagedSetup[] = this.readAll();
-    const index: number = records.findIndex((record: StagedSetup) => record.origin === staged.origin);
-    if (index < 0) { records.push(staged); } else { records[index] = staged; }
-    this.writeAll(records);
+    this.writeAll([staged]);
   }
 
   read(origin?: string): StagedSetup | null {
@@ -90,20 +87,21 @@ export class StagedSetupStore {
   }
 
   async discard(origin: string): Promise<boolean> {
-    if (this.read(origin) === null) { return false; }
+    const staged: StagedSetup | null = this.read(origin);
+    if (staged === null) { return false; }
     this.clear(origin);
-    await this.vault.forget(origin);
+    await this.vault.forget(staged.credentialRef);
     return true;
   }
 
   async reconcile(): Promise<StagedSetup[]> {
     const valid: StagedSetup[] = [];
     for (const staged of this.readAll()) {
-      const present: CredentialPresence = await this.vault.presence(staged.origin);
-      if (this.read(staged.origin)?.certificateFingerprint !== staged.certificateFingerprint) { continue; }
+      const present: CredentialPresence = await this.vault.presence(staged.credentialRef);
+      if (this.read(staged.origin)?.credentialRef !== staged.credentialRef) { continue; }
       if (staged.expired || present !== CredentialPresence.Present) {
         await this.discard(staged.origin);
-      } else if (this.read(staged.origin)?.certificateFingerprint === staged.certificateFingerprint) {
+      } else if (this.read(staged.origin)?.credentialRef === staged.credentialRef) {
         valid.push(staged);
       }
     }

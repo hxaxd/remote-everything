@@ -86,6 +86,30 @@ export class PairingService {
   private readonly vault: IdentityVault;
   private readonly transaction: StagedSetupStore;
   private readonly identities: SettingsStore;
+  private generation: number = 0;
+  private currentInvitation: string = '';
+  private cleanup: Promise<void> = Promise.resolve();
+
+  cancelPending(): void {
+    this.generation += 1;
+    this.currentInvitation = '';
+    this.attempts.clear();
+    const records: StagedSetup[] = this.transaction.readAll();
+    this.transaction.clear();
+    this.client.releaseAll();
+    const previous: Promise<void> = this.cleanup;
+    this.cleanup = previous.then(async (): Promise<void> => {
+      for (const staged of records) { await this.vault.forget(staged.credentialRef); }
+    });
+    this.cleanup.catch(() => {});
+  }
+
+  async discard(origin: string): Promise<boolean> {
+    if (this.transaction.read(origin) === null) { return false; }
+    this.cancelPending();
+    await this.cleanup;
+    return true;
+  }
 
   constructor(client: ProtocolClient, vault: IdentityVault, transaction: StagedSetupStore,
     identities: SettingsStore) {
@@ -101,6 +125,11 @@ export class PairingService {
    * device yet, and the caller keeps asking.
    */
   async pair(setup: SetupUri, deviceName: string): Promise<PairingResult> {
+    const invitationKey: string = `${setup.origin}|${setup.invitation}`;
+    if (this.currentInvitation !== invitationKey) { this.cancelPending(); this.currentInvitation = invitationKey; }
+    const generation: number = this.generation;
+    await this.cleanup;
+    if (generation !== this.generation) { return PairingResult.failed(MessageKeys.ERROR_CLIENT); }
     const trimmedName: string = deviceName.trim();
     if (trimmedName.length === 0) {
       return PairingResult.failed(MessageKeys.PAIR_DEVICE_NAME_REQUIRED);
@@ -133,25 +162,29 @@ export class PairingService {
       return PairingResult.failed(MessageKeys.forFailure(error));
     }
     let stored: StoredCredential;
-    if (this.vault.version(setup.origin) !== version) { return PairingResult.failed(MessageKeys.ERROR_CLIENT); }
+    if (generation !== this.generation || this.vault.version(setup.origin) !== version) { return PairingResult.failed(MessageKeys.ERROR_CLIENT); }
+    const storageKey: string = `${setup.origin}#pending/${newCredentialPassword()}`;
     try {
-      stored = await this.vault.adopt(setup.origin, answer.credentialPkcs12, credentialPassword,
+      stored = await this.vault.adopt(storageKey, answer.credentialPkcs12, credentialPassword,
         answer.certificateFingerprint);
     } catch (error) {
       noteFailure('adopt', error);
       return PairingResult.failed(MessageKeys.forFailure(error));
     }
-    if (this.vault.version(setup.origin) !== version + 1) { return PairingResult.failed(MessageKeys.ERROR_CLIENT); }
+    if (generation !== this.generation || this.vault.version(setup.origin) !== version) {
+      await this.vault.forget(storageKey);
+      return PairingResult.failed(MessageKeys.ERROR_CLIENT);
+    }
     this.attempts.delete(setup.origin);
     // The window is the gateway's own, resolved once: the answer was accepted only
     // because its expiry was an RFC 3339 instant, and here it becomes the epoch
     // the staged file compares against.
     const staged: StagedSetup = new StagedSetup(setup.origin, setup.node, setup.nodeName, answer.deviceName,
-      stored.fingerprint, stored.keyUri, rfc3339EpochMs(answer.pendingExpiresAt), setup.serverPin);
+      stored.fingerprint, storageKey, rfc3339EpochMs(answer.pendingExpiresAt), setup.serverPin);
     this.transaction.stage(staged);
     this.client.release(setup.origin);
     try {
-      await this.client.connect(setup.origin, setup.serverPin);
+      await this.client.connect(setup.origin, setup.serverPin, staged.credentialRef);
     } catch (error) {
       noteFailure('connect', error);
       // A network that is down is not a verdict: the invitation is spent but the
@@ -171,9 +204,9 @@ export class PairingService {
     }
     const effectivePin: ServerPin | null = staged.serverPin;
     try {
-      await this.client.connect(staged.origin, effectivePin);
+      await this.client.connect(staged.origin, effectivePin, staged.credentialRef);
     } catch (error) {
-      if (this.transaction.read(staged.origin)?.certificateFingerprint !== staged.certificateFingerprint) {
+      if (this.transaction.read(staged.origin)?.credentialRef !== staged.credentialRef) {
         return PairingResult.failed(MessageKeys.ERROR_CLIENT);
       }
       if (error instanceof ClientError && error.code !== null &&
@@ -186,7 +219,7 @@ export class PairingService {
       }
       return PairingResult.waiting(MessageKeys.forFailure(error));
     }
-    if (this.transaction.read(staged.origin)?.certificateFingerprint !== staged.certificateFingerprint) {
+    if (this.transaction.read(staged.origin)?.credentialRef !== staged.credentialRef) {
       return PairingResult.failed(MessageKeys.ERROR_CLIENT);
     }
     return await this.activate(staged.origin, staged.node, staged.nodeName, effectivePin, staged);
@@ -198,7 +231,7 @@ export class PairingService {
     try {
       activation = await this.client.activate(origin, nodeId);
     } catch (error) {
-      if (this.transaction.read(origin)?.certificateFingerprint !== staged.certificateFingerprint) {
+      if (this.transaction.read(origin)?.credentialRef !== staged.credentialRef) {
         return PairingResult.failed(MessageKeys.ERROR_CLIENT);
       }
       if (error instanceof ClientError && error.code !== null &&
@@ -211,7 +244,7 @@ export class PairingService {
       }
       return PairingResult.waiting(MessageKeys.forFailure(error));
     }
-    if (this.transaction.read(origin)?.certificateFingerprint !== staged.certificateFingerprint) {
+    if (this.transaction.read(origin)?.credentialRef !== staged.credentialRef) {
       return PairingResult.failed(MessageKeys.ERROR_CLIENT);
     }
     if (activation.pending) {
@@ -223,18 +256,26 @@ export class PairingService {
         return PairingResult.waiting(MessageKeys.forError(failure.code));
       }
       if (failure.code === ErrorCode.InvitationDenied || failure.code === ErrorCode.InvitationExpired ||
-        failure.code === ErrorCode.Unauthorized) {
+        failure.code === ErrorCode.Unauthorized || failure.code === ErrorCode.ActivationFailed ||
+        failure.code === ErrorCode.PairingFailed) {
         // The invitation is spent and the activation is refused for good: nothing
         // was promoted, so nothing stays behind.
         await this.transaction.discard(origin);
+        this.client.release(origin);
+        return PairingResult.failed(MessageKeys.forError(failure.code));
       }
       // Any other refusal is not a verdict — a gateway that was not ready, a node
       // not added yet — so the staged pairing stays for the retry that a later
       // resume makes.
-      return PairingResult.failed(failure.code === null
+      return PairingResult.waiting(failure.code === null
         ? MessageKeys.ERROR_NETWORK : MessageKeys.forError(failure.code));
     }
-    this.promote(staged, nodeName, serverPin);
+    const keyUri: string = await this.vault.webIdentity(staged.credentialRef);
+    if (this.transaction.read(origin)?.credentialRef !== staged.credentialRef) {
+      return PairingResult.failed(MessageKeys.ERROR_CLIENT);
+    }
+    this.promote(staged, nodeName, serverPin, keyUri);
+    this.client.release(origin);
     return PairingResult.activated();
   }
 
@@ -244,14 +285,20 @@ export class PairingService {
    * paired under, the certificate's fingerprint, the reference to it, and the pin of a
    * gateway that signs its own certificate.
    */
-  private promote(staged: StagedSetup, nodeName: string, serverPin: ServerPin | null): Identity {
+  private promote(staged: StagedSetup, nodeName: string, serverPin: ServerPin | null, keyUri: string): Identity {
     const identity: Identity = new Identity(staged.origin, staged.deviceName,
-      staged.certificateFingerprint, staged.credentialRef, serverPin, Date.now());
+      staged.certificateFingerprint, keyUri, serverPin, Date.now());
     const known: Identity[] = this.identities.readIdentities();
     const kept: Identity[] = known.map((entry: Identity) => entry.origin === staged.origin ? identity : entry);
     if (!known.some((entry: Identity) => entry.origin === staged.origin)) { kept.push(identity); }
-    this.identities.writeIdentities(kept);
+    const previousStorage: string = this.vault.promote(staged.origin, staged.credentialRef);
+    try { this.identities.writeIdentities(kept); }
+    catch (error) {
+      this.vault.promote(staged.origin, previousStorage);
+      throw ClientError.client('the admitted connection could not be saved');
+    }
     this.transaction.clear(staged.origin);
+    if (previousStorage !== staged.credentialRef) { this.vault.retire(previousStorage).catch(() => {}); }
     return identity;
   }
 }

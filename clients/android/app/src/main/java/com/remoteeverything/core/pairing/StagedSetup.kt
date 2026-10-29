@@ -27,6 +27,7 @@ data class StagedSetup(
     val nodeName: String,
     val deviceName: String,
     val certificateFingerprint: String,
+    val credentialRef: String,
     val serverPin: ServerPin? = null,
     val pendingExpiresAtEpochMs: Long,
     val createdAtEpochMs: Long,
@@ -38,10 +39,7 @@ class StagedSetupStore(private val file: File) {
 
     @Synchronized
     fun stage(staged: StagedSetup) {
-        val records = loadAll().toMutableList()
-        val index = records.indexOfFirst { it.origin == staged.origin }
-        if (index < 0) records.add(staged) else records[index] = staged
-        save(records)
+        save(listOf(staged))
     }
 
     /** The staged setup, when there is a readable one. An unreadable file is no setup. */

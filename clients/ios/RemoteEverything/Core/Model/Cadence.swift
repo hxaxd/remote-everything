@@ -30,7 +30,8 @@ enum Cadence {
 
     /// A device that paired and is waiting for its operator.
     static let approvalPollMs: Int = 5_000
-    static let approvalPollTimeoutMs: Int = 600_000
+    /// Minimum visible feedback for one approval check.
+    static let approvalFeedbackMinMs: Int = 1_500
 
     /// How long a path is given to answer while it is being probed.
     static let probeTimeoutMs: Int = 2_000
@@ -43,7 +44,6 @@ enum Cadence {
     static var controlPoll: TimeInterval { seconds(controlPollMs) }
     static var controlPollCeiling: TimeInterval { seconds(controlPollCeilingMs) }
     static var controlPollTimeout: TimeInterval { seconds(controlPollTimeoutMs) }
-    static var approvalPollTimeout: TimeInterval { seconds(approvalPollTimeoutMs) }
     static var probeTimeout: TimeInterval { seconds(probeTimeoutMs) }
     static var requestTimeout: TimeInterval { seconds(requestTimeoutMs) }
 

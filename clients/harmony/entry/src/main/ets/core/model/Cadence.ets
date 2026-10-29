@@ -29,7 +29,8 @@ export class Cadence {
 
   /** A device that paired and is waiting for its operator. */
   static readonly approvalPollMs: number = 5000;
-  static readonly approvalPollTimeoutMs: number = 600000;
+  /** Minimum visible feedback for one approval check. */
+  static readonly approvalFeedbackMinMs: number = 1500;
 
   /** How long a path is given to answer while it is being probed. */
   static readonly probeTimeoutMs: number = 2000;

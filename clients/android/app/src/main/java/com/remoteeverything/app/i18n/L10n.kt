@@ -99,6 +99,7 @@ fun messageKey(key: String): Int = when (key) {
     MessageKeys.PAIR_NETWORK -> R.string.pair_network
     MessageKeys.PAIR_NODE_LABEL -> R.string.pair_node_label
     MessageKeys.PAIR_SCAN -> R.string.pair_scan
+    MessageKeys.PAIR_SCAN_LIGHT -> R.string.pair_scan_light
     MessageKeys.PAIR_SCAN_BODY -> R.string.pair_scan_body
     MessageKeys.PAIR_SCAN_DENIED -> R.string.pair_scan_denied
     MessageKeys.PAIR_SCAN_FAILED -> R.string.pair_scan_failed

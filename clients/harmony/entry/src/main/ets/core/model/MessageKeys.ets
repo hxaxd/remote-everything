@@ -114,6 +114,7 @@ export class MessageKeys {
   static readonly PAIR_NETWORK: string = 'pair.network';
   static readonly PAIR_NODE_LABEL: string = 'pair.node_label';
   static readonly PAIR_SCAN: string = 'pair.scan';
+  static readonly PAIR_SCAN_LIGHT: string = 'pair.scan_light';
   static readonly PAIR_SCAN_BODY: string = 'pair.scan_body';
   static readonly PAIR_SCAN_DENIED: string = 'pair.scan_denied';
   static readonly PAIR_SCAN_FAILED: string = 'pair.scan_failed';

@@ -4,17 +4,21 @@ import com.remoteeverything.app.i18n.l10n
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -46,7 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -54,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remoteeverything.app.AppModel
 import com.remoteeverything.app.PairingUiState
 import com.remoteeverything.app.R
+import com.remoteeverything.app.theme.LocalSemanticColors
 import com.remoteeverything.core.model.ErrorCode
 import com.remoteeverything.core.model.MessageKeys
 import kotlinx.coroutines.launch
@@ -70,6 +75,8 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
     var submittedInput by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(input) { if (submittedInput != input) submittedInput = null }
     val state by vm.state.collectAsStateWithLifecycle()
+    val leave = { vm.resetPairing(); onBack() }
+    BackHandler(state.pairing is PairingUiState.Pending, onBack = leave)
     val parsed = remember(input) { if (input.isBlank()) null else vm.parseInvitation(input) }
 
     val pending by vm.pendingInvitation.collectAsStateWithLifecycle()
@@ -127,7 +134,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
             TopAppBar(
                 title = { Text(l10n(MessageKeys.PAIR_TITLE)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = leave) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = l10n(MessageKeys.ACTION_BACK),
@@ -142,6 +149,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .padding(16.dp),
         ) {
             when (val pairing = state.pairing) {
@@ -165,7 +173,13 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    CircularProgressIndicator()
+                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                        if (pairing.origin in state.checkingApprovals) {
+                            CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp, color = LocalSemanticColors.current.warn)
+                        } else {
+                            Icon(painterResource(R.drawable.ic_waiting), contentDescription = null, tint = LocalSemanticColors.current.warn, modifier = Modifier.size(32.dp))
+                        }
+                    }
                     Spacer(Modifier.height(16.dp))
                     Text(
                         l10n(MessageKeys.PAIR_WAITING_APPROVAL),
@@ -179,11 +193,11 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.height(24.dp))
-                    Button(onClick = { vm.resumePendingPairing() }) {
+                    Button(onClick = { vm.resumePendingPairing(pairing.origin) }, enabled = pairing.origin !in state.checkingApprovals) {
                         Text(l10n(MessageKeys.ACTION_RETRY))
                     }
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onBack) {
+                    TextButton(onClick = leave) {
                         Text(l10n(MessageKeys.ACTION_BACK))
                     }
                 }
@@ -258,13 +272,9 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
                                     enabled = submittedInput == null,
                                     onValueChange = { deviceName = it },
                                     label = { Text(l10n(MessageKeys.PAIR_DEVICE_NAME)) },
-                                    supportingText = {
-                                        if (deviceName.isBlank()) {
+                                    supportingText = if (deviceName.isBlank()) { {
                                             Text(l10n(MessageKeys.PAIR_DEVICE_NAME_REQUIRED))
-                                        } else {
-                                            Text(l10n(MessageKeys.PAIR_DEVICE_NAME_HINT))
-                                        }
-                                    },
+                                    } } else null,
                                     isError = deviceName.isBlank(),
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),

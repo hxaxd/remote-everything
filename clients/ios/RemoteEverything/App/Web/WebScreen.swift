@@ -113,6 +113,8 @@ struct WebScreen: View {
                 if openFailure != nil || handle.phase == .failed {
                     failurePage(theme)
                         .background(theme.bg)
+                } else if isResolving {
+                    loadingPage(theme)
                 } else if handle.phase == .loading {
                     // A page that is still coming up, or an application the
                     // node is still starting: a thin line says so instead of
@@ -122,14 +124,21 @@ struct WebScreen: View {
                 }
             }
         } else if isResolving {
-            VStack {
-                ProgressView()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.bg)
+            loadingPage(theme)
         } else {
             failurePage(theme)
         }
+    }
+
+    private func loadingPage(_ theme: Theme) -> some View {
+        VStack(spacing: Theme.gapM) {
+            ProgressView()
+            Text(l10n(MessageKeys.WEB_LOADING))
+                .font(Theme.body)
+                .foregroundStyle(theme.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.bg)
     }
 
     private func failurePage(_ theme: Theme) -> some View {

@@ -5,6 +5,7 @@
 
 import { describe, expect, it } from '@ohos/hypium';
 import { abilityDelegatorRegistry } from '@kit.TestKit';
+import { preferences } from '@kit.ArkData';
 import { AtomicFile } from '../../../../main/ets/core/store/AtomicFile';
 import { SettingsStore } from '../../../../main/ets/core/store/SettingsStore';
 import { NodeCacheStore } from '../../../../main/ets/core/store/NodeCacheStore';
@@ -27,13 +28,13 @@ function identity(origin: string, pin: ServerPin | null): Identity {
 
 export default function storeTests() {
   describe('StoreTests', () => {
-    it('pending approvals survive restart and clear independently',0,() => {
+    it('only the newest pending approval survives restart',0,() => {
       const store: StagedSetupStore = new StagedSetupStore(new IdentityVault());
       store.clear();
       store.stage(staged(9999999999999,null));
       store.stage(new StagedSetup('https://second.example',NODE_ID,'Two','Phone',FINGERPRINT,'ref-2',9999999999999,null));
       const restarted: StagedSetupStore = new StagedSetupStore(new IdentityVault());
-      expect(restarted.readAll().length).assertEqual(2);
+      expect(restarted.readAll().length).assertEqual(1);
       restarted.clear('https://gw.example.com');
       expect(restarted.readAll().length).assertEqual(1);
       expect(restarted.readAll()[0].origin).assertEqual('https://second.example');
@@ -111,9 +112,12 @@ export default function storeTests() {
       expect(cache.read(origin)).assertNull();
     });
 
-    it('SettingsStore_keeps_settings_and_identities_in_one_home', 0, () => {
-      const store: SettingsStore = new SettingsStore();
-      const defaults = store.open(context);
+    it('SettingsStore_keeps_settings_and_identities_in_one_home', 0, async () => {
+      const preferencesContext: Context = abilityDelegatorRegistry.getAbilityDelegator().getAppContext()
+        .createModuleContext('entry_test');
+      const name: string = `settings-test-${Date.now()}`;
+      const store: SettingsStore = new SettingsStore(preferences.getPreferencesSync(preferencesContext, { name: name }));
+      const defaults = store.read();
       expect(defaults.language).assertEqual(Language.System);
       store.write(defaults.withLanguage(Language.Chinese));
       expect(store.read().language).assertEqual(Language.Chinese);
@@ -127,6 +131,7 @@ export default function storeTests() {
       expect(identities[0].serverPin === null ? 'no pin' : identities[0].serverPin.certFingerprint)
         .assertEqual(FINGERPRINT);
       expect(identities[1].serverPin).assertNull();
+      await preferences.deletePreferences(preferencesContext, { name: name });
     });
 
   });

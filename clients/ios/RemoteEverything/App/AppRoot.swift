@@ -74,7 +74,7 @@ struct AppRootView: View {
         .onOpenURL { url in
             model.handleIncomingURL(url)
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase, initial: true) { _, phase in
             model.scenePhaseChanged(phase)
         }
         .task {

@@ -1,6 +1,9 @@
 package com.remoteeverything.app.i18n
 
 import android.content.Context
+import android.content.res.Resources
+import android.os.LocaleList
+import android.view.ContextThemeWrapper
 import com.remoteeverything.core.store.Language
 import java.util.Locale
 
@@ -26,15 +29,21 @@ object LocaleHelper {
             .getString(KEY, null)
             ?.let { runCatching { Language.valueOf(it) }.getOrNull() }
             ?: Language.SYSTEM
-        val tag = when (language) {
-            Language.SYSTEM -> return base
-            Language.ZH -> "zh"
-            Language.EN -> "en"
+        return wrap(base, language)
+    }
+
+    fun wrap(base: Context, language: Language): Context {
+        val locales = when (language) {
+            Language.SYSTEM -> Resources.getSystem().configuration.locales
+            Language.ZH -> LocaleList(Locale.forLanguageTag("zh"))
+            Language.EN -> LocaleList(Locale.forLanguageTag("en"))
         }
-        val locale = Locale.forLanguageTag(tag)
-        val config = android.content.res.Configuration(base.resources.configuration)
-        config.setLocale(locale)
-        config.setLayoutDirection(locale)
-        return base.createConfigurationContext(config)
+        // Override only locale fields so size, orientation and system appearance
+        // continue to follow configuration changes without recreating the Activity.
+        val config = android.content.res.Configuration()
+        config.setLocales(locales)
+        config.setLayoutDirection(locales[0])
+        // Keep the host Activity in the wrapper chain for result/permission launchers.
+        return ContextThemeWrapper(base, 0).apply { applyOverrideConfiguration(config) }
     }
 }

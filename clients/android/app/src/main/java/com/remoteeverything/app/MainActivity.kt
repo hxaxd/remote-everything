@@ -4,21 +4,26 @@ import com.remoteeverything.app.i18n.LocaleHelper
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
 import com.remoteeverything.app.ui.AppNav
 import com.remoteeverything.app.theme.AppTheme
 import com.remoteeverything.core.store.Language
+import com.remoteeverything.core.store.Appearance
 
 class MainActivity : ComponentActivity() {
 
@@ -38,10 +43,7 @@ class MainActivity : ComponentActivity() {
         val uri = intent?.dataString
         if (uri != null && uri.startsWith("remote-everything://setup")) {
             vmRef?.stageInvitation(uri)
-            // The intent outlives its delivery: an activity that is recreated —
-            // a language switch does exactly that — is handed the same intent
-            // again, and without this the link would open the pair screen every
-            // time. The data is consumed, so it leaves with its delivery.
+            // Consume the invitation once so lifecycle recreation cannot stage it again.
             intent?.data = null
         }
     }
@@ -67,28 +69,34 @@ class MainActivity : ComponentActivity() {
                 onStopOrDispose { vm.stopForegroundRefresh() }
             }
             val state by vm.state.collectAsStateWithLifecycle()
+            val dark = when (state.settings.appearance) {
+                Appearance.SYSTEM -> isSystemInDarkTheme()
+                Appearance.LIGHT -> false
+                Appearance.DARK -> true
+            }
+            SideEffect {
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
             AppTheme(state.settings.appearance) {
-                ApplyLanguageOverride(state.settings.language)
-                AppNav(vm)
+                LocalizedContent(state.settings.language) { AppNav(vm) }
             }
         }
     }
 
-    /**
-     * A language override lives in the context wrapped at attachBaseContext,
-     * so changing it recreates the activity once. rememberSaveable survives
-     * the recreation, which is what stops this from looping.
-     */
     @Composable
-    private fun ApplyLanguageOverride(language: Language) {
-        val activity = LocalActivity.current
-        var applied by rememberSaveable { mutableStateOf<Language?>(null) }
-        LaunchedEffect(language) {
-            val previous = applied
-            applied = language
-            if (previous != null && previous != language) {
-                activity?.recreate()
-            }
+    private fun LocalizedContent(language: Language, content: @Composable () -> Unit) {
+        val base = LocalContext.current
+        val configuration = LocalConfiguration.current
+        val localized = remember(base, configuration, language) { LocaleHelper.wrap(base, language) }
+        CompositionLocalProvider(
+            LocalContext provides localized,
+            LocalConfiguration provides localized.resources.configuration,
+            LocalResources provides localized.resources,
+        ) {
+            content()
         }
     }
 }

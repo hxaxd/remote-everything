@@ -39,6 +39,14 @@ final class PairingService {
     private let stages: StagedSetupStore
     private let store: ClientStore
     private let makeClient: (String, DeviceCredential?, ServerPin?) -> GatewayClient
+    private var generation = 0
+    private var currentAttempt: Attempt?
+
+    func cancelPending() {
+        generation += 1
+        currentAttempt = nil
+        for staged in stages.loadAll() { discard(staged) }
+    }
 
     init(
         vault: IdentityVault,
@@ -58,6 +66,8 @@ final class PairingService {
     /// asks to be activated. Everything before the activation is local and
     /// reversible; from the pairing call on, the gateway is the authority.
     func run(_ attempt: Attempt) async throws -> Outcome {
+        if currentAttempt !== attempt { cancelPending(); currentAttempt = attempt }
+        let generation = self.generation
         let origin = attempt.invitation.origin
         if let staged = stages.load(origin: origin) {
             if !staged.isExpired { return try await resume(staged) }
@@ -73,7 +83,7 @@ final class PairingService {
             deviceName: deviceName,
             credentialPassword: attempt.credentialPassword
         )
-        guard vault.version(origin:origin) == version else { throw CancellationError() }
+        guard self.generation == generation, vault.version(origin:origin) == version else { throw CancellationError() }
 
         guard let pkcs12 = Data(base64Encoded: response.credentialPKCS12) else {
             throw ClientError(.pairingFailed)
@@ -84,8 +94,7 @@ final class PairingService {
         try CredentialMaterial.verifyFingerprint(imported, expected: response.certificateFingerprint)
         try CredentialMaterial.verifyKeyPair(imported)
 
-        let credentialRef = try vault.store(
-            origin: origin,
+        let credentialRef = try vault.storePending(
             pkcs12: pkcs12,
             password: attempt.credentialPassword
         )
@@ -106,7 +115,8 @@ final class PairingService {
             pendingExpiresAt: response.pendingExpiresAt,
             createdAt: Date()
         )
-        try stages.stage(staged)
+        do { try stages.stage(staged) }
+        catch { vault.forget(aliasRef: credentialRef); throw error }
 
         return try await activate(staged, credential: imported.credential)
     }
@@ -133,6 +143,7 @@ final class PairingService {
                     createdAt: staged.createdAt
                 )
                 var identities = store.loadIdentities()
+                let previous = identities.first { $0.origin == identity.origin }
                 if let index = identities.firstIndex(where: { $0.origin == identity.origin }) {
                     identities[index] = identity
                 } else {
@@ -140,6 +151,9 @@ final class PairingService {
                 }
                 store.saveIdentities(identities)
                 stages.clear(origin: staged.origin)
+                if let previous, previous.credentialRef != identity.credentialRef {
+                    vault.forget(aliasRef: previous.credentialRef)
+                }
                 return .approved(identity: identity, catalog: catalog)
             }
         } catch let error as ClientError {
@@ -158,7 +172,7 @@ final class PairingService {
             discard(staged)
             throw ClientError(.invitationExpired)
         }
-        let credential = try vault.credential(origin: staged.origin)
+        let credential = try vault.credential(aliasRef: staged.credentialRef)
         return try await activate(staged, credential: credential)
     }
 
@@ -172,7 +186,7 @@ final class PairingService {
         var resumable: [StagedSetup] = []
         var dropped: [StagedSetup] = []
         for staged in stages.loadAll() {
-            if staged.isExpired || !vault.hasCredential(origin: staged.origin) {
+            if staged.isExpired || !vault.hasCredential(aliasRef: staged.credentialRef) {
                 stages.clear(origin: staged.origin)
                 dropped.append(staged)
             } else {
@@ -193,6 +207,7 @@ final class PairingService {
     }
 
     func staged(origin: String) -> StagedSetup? { stages.load(origin: origin) }
+    func isCurrentIdentity(_ identity: Identity) -> Bool { store.loadIdentities().contains(identity) }
 
     // MARK: - Tokens
 

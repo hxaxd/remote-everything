@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -67,6 +68,7 @@ fun SettingsScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) 
     val state by vm.state.collectAsStateWithLifecycle()
     val update by vm.updateState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
     val clipboard = LocalClipboard.current
     val copied = l10n(MessageKeys.ACTION_COPIED)
 
@@ -108,6 +110,7 @@ fun SettingsScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) 
             }
         }
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),

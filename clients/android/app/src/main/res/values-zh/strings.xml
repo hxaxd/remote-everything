@@ -92,6 +92,7 @@
     <string name="pair_network">无法连接，请检查网络后重试。</string>
     <string name="pair_node_label">节点</string>
     <string name="pair_scan">扫码</string>
+    <string name="pair_scan_light">照明</string>
     <string name="pair_scan_body">将摄像头对准邀请二维码。</string>
     <string name="pair_scan_denied">扫码需要相机权限，也可以直接粘贴链接。</string>
     <string name="pair_scan_failed">未识别到邀请二维码</string>

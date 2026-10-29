@@ -29,7 +29,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -66,12 +65,7 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
             }
         },
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = state.refreshing,
-            onRefresh = { vm.refreshNodes() },
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 for (pending in state.pendingSetups.filter { it.pendingExpiresAtEpochMs > System.currentTimeMillis() }) {
                     // A device that paired but is not approved yet: saying so is the
                     // difference between "it did not work" and "it is waiting".
@@ -85,27 +79,11 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.weight(1f).padding(start = 12.dp),
                         )
-                        Button(onClick = { vm.resumePendingPairing(pending.origin) }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
+                        Button(onClick = { vm.resumePendingPairing(pending.origin) }, enabled = pending.origin !in state.checkingApprovals) { Text(l10n(MessageKeys.ACTION_RETRY)) }
                         androidx.compose.material3.TextButton(onClick = { vm.abandonPending(pending.origin) }) { Text(l10n(MessageKeys.ACTION_CANCEL)) }
                     }
                 }
-                if (state.nodes.isEmpty() && !wide) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            l10n(MessageKeys.EMPTY_BODY),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(24.dp))
-                        Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
-                    }
-                } else if (wide) {
+                if (wide) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Column(modifier = Modifier.weight(0.42f)) {
                             HomeBar(
@@ -114,19 +92,9 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                                 onSettings = onSettings,
                                 embedded = true,
                             )
-                            if (state.nodes.isEmpty()) {
-                                CenteredMessage(
-                                    title = l10n(MessageKeys.EMPTY_TITLE),
-                                    body = l10n(MessageKeys.EMPTY_BODY),
-                                    action = l10n(MessageKeys.ACTION_ADD_NODE),
-                                    onAction = onAdd,
-                                    modifier = Modifier.weight(1f),
-                                )
-                            } else NodeList(
-                                vm = vm,
-                                state = state,
-                                selectedId = selected,
-                                onSelect = onNode,
+                            RefreshableNodes(
+                                vm = vm, state = state, selectedId = selected,
+                                onSelect = onNode, onAdd = onAdd,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -136,14 +104,49 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                         }
                     }
                 } else {
-                    NodeList(
-                        vm = vm,
-                        state = state,
-                        selectedId = null,
-                        onSelect = { node -> onNode(node) },
+                    RefreshableNodes(
+                        vm = vm, state = state, selectedId = null,
+                        onSelect = onNode, onAdd = onAdd,
+                        modifier = Modifier.weight(1f),
                     )
                 }
+        }
+    }
+}
+
+@Composable
+private fun RefreshableNodes(
+    vm: AppModel,
+    state: com.remoteeverything.app.AppUiState,
+    selectedId: String?,
+    onSelect: (Node) -> Unit,
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AppPullRefresh(
+        isRefreshing = state.refreshing, onRefresh = { vm.refreshNodes() }, modifier = modifier.fillMaxSize(),
+    ) {
+        if (state.nodes.isEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            l10n(MessageKeys.EMPTY_BODY), style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
+                    }
+                }
             }
+        } else {
+            NodeList(vm = vm, state = state, selectedId = selectedId, onSelect = onSelect)
         }
     }
 }

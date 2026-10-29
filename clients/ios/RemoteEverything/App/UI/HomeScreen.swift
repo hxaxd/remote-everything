@@ -77,6 +77,7 @@ struct HomeScreen: View {
                             .background(theme.accent, in: Capsule())
                     }
                     .buttonStyle(.plain)
+                      .disabled(model.checkingApprovals.contains(staged.origin))
                     Button(l10n(MessageKeys.ACTION_CANCEL)) { model.abandonPending(origin: staged.origin) }
                         .buttonStyle(.borderless)
                 }

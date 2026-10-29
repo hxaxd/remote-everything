@@ -7,6 +7,7 @@
 // right, which is what the same two screens are when there is room for both.
 
 import { deviceInfo } from '@kit.BasicServicesKit';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { model } from '../app/AppModel';
 import { Strings, defaultDeviceName } from '../app/i18n/Strings';
 import { Metrics } from '../app/theme/Tokens';
@@ -102,6 +103,7 @@ struct AppRoot {
   }
 
   aboutToAppear(): void {
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     model.attachStack(this.stack);
     model.setDeviceName(defaultDeviceName());
     // A link that launched this app opens the add-node flow with itself filled in.

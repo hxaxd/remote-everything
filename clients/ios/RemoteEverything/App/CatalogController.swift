@@ -439,7 +439,7 @@ final class CatalogController: ObservableObject {
         var lastError: Error?
         for path in nodesController.orderedPaths(for: node) {
             guard let identity = nodesController.identity(forPath: path),
-                  let credential = vault.prepare(origin: identity.origin),
+                  let credential = vault.prepare(aliasRef: identity.credentialRef),
                   let client = clients.deviceClient(for: identity, vault: vault)
             else {
                 nodesController.setCondition(origin: path.origin, condition: .needsPairing)

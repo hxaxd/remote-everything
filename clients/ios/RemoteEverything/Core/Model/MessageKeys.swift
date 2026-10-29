@@ -97,6 +97,7 @@ enum MessageKeys {
     static let PAIR_INPUT_HINT = "pair.input_hint"
     static let PAIR_SCAN = "pair.scan"
     static let PAIR_SCAN_DENIED = "pair.scan_denied"
+    static let PAIR_SCAN_LIGHT = "pair.scan_light"
     static let PAIR_SCAN_BODY = "pair.scan_body"
     static let PAIR_SCAN_FAILED = "pair.scan_failed"
     static let PAIR_CONFIRM_BODY = "pair.confirm_body"

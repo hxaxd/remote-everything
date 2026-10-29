@@ -5,9 +5,8 @@ import java.security.KeyStore
 
 /**
  * Where a gateway's credential lives once its key is no longer ours to export.
- * One entry per origin; the entry is the identity — losing it means the origin
- * must be paired again, and pretending otherwise is how a client ends up with a
- * record of a connection it can no longer make.
+ * Entries are addressed by credential reference. A pending pairing has its own
+ * reference, so cancelling it cannot remove an established identity's key.
  */
 interface IdentityVault {
     fun store(origin: String, material: Pkcs12.Material)

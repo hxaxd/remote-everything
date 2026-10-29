@@ -112,6 +112,7 @@ object MessageKeys {
     const val PAIR_NETWORK = "pair.network"
     const val PAIR_NODE_LABEL = "pair.node_label"
     const val PAIR_SCAN = "pair.scan"
+    const val PAIR_SCAN_LIGHT = "pair.scan_light"
     const val PAIR_SCAN_BODY = "pair.scan_body"
     const val PAIR_SCAN_DENIED = "pair.scan_denied"
     const val PAIR_SCAN_FAILED = "pair.scan_failed"

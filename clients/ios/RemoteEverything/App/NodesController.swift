@@ -46,7 +46,7 @@ final class NodesController: ObservableObject {
         var kept: [Identity] = []
         var lost: [String] = []
         for identity in liveIdentities {
-            if vault.hasCredential(origin: identity.origin) {
+            if vault.hasCredential(aliasRef: identity.credentialRef) {
                 kept.append(identity)
             } else {
                 lost.append(identity.origin)
@@ -245,7 +245,7 @@ final class NodesController: ObservableObject {
     func forget(origin: String) {
         identityEpoch[origin, default: 0] += 1
         clients.drop(origin: origin)
-        vault.forget(origin: origin)
+        if let identity = identities.first(where: { $0.origin == origin }) { vault.forget(aliasRef: identity.credentialRef) }
         pathSelector.reset()
         store.clearCachedNodes(origin: origin)
         identities = identities.filter { $0.origin != origin }

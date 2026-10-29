@@ -61,6 +61,7 @@ final class AppModel: ObservableObject {
     var isRefreshing: Bool { nodesController.isRefreshing }
     var catalogs: [String: CatalogState] { catalogController.catalogs }
     var pairingPhase: PairingPhase { pairingSession.pairingPhase }
+    var checkingApprovals: Set<String> { pairingSession.resumingOrigins }
     var invitation: SetupURI.Invitation? { pairingSession.invitation }
     var invitationError: SetupURI.Rejected? { pairingSession.invitationError }
 
@@ -176,14 +177,14 @@ final class AppModel: ObservableObject {
 
     private func startForegroundLoops() {
         startRefreshLoop()
-        pairingSession.startPendingLoop()
+        pairingSession.foregroundChanged(true)
         catalogController.resumeLoops()
     }
 
     private func stopForegroundLoops() {
         refreshLoop?.cancel()
         refreshLoop = nil
-        pairingSession.stopLoops()
+        pairingSession.foregroundChanged(false)
         catalogController.stopLoops()
     }
 
@@ -266,6 +267,12 @@ final class AppModel: ObservableObject {
         pairingSession.cancelPairingAttempt()
     }
 
+    func leaveAddNode() {
+        pairingSession.leaveAddNode()
+        isAddingNode = false
+        addNodeText = ""
+    }
+
     func parseInvitation(_ text: String) {
         pairingSession.parseInvitation(text)
     }
@@ -292,11 +299,12 @@ final class AppModel: ObservableObject {
 
     func resumeStagedSetups(origin: String? = nil) async {
         await pairingSession.resumeStagedSetups(origin: origin)
+        pairingSession.startPendingLoop()
     }
 
     func abandonPending(origin: String) {
         guard stagedSetups.contains(where: { $0.origin == origin }) else { return }
-        if pairingSession.discardStagedSetups(origin: origin) { nodesController.forget(origin: origin) }
+        pairingSession.discardStagedSetups(origin: origin)
     }
 
     // MARK: - The wide layout's panes
