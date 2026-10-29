@@ -88,7 +88,7 @@ export struct SettingsScreen {
             }, (identity: Identity) =>
               // The key carries whether the trouble line is showing: the card is a
               // by-value builder, so only a rebuild picks up that line appearing.
-              `${identity.origin}|${model.troubleFor(identity.origin) !== null ? 1 : 0}`)
+              `${identity.origin}|${model.troubleFor(identity.origin) !== null ? 1 : 0}|${model.fontScale > 1.3 ? 1 : 0}`)
             SectionHeader({ label: Strings.text(MessageKeys.SETTINGS_ABOUT), dark: model.dark })
             // Three plain rows, the way a page about the build reads: what this app is,
             // what it speaks, and what this phone calls itself. Nothing is boxed, because
@@ -146,43 +146,23 @@ export struct SettingsScreen {
     // margins, and its right side goes past the glass.
     Column() {
       Column() {
-        Row({ space: Metrics.gapS }) {
-          Column({ space: 2 }) {
-            // A copyable line answers on its own footprint — the words, not the
-            // whole window they happen to sit in.
-            Text(identity.origin)
-              .fontSize(TypeScale.body)
-              .fontColor(palette(model.dark).textPrimary)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .onClick(() => {
-                this.copy(identity.origin);
-              })
-            Text(identity.deviceName)
-              .fontSize(TypeScale.body)
-              .fontColor(palette(model.dark).textSecondary)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .onClick(() => {
-                this.copy(identity.deviceName);
-              })
+        if (model.fontScale > 1.3) {
+          Column({ space: Metrics.gapS }) {
+            Column({ space: 2 }) { this.IdentityDetails(identity) }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+            this.ForgetControl(identity)
+          }.width('100%')
+        } else {
+          Row({ space: Metrics.gapS }) {
+            Column({ space: 2 }) { this.IdentityDetails(identity) }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+            this.ForgetControl(identity)
           }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
-          // Natural width, the way a text button reads: the words and their
-          // padding, never folded by a cap — a forget control that says only
-          // "忘记…" is a control a person cannot trust.
-          Text(Strings.text(MessageKeys.SETTINGS_FORGET))
-            .fontSize(TypeScale.body)
-            .fontColor(palette(model.dark).danger)
-            .maxLines(1)
-            .padding({ left: Metrics.gapS, right: Metrics.gapS, top: Metrics.gapS, bottom: Metrics.gapS })
-            .onClick(() => {
-              this.confirmForget(identity);
-            })
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
         }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
         if (model.troubleFor(identity.origin) !== null) {
           Row({ space: Metrics.gapS }) {
             Text(this.troubleReason(identity))
@@ -213,6 +193,41 @@ export struct SettingsScreen {
     }
     .width('100%')
     .padding({ left: Metrics.gapM, right: Metrics.gapM, top: Metrics.gapS, bottom: Metrics.gapS })
+  }
+
+  @Builder
+  IdentityDetails(identity: Identity) {
+    // A copyable line answers on its own footprint — the words, not the
+    // whole window they happen to sit in.
+    Text(identity.origin)
+      .fontSize(TypeScale.body)
+      .fontColor(palette(model.dark).textPrimary)
+      .maxLines(1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .onClick(() => {
+        this.copy(identity.origin);
+      })
+    Text(identity.deviceName)
+      .fontSize(TypeScale.body)
+      .fontColor(palette(model.dark).textSecondary)
+      .maxLines(1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .onClick(() => {
+        this.copy(identity.deviceName);
+      })
+  }
+
+  @Builder
+  ForgetControl(identity: Identity) {
+    Text(Strings.text(MessageKeys.SETTINGS_FORGET))
+      .fontSize(TypeScale.body)
+      .fontColor(palette(model.dark).danger)
+      .maxLines(model.fontScale > 1.3 ? 2 : 1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .padding({ left: Metrics.gapS, right: Metrics.gapS, top: Metrics.gapS, bottom: Metrics.gapS })
+      .onClick(() => {
+        this.confirmForget(identity);
+      })
   }
 
   /** The reason this connection is not answering, in the words this app shows. */

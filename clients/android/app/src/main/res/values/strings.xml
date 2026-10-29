@@ -93,6 +93,7 @@
     <string name="pair_network">Can\'t connect, check your network and try again</string>
     <string name="pair_node_label">Node</string>
     <string name="pair_scan">Scan</string>
+    <string name="pair_scan_light">Light</string>
     <string name="pair_scan_body">Point the camera at the invitation QR code.</string>
     <string name="pair_scan_denied">Scanning needs camera permission, or paste the link</string>
     <string name="pair_scan_failed">No invitation QR code found</string>

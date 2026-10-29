@@ -33,7 +33,7 @@ fun AppNav(vm: AppModel) {
     }
     if (wide || destination == "home") {
         HomeScreen(vm = vm,
-            onAdd = { saved.removeState("pair"); vm.resetPairing(); destination = "pair" },
+            onAdd = { saved.removeState("pair"); vm.beginPairing(); destination = "pair" },
             onSettings = { destination = "settings" },
             onNode = { destination = "node/${it.id}" },
             selected = destination.takeIf { it.startsWith("node/") }?.removePrefix("node/"),

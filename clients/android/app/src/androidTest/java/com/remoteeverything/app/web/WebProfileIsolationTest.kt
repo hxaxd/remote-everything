@@ -9,7 +9,6 @@ import androidx.webkit.WebViewFeature
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -18,14 +17,18 @@ class WebProfileIsolationTest {
     @Test
     fun sameIpAndParentDomainCookiesStayInTheirOwnProfile() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val a = "test-a-${UUID.randomUUID()}"
-        val b = "test-b-${UUID.randomUUID()}"
+        val a = "isolation-test-a"
+        val b = "isolation-test-b"
         val views = mutableListOf<WebView>()
         val cookieWrites = CountDownLatch(2)
         try {
             instrumentation.runOnMainSync {
                 assertTrue("This test requires a WebView with multi-profile support",
                     WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
+                // Loaded profiles stay in use until this instrumentation process exits.
+                // Delete the previous run's profiles before loading them in this process.
+                ProfileStore.getInstance().deleteProfile(a)
+                ProfileStore.getInstance().deleteProfile(b)
                 for (name in listOf(a, b)) {
                     val view = WebView(instrumentation.targetContext)
                     WebViewCompat.setProfile(view, name)
@@ -64,10 +67,6 @@ class WebProfileIsolationTest {
         } finally {
             instrumentation.runOnMainSync {
                 views.forEach(WebView::destroy)
-                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
-                    ProfileStore.getInstance().deleteProfile(a)
-                    ProfileStore.getInstance().deleteProfile(b)
-                }
             }
         }
     }

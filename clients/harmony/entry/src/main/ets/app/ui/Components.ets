@@ -72,6 +72,7 @@ export struct Header {
         .fontSize(TypeScale.headline)
         .fontColor([palette(this.dark).textSecondary])
         .padding({ left: Metrics.gapS, right: Metrics.gapS })
+        .constraintSize({ minWidth: 44, minHeight: 44 })
         .onClick(() => {
           onTap();
         })
@@ -111,9 +112,9 @@ export struct Header {
       })
     }
     .width('100%')
-    .height(Metrics.rowSettings)
+    .constraintSize({ minHeight: Metrics.rowSettings })
     .alignItems(VerticalAlign.Center)
-    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin })
+    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin, top: 8, bottom: 8 })
   }
 }
 

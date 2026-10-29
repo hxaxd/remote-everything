@@ -12,7 +12,7 @@ import com.remoteeverything.core.identity.Pkcs12
  */
 class GatewayClientPool {
 
-    private data class Device(val fingerprint: String, val pin: ServerPin?, val client: GatewayClient)
+    private data class Device(val fingerprint: String, val ref: String, val pin: ServerPin?, val client: GatewayClient)
     private data class PairingKey(val origin: String, val pin: ServerPin?)
     private val clients = mutableMapOf<String, Device>()
     private val pairing = mutableMapOf<PairingKey, GatewayClient>()
@@ -23,14 +23,14 @@ class GatewayClientPool {
      */
     @Synchronized
     fun deviceClient(identity: Identity, vault: IdentityVault): GatewayClient? {
-        val material = vault.load(identity.origin) ?: run {
+        val material = vault.load(identity.credentialRef) ?: run {
             clients.remove(identity.origin)
             return null
         }
         val fingerprint = Pkcs12.fingerprint(material.certificate)
-        clients[identity.origin]?.takeIf { it.fingerprint == fingerprint && it.pin == identity.serverPin }?.let { return it.client }
+        clients[identity.origin]?.takeIf { it.fingerprint == fingerprint && it.ref == identity.credentialRef && it.pin == identity.serverPin }?.let { return it.client }
         val client = GatewayClients.device(identity.origin, material, identity.serverPin)
-        clients[identity.origin] = Device(fingerprint, identity.serverPin, client)
+        clients[identity.origin] = Device(fingerprint, identity.credentialRef, identity.serverPin, client)
         return client
     }
 

@@ -67,6 +67,7 @@ struct HomeScreen: View {
                             .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                      .disabled(model.checkingApprovals.contains(staged.origin))
                     Button(l10n(MessageKeys.ACTION_CANCEL)) { model.abandonPending(origin: staged.origin) }
                         .buttonStyle(.borderless)
                 }

@@ -47,6 +47,7 @@ final class StagedSetupStore {
 
     /// Writes the staged setup, replacing whatever was staged for that origin.
     func stage(_ setup: StagedSetup) throws {
+        for previous in loadAll() where previous.origin != setup.origin { clear(origin: previous.origin) }
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(setup)

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.Gravity
 import android.webkit.CookieManager
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
@@ -26,8 +27,11 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import android.widget.ProgressBar
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResultLauncher
@@ -40,6 +44,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.remoteeverything.app.BuildConfig
 import com.remoteeverything.app.R
+import com.remoteeverything.app.i18n.LocaleHelper
 import com.remoteeverything.core.api.GatewayClients
 import com.remoteeverything.core.api.GatewayClientPool
 import com.remoteeverything.core.api.ControlCode
@@ -75,10 +80,16 @@ import java.io.File
  */
 class AppWebActivity : ComponentActivity() {
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.wrap(newBase))
+    }
+
     private lateinit var web: WebView
     private lateinit var container: FrameLayout
     private lateinit var palette: WebPalette
-    private var progressBar: ProgressBar? = null
+    private var loadingView: View? = null
+    private var loadingWeb: WebView? = null
+    private var popupLoadingView: View? = null
     private var panel: WebPanelView? = null
     private var popup: WebView? = null
     private var material: Pkcs12.Material? = null
@@ -206,12 +217,7 @@ class AppWebActivity : ComponentActivity() {
 
     private fun buildUi() {
         container = FrameLayout(this).apply { setBackgroundColor(palette.background) }
-        val pBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            isIndeterminate = true
-            visibility = View.VISIBLE
-        }
-        progressBar = pBar
-        container.addView(pBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
+        showLoading()
         // Fullscreen is the layout; the keyboard is the one thing that still has to
         // move the page, and it arrives as an inset rather than as a resize.
         ViewCompat.setOnApplyWindowInsetsListener(container) { view, insets ->
@@ -223,6 +229,71 @@ class AppWebActivity : ComponentActivity() {
 
     private fun matchParent(): FrameLayout.LayoutParams =
         FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+
+    private fun loadingSurface(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+        setBackgroundColor(palette.background)
+        isClickable = true
+        addView(ProgressBar(this@AppWebActivity).apply {
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(palette.accent)
+        }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        addView(TextView(this@AppWebActivity).apply {
+            setText(R.string.web_loading)
+            setTextColor(palette.secondary)
+            textSize = 16f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(16)
+        })
+    }
+
+    private fun showLoading() {
+        loadingWeb = null
+        if (loadingView == null) {
+            loadingView = loadingSurface().also { container.addView(it, matchParent()) }
+        }
+        loadingView?.bringToFront()
+        panel?.root?.bringToFront()
+    }
+
+    private fun revealContent(view: WebView?) {
+        if (view == null || (view !== loadingWeb && view !== popup)) return
+        // The navigation callback alone does not guarantee that its pixels are drawable.
+        view.postVisualStateCallback(0, object : WebView.VisualStateCallback() {
+            override fun onComplete(requestId: Long) {
+                if (view === loadingWeb && !webDestroyed && errorView == null) {
+                    loadingView?.let { container.removeView(it) }
+                    loadingView = null
+                    loadingWeb = null
+                } else if (view === popup) {
+                    popupLoadingView?.let { container.removeView(it) }
+                    popupLoadingView = null
+                }
+            }
+        })
+    }
+
+    private fun observeFirstPaint(view: WebView?) {
+        if (view == null || (view !== loadingWeb && view !== popup)) return
+        view.evaluateJavascript("""
+            (() => {
+                if (performance.getEntriesByName('first-contentful-paint').length) {
+                    RemoteEverythingPaint.painted();
+                    return;
+                }
+                if (window.__remoteEverythingPaintObserver) return;
+                const observer = new PerformanceObserver(list => {
+                    if (list.getEntries().some(entry => entry.name === 'first-contentful-paint')) {
+                        observer.disconnect();
+                        RemoteEverythingPaint.painted();
+                    }
+                });
+                window.__remoteEverythingPaintObserver = observer;
+                observer.observe({ type: 'paint', buffered: true });
+            })();
+        """.trimIndent(), null)
+    }
 
     /**
      * A choice is written even if the screen is being left in the same breath: the
@@ -273,7 +344,7 @@ class AppWebActivity : ComponentActivity() {
         if (manual) crashCount = 0
         cancelPagePermissions()
         closePopup(popup)
-        progressBar?.visibility = View.VISIBLE
+        showLoading()
         resolveJob = lifecycleScope.launch {
             try {
                 val repository = SettingsStore(this@AppWebActivity)
@@ -309,7 +380,7 @@ class AppWebActivity : ComponentActivity() {
                 identityOrigin = target.second.origin
                 identityHost = Uri.parse(identityOrigin).host.orEmpty()
                 serverPin = target.second.serverPin
-                material = vault.load(identityOrigin) ?: error("identity is unavailable")
+                material = vault.load(target.second.credentialRef) ?: error("identity is unavailable")
                 appUrl = target.first + launchFragment
                 browserProfile = WebSessionScope.profileName(identityOrigin,appKey)
                 profileCookies = ProfileStore.getInstance().getOrCreateProfile(browserProfile).cookieManager
@@ -350,13 +421,21 @@ class AppWebActivity : ComponentActivity() {
         val view = newWebView()
         web = view
         webDestroyed = false
-        container.addView(view, matchParent())
+        loadingWeb = view
+        container.addView(view, 0, matchParent())
     }
 
     private fun newWebView(): WebView {
         val view = WebView(this)
         WebViewCompat.setProfile(view, browserProfile)
-        view.setBackgroundColor(palette.background)
+        // Match the browser canvas for pages that do not declare a background.
+        // The native panel theme must not put a dark canvas behind default black text.
+        view.setBackgroundColor(Color.WHITE)
+        // This bridge only reveals this view's own first frame; it carries no credentials.
+        view.addJavascriptInterface(object {
+            @JavascriptInterface
+            fun painted() { runOnUiThread { revealContent(view) } }
+        }, "RemoteEverythingPaint")
         view.settings.apply {
             javaScriptEnabled = true
             // The pages here come from the network only; file and content
@@ -415,10 +494,10 @@ class AppWebActivity : ComponentActivity() {
             // is how a good part of the web behaves, and ignoring it looks like a
             // broken page.
             val created = newWebView()
-            created.setBackgroundColor(Color.TRANSPARENT)
             created.layoutParams = matchParent()
             container.addView(created)
             popup = created
+            popupLoadingView = loadingSurface().also { container.addView(it, matchParent()) }
             val transport = resultMsg.obj as WebView.WebViewTransport
             transport.webView = created
             resultMsg.sendToTarget()
@@ -517,6 +596,8 @@ class AppWebActivity : ComponentActivity() {
         if (window != null && window === popup) {
             cancelPagePermissions()
             container.removeView(window)
+            popupLoadingView?.let { container.removeView(it) }
+            popupLoadingView = null
             window.destroy()
             popup = null
         }
@@ -626,12 +707,16 @@ class AppWebActivity : ComponentActivity() {
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
             cancelPagePermissions()
             super.onPageStarted(view, url, favicon)
-            progressBar?.visibility = View.VISIBLE
+        }
+
+        override fun onPageCommitVisible(view: WebView?, url: String?) {
+            super.onPageCommitVisible(view, url)
+            observeFirstPaint(view)
         }
 
         override fun onPageFinished(view: WebView?, url: String?) {
             super.onPageFinished(view, url)
-            progressBar?.visibility = View.GONE
+            observeFirstPaint(view)
         }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -717,7 +802,9 @@ class AppWebActivity : ComponentActivity() {
     }
 
     private fun showFailure(message: String) {
-        progressBar?.visibility = View.GONE
+        loadingWeb = null
+        loadingView?.let { container.removeView(it) }
+        loadingView = null
         // The page is over, whatever it was showing: the popup and the fullscreen
         // video go with the main view, each destroyed once, out of the tree
         // before destroy() is called on it.

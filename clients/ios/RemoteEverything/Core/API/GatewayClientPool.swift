@@ -14,12 +14,12 @@ final class GatewayClientPool {
     /// credential is gone: the origin has to be paired again, and saying so is
     /// the caller's job.
     func deviceClient(for identity: Identity, vault: IdentityVault) -> GatewayClient? {
-        if deviceIdentities[identity.origin] == identity, deviceVersions[identity.origin] == vault.version(origin:identity.origin), let existing = clients[identity.origin] { return existing }
-        guard let credential = vault.prepare(origin: identity.origin) else { return nil }
+        if deviceIdentities[identity.origin] == identity, deviceVersions[identity.origin] == vault.version(aliasRef:identity.credentialRef), let existing = clients[identity.origin] { return existing }
+        guard let credential = vault.prepare(aliasRef: identity.credentialRef) else { return nil }
         let client = GatewayClient(origin: identity.origin, credential: credential, pin: identity.serverPin)
         clients[identity.origin] = client
         deviceIdentities[identity.origin] = identity
-        deviceVersions[identity.origin] = vault.version(origin:identity.origin)
+        deviceVersions[identity.origin] = vault.version(aliasRef:identity.credentialRef)
         return client
     }
 

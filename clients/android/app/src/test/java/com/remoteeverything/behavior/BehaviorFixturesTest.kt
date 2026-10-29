@@ -267,7 +267,7 @@ class BehaviorFixturesTest {
         val controlPollCeilingMs: Long,
         val controlPollTimeoutMs: Long,
         val approvalPollMs: Long,
-        val approvalPollTimeoutMs: Long,
+        val approvalFeedbackMinMs: Long,
         val probeTimeoutMs: Long,
         val requestTimeoutMs: Long,
     )
@@ -282,7 +282,7 @@ class BehaviorFixturesTest {
         assertEquals("controlPollCeilingMs", fixture.controlPollCeilingMs, Cadence.controlPollCeilingMs)
         assertEquals("controlPollTimeoutMs", fixture.controlPollTimeoutMs, Cadence.controlPollTimeoutMs)
         assertEquals("approvalPollMs", fixture.approvalPollMs, Cadence.approvalPollMs)
-        assertEquals("approvalPollTimeoutMs", fixture.approvalPollTimeoutMs, Cadence.approvalPollTimeoutMs)
+        assertEquals("approvalFeedbackMinMs", fixture.approvalFeedbackMinMs, Cadence.approvalFeedbackMinMs)
         assertEquals("probeTimeoutMs", fixture.probeTimeoutMs, Cadence.probeTimeoutMs)
         assertEquals("requestTimeoutMs", fixture.requestTimeoutMs, Cadence.requestTimeoutMs)
     }

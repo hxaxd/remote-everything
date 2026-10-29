@@ -38,6 +38,15 @@ class PairingService(
     private val epochs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private data class RedeemAttempt(val invitation: SetupUri.Invitation, val deviceName: String, val password: String)
     private val attempts = java.util.concurrent.ConcurrentHashMap<String, RedeemAttempt>()
+    private var generation = 0L
+    private var currentInvitation: SetupUri.Invitation? = null
+
+    fun cancelPending() {
+        generation++
+        currentInvitation = null
+        attempts.clear()
+        transaction.loadAll().forEach { abandon(it) }
+    }
 
     fun pendingSetups(): List<StagedSetup> = transaction.loadAll()
 
@@ -64,10 +73,19 @@ class PairingService(
         }
     }
 
-    suspend fun run(invitation: SetupUri.Invitation, deviceName: String): Outcome =
-        originLocks.getOrPut(invitation.origin) { Mutex() }.withLock { runLocked(invitation, deviceName) }
+    suspend fun run(invitation: SetupUri.Invitation, deviceName: String): Outcome {
+        if (currentInvitation != invitation) {
+            cancelPending()
+            currentInvitation = invitation
+        }
+        val run = generation
+        return originLocks.getOrPut(invitation.origin) { Mutex() }.withLock {
+            if (run != generation) Outcome.Failed(ErrorCode.INVITATION_DENIED)
+            else runLocked(invitation, deviceName, run)
+        }
+    }
 
-    private suspend fun runLocked(invitation: SetupUri.Invitation, deviceName: String): Outcome {
+    private suspend fun runLocked(invitation: SetupUri.Invitation, deviceName: String, run: Long): Outcome {
         val epoch = epochs[invitation.origin] ?: 0L
         // A pairing whose redeem succeeded but whose activation did not is not
         // redeemed again: the invitation is spent, a second redeem with a fresh
@@ -105,7 +123,7 @@ class PairingService(
             return Outcome.Failed(null)
         }
         val staged = try {
-            if ((epochs[invitation.origin] ?: 0L) != epoch) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
+            if (run != generation || (epochs[invitation.origin] ?: 0L) != epoch) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
             stage(invitation, attempt.deviceName, password, pairing).also { attempts.remove(invitation.origin) }
         } catch (e: Pkcs12.InvalidCredential) {
             // A credential that will not open is this client's fault to name, not
@@ -135,30 +153,28 @@ class PairingService(
             throw Pkcs12.InvalidCredential("the credential is not the certificate that was promised")
         }
         Pkcs12.verifyKeyPair(material)
-        if (vault.load(invitation.origin) != null) {
-            // Pairing the same gateway again replaces the credential it holds;
-            // the identity is the vault entry, so the old one has to go first.
-            vault.delete(invitation.origin)
-        }
-        vault.store(invitation.origin, material)
+        val credentialRef = "${invitation.origin}#pending/${java.util.UUID.randomUUID()}"
+        vault.store(credentialRef, material)
         val staged = StagedSetup(
             origin = invitation.origin,
             nodeId = invitation.node,
             nodeName = invitation.nodeName,
             deviceName = deviceName,
             certificateFingerprint = fingerprint,
+            credentialRef = credentialRef,
             serverPin = pinOf(invitation),
             pendingExpiresAtEpochMs = requireNotNull(parseInstant(pairing.pending_expires_at)) {
                 "a pairing expiry the strict decoder accepted is not parseable here"
             },
             createdAtEpochMs = clock(),
         )
-        transaction.stage(staged)
+        try { transaction.stage(staged) }
+        catch (error: Exception) { vault.delete(credentialRef); throw error }
         return staged
     }
 
     private suspend fun activate(staged: StagedSetup): Outcome {
-        val material = vault.load(staged.origin)
+        val material = vault.load(staged.credentialRef)
         val client = if (material != null) {
             clientFactory?.invoke(staged.origin, staged.serverPin, material)
                 ?: GatewayClients.device(staged.origin, material, staged.serverPin)
@@ -170,13 +186,13 @@ class PairingService(
         return try {
             client.activate(staged.nodeId)
             if (transaction.load(staged.origin) != staged) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
-            promote(staged)
+            if (!promote(staged)) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
             Outcome.Activated(
                 Identity(
                     origin = staged.origin,
                     deviceName = staged.deviceName,
                     certFingerprint = staged.certificateFingerprint,
-                    credentialRef = staged.origin,
+                    credentialRef = staged.credentialRef,
                     serverPin = staged.serverPin,
                     createdAtEpochMs = staged.createdAtEpochMs,
                 ),
@@ -205,26 +221,32 @@ class PairingService(
         }
     }
 
-    private suspend fun promote(staged: StagedSetup) {
+    private suspend fun promote(staged: StagedSetup): Boolean {
         val identity = Identity(
             origin = staged.origin,
             deviceName = staged.deviceName,
             certFingerprint = staged.certificateFingerprint,
-            credentialRef = staged.origin,
+            credentialRef = staged.credentialRef,
             serverPin = staged.serverPin,
             createdAtEpochMs = staged.createdAtEpochMs,
         )
+        var replaced: Identity? = null
+        var committed = false
         repository.updateIdentities { known ->
             if (transaction.load(staged.origin) != staged) return@updateIdentities known
+            replaced = known.firstOrNull { it.origin == identity.origin }
+            transaction.clear(staged.origin)
+            committed = true
             if (known.any { it.origin == identity.origin }) known.map { if (it.origin == identity.origin) identity else it }
             else known + identity
         }
-        if (transaction.load(staged.origin) == staged) transaction.clear(staged.origin)
+        if (committed) replaced?.takeIf { it.credentialRef != identity.credentialRef }?.let { vault.delete(it.credentialRef) }
+        return committed
     }
 
     private fun abandon(staged: StagedSetup) {
         if (transaction.load(staged.origin) != staged) return
-        vault.delete(staged.origin)
+        vault.delete(staged.credentialRef)
         transaction.clear(staged.origin)
     }
 

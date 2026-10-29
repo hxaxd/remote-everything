@@ -2278,6 +2278,22 @@
           }
         }
       }
+    },
+    "pair.scan_light": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照明"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -24,12 +24,8 @@ object Cadence {
 
     /** A device that paired and is waiting for its operator. */
     const val approvalPollMs = 5_000L
-    const val approvalPollTimeoutMs = 600_000L
-
-    /**
-     * How long a staged pairing is treated as alive when the gateway's own expiry
-     * could not be read: the invitation lifetime it hands out by default.
-     */
+    /** Minimum visible feedback for one approval check. */
+    const val approvalFeedbackMinMs = 1_500L
 
     /** How long a path is given to answer while it is being probed. */
     const val probeTimeoutMs = 2_000L

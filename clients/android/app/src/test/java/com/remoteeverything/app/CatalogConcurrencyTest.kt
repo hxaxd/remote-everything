@@ -11,6 +11,36 @@ class CatalogConcurrencyTest {
     private val identity = controllerIdentity(origin)
     private val node = Node("a".repeat(64), "A", listOf(Path(origin, reachable = true, isPrivate = false)))
 
+    @Test fun retryWaitsForRoutesAndDoesNotReviveAnOldVisit() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        try {
+            var reads = 0
+            val client = object : ControllerClient(origin) {
+                override suspend fun catalog(nodeId: String): CatalogResponse {
+                    reads++
+                    return controllerCatalog("DSH")
+                }
+            }
+            val controller = CatalogController(scope, NodesController({ client }), { "wifi" },
+                { listOf(identity) }, { node }, {})
+            controller.watchNode(node)
+            val routes = CompletableDeferred<Unit>()
+            controller.recheckAfter { routes.await() }
+            assertEquals(1, reads)
+            routes.complete(Unit)
+            yield()
+            assertEquals(2, reads)
+
+            val stale = CompletableDeferred<Unit>()
+            controller.recheckAfter { stale.await() }
+            controller.stopWatching()
+            controller.watchNode(node)
+            stale.complete(Unit)
+            yield()
+            assertEquals("An old retry must not restart a new visit", 3, reads)
+        } finally { scope.cancel() }
+    }
+
     @Test fun olderCatalogMustNotUndoCompletedControl() = runBlocking {
         withTimeout(10000) {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)

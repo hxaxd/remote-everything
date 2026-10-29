@@ -100,6 +100,22 @@ export class IdentityVault {
     return `identity/${AtomicFile.originKey(origin)}.sealed`;
   }
 
+  private static activeFile(origin: string): string { return `identity/${AtomicFile.originKey(origin)}.active`; }
+  private storageKey(origin: string): string { return AtomicFile.readText(IdentityVault.activeFile(origin)) ?? origin; }
+
+  /** Commit a fully admitted credential without overwriting any stored key. */
+  promote(origin: string, storageKey: string): string {
+    const previous: string = this.storageKey(origin);
+    AtomicFile.ensureDirectory('identity');
+    AtomicFile.writeAtomic(IdentityVault.activeFile(origin), storageKey);
+    this.changed(origin);
+    return previous;
+  }
+
+  async retire(storageKey: string): Promise<void> {
+    return this.serial(storageKey, (): Promise<void> => this.forgetLocked(storageKey));
+  }
+
   /** The name this gateway's credential is installed under in the certificate manager. */
   static certificateAlias(origin: string): string {
     return CertificateVault.aliasFor(origin);
@@ -149,7 +165,8 @@ export class IdentityVault {
 
   /** The reference the WebView signs with, installed if that had to be redone. */
   async webIdentity(origin: string): Promise<string> {
-    return this.serial(origin, (): Promise<string> => this.webIdentityLocked(origin));
+    const storageKey: string = this.storageKey(origin);
+    return this.serial(storageKey, (): Promise<string> => this.webIdentityLocked(storageKey));
   }
 
   private async webIdentityLocked(origin: string): Promise<string> {
@@ -172,7 +189,8 @@ export class IdentityVault {
 
   /** The archive and password for an API request. The caller wipes what it gets. */
   async material(origin: string): Promise<CredentialMaterial> {
-    return this.serial(origin, (): Promise<CredentialMaterial> => this.materialLocked(origin));
+    const storageKey: string = this.storageKey(origin);
+    return this.serial(storageKey, (): Promise<CredentialMaterial> => this.materialLocked(storageKey));
   }
 
   private async materialLocked(origin: string): Promise<CredentialMaterial> {
@@ -222,7 +240,9 @@ export class IdentityVault {
    */
   async forget(origin: string): Promise<void> {
     this.changed(origin);
-    return this.serial(origin, (): Promise<void> => this.forgetLocked(origin));
+    const storageKey: string = this.storageKey(origin);
+    await this.serial(storageKey, (): Promise<void> => this.forgetLocked(storageKey));
+    if (this.storageKey(origin) === storageKey) { AtomicFile.removeWithTemporary(IdentityVault.activeFile(origin)); }
   }
 
   private async forgetLocked(origin: string): Promise<void> {

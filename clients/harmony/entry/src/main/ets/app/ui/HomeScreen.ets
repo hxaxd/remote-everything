@@ -51,6 +51,7 @@ export struct HomeScreen {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .layoutWeight(1)
           Button(Strings.text(MessageKeys.ACTION_RETRY))
+            .enabled(!model.checkingApprovals.includes(pending.origin))
             .fontSize(TypeScale.caption)
             .fontColor(palette(model.dark).accentOnBg)
             .backgroundColor(palette(model.dark).accent)

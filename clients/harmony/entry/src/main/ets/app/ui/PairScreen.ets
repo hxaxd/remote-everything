@@ -20,6 +20,7 @@ export struct AddNodeScreen {
           dark: model.dark,
           actionIcon0: $r('sys.symbol.chevron_left'),
           onAction0: () => {
+            if (model.pairing.stage === PairingStage.WaitingApproval) { model.cancelPairing(); }
             model.goBack();
           }
         })
@@ -49,6 +50,10 @@ export struct AddNodeScreen {
       .backgroundColor(palette(model.dark).bg)
     }
     .hideTitleBar(true)
+    .onBackPressed(() => {
+      if (model.pairing.stage === PairingStage.WaitingApproval) { model.cancelPairing(); }
+      return false;
+    })
     .backgroundColor(palette(model.dark).bg)
   }
 
@@ -118,11 +123,12 @@ export struct AddNodeScreen {
         .onChange((value: string) => {
           model.editDeviceNameForPairing(value);
         })
-      Text(Strings.text(model.pairing.deviceName.trim() === ''
-        ? MessageKeys.PAIR_DEVICE_NAME_REQUIRED : MessageKeys.PAIR_DEVICE_NAME_HINT))
-        .fontSize(TypeScale.footnote)
-        .fontColor(palette(model.dark).textTertiary)
-        .width('100%')
+      if (model.pairing.deviceName.trim() === '') {
+        Text(Strings.text(MessageKeys.PAIR_DEVICE_NAME_REQUIRED))
+          .fontSize(TypeScale.footnote)
+          .fontColor(palette(model.dark).danger)
+          .width('100%')
+      }
       if (model.pairing.errorKey !== null) {
         Text(Strings.text(model.pairing.errorKey))
           .fontSize(TypeScale.caption)
@@ -185,7 +191,13 @@ export struct AddNodeScreen {
   @Builder
   WaitingStage() {
     Column({ space: Metrics.gapM }) {
-      LoadingProgress().width(40).height(40).color(palette(model.dark).warn)
+      Stack() {
+        if (model.checkingApprovals.includes(model.pairingOrigin)) {
+          LoadingProgress().width(32).height(32).color(palette(model.dark).warn)
+        } else {
+          SymbolGlyph($r('sys.symbol.clock')).fontSize(32).fontColor([palette(model.dark).warn])
+        }
+      }.width(40).height(40)
       Text(Strings.text(MessageKeys.PAIR_WAITING_APPROVAL))
         .fontSize(TypeScale.headline)
         .fontWeight(FontWeight.Medium)
@@ -196,7 +208,14 @@ export struct AddNodeScreen {
           .fontSize(TypeScale.body)
           .fontColor(palette(model.dark).textSecondary)
       }
+      if (model.pairing.errorKey !== null) {
+        Text(Strings.text(model.pairing.errorKey))
+          .fontSize(TypeScale.caption)
+          .fontColor(palette(model.dark).danger)
+          .textAlign(TextAlign.Center)
+      }
       Button(Strings.text(MessageKeys.ACTION_RETRY))
+        .enabled(!model.checkingApprovals.includes(model.pairingOrigin))
         .fontSize(TypeScale.body)
         .fontColor(palette(model.dark).accentOnBg)
         .backgroundColor(palette(model.dark).accent)
@@ -205,13 +224,14 @@ export struct AddNodeScreen {
         .padding({ left: Metrics.gapL, right: Metrics.gapL })
         .margin({ top: Metrics.gapS })
         .onClick(() => {
-          model.retryStaged();
+          model.retryStaged(model.pairingOrigin);
         })
       Text(Strings.text(MessageKeys.ACTION_BACK))
         .fontSize(TypeScale.body)
         .fontColor(palette(model.dark).accent)
         .padding({ top: Metrics.gapS })
         .onClick(() => {
+          model.cancelPairing();
           model.backToList();
         })
     }

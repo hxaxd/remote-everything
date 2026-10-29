@@ -253,7 +253,7 @@ final class BehaviorFixturesTests: XCTestCase {
         let controlPollCeilingMs: Int
         let controlPollTimeoutMs: Int
         let approvalPollMs: Int
-        let approvalPollTimeoutMs: Int
+        let approvalFeedbackMinMs: Int
         let probeTimeoutMs: Int
         let requestTimeoutMs: Int
     }
@@ -270,7 +270,7 @@ final class BehaviorFixturesTests: XCTestCase {
         XCTAssertEqual(fixture.controlPollCeilingMs, Cadence.controlPollCeilingMs, "controlPollCeilingMs")
         XCTAssertEqual(fixture.controlPollTimeoutMs, Cadence.controlPollTimeoutMs, "controlPollTimeoutMs")
         XCTAssertEqual(fixture.approvalPollMs, Cadence.approvalPollMs, "approvalPollMs")
-        XCTAssertEqual(fixture.approvalPollTimeoutMs, Cadence.approvalPollTimeoutMs, "approvalPollTimeoutMs")
+        XCTAssertEqual(fixture.approvalFeedbackMinMs, Cadence.approvalFeedbackMinMs, "approvalFeedbackMinMs")
         XCTAssertEqual(fixture.probeTimeoutMs, Cadence.probeTimeoutMs, "probeTimeoutMs")
         XCTAssertEqual(fixture.requestTimeoutMs, Cadence.requestTimeoutMs, "requestTimeoutMs")
     }

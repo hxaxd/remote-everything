@@ -253,7 +253,7 @@ export default function behaviorFixturesTest() {
       expect(document.number('controlPollCeilingMs')).assertEqual(Cadence.controlPollCeilingMs);
       expect(document.number('controlPollTimeoutMs')).assertEqual(Cadence.controlPollTimeoutMs);
       expect(document.number('approvalPollMs')).assertEqual(Cadence.approvalPollMs);
-      expect(document.number('approvalPollTimeoutMs')).assertEqual(Cadence.approvalPollTimeoutMs);
+      expect(document.number('approvalFeedbackMinMs')).assertEqual(Cadence.approvalFeedbackMinMs);
       expect(document.number('probeTimeoutMs')).assertEqual(Cadence.probeTimeoutMs);
       expect(document.number('requestTimeoutMs')).assertEqual(Cadence.requestTimeoutMs);
     });

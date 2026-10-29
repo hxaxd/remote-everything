@@ -15,6 +15,7 @@ import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.setup.SetupUri
 import com.remoteeverything.core.store.IdentityRepository
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder
@@ -83,16 +84,22 @@ class PairingServiceTest {
         var activateError: ClientError? = null,
     ) : GatewayClient {
         var pairCalls = 0
+        var activateCalls = 0
+        var beforeActivate: (suspend () -> Unit)? = null
+        var beforePair: (suspend () -> Unit)? = null
         var pairError: Exception? = null
         val requests = mutableListOf<PairRequest>()
         override val origin: String = "https://gw.example.com"
         override suspend fun pair(request: PairRequest): PairingResponse {
             pairCalls += 1
+            beforePair?.invoke()
             requests.add(request)
             pairError?.let { throw it }
             return pairResponse ?: error("no pair response")
         }
         override suspend fun activate(nodeId: String): CatalogResponse {
+            activateCalls++
+            beforeActivate?.invoke()
             activateError?.let { throw it }
             return activateResponse ?: CatalogResponse(ok = true, computer_connected = true, code = CatalogCode.READY, apps = emptyList())
         }
@@ -147,7 +154,7 @@ class PairingServiceTest {
         assertEquals("MyPhone", outcome.identity.deviceName)
 
         // Identity stored in vault and repository
-        assertNotNull(vault.load("https://gw.example.com"))
+        assertNotNull(vault.load(repo.currentIdentities().single().credentialRef))
         assertEquals(1, repo.currentIdentities().size)
         // Staged setup was cleared on activation
         assertNull(transaction.load())
@@ -277,15 +284,152 @@ class PairingServiceTest {
         assertEquals(client.requests.first(),client.requests.last())
     }
 
-    @Test fun `pending records survive restart independently and removing one leaves the other`() {
+    @Test fun `approval retries share an in-flight check and cannot restart in background`() = runBlocking {
+        val password = "test-password-12345"
+        val (archive, fingerprint) = generatePkcs12(password)
+        val client = TestApiClient(
+            pairResponse = PairingResponse(true, "Pixel", fingerprint, "pkcs12", archive, "2099-01-01T00:00:00Z"),
+            activateError = ClientError(ErrorCode.APPROVAL_PENDING, 202),
+        )
+        val service = PairingService(FakeVault(), SetupTransaction(tempFolder.newFile("polling.json")), FakeRepo(),
+            generatePassword = { password }, clientFactory = { _, _, _ -> client })
+        val invitation = SetupUri.Invitation("a".repeat(64), "Studio", client.origin, "b".repeat(43), null)
+        assertTrue(service.run(invitation, "Pixel") is PairingService.Outcome.ApprovalPending)
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val reply = kotlinx.coroutines.CompletableDeferred<Unit>()
+        client.beforeActivate = { entered.complete(Unit); reply.await() }
+        val job = kotlinx.coroutines.SupervisorJob()
+        val scope = kotlinx.coroutines.CoroutineScope(job + kotlinx.coroutines.Dispatchers.Unconfined)
+        try {
+            val session = com.remoteeverything.app.PairingSession(scope, service, {})
+            session.foregroundChanged(true)
+            entered.await()
+            session.resumePendingPairing(client.origin)
+            assertEquals(2, client.activateCalls)
+            assertEquals(setOf(client.origin), session.checking.value)
+            session.foregroundChanged(false)
+            reply.complete(Unit)
+            kotlinx.coroutines.yield()
+            assertTrue(session.checking.value.isEmpty())
+            assertEquals(1, session.pending.value.size)
+            assertTrue(job.children.none { it.isActive })
+        } finally { job.cancel() }
+    }
+
+    @Test fun `fast approval feedback stays visible and deduplicates retries until its minimum completes`() = runBlocking {
+        val password = "test-password-12345"
+        val (archive, fingerprint) = generatePkcs12(password)
+        val client = TestApiClient(
+            pairResponse = PairingResponse(true, "Pixel", fingerprint, "pkcs12", archive, "2099-01-01T00:00:00Z"),
+            activateError = ClientError(ErrorCode.APPROVAL_PENDING, 202),
+        )
+        val service = PairingService(FakeVault(), SetupTransaction(tempFolder.newFile("feedback.json")), FakeRepo(),
+            generatePassword = { password }, clientFactory = { _, _, _ -> client })
+        val invitation = SetupUri.Invitation("a".repeat(64), "Studio", client.origin, "b".repeat(43), null)
+        assertTrue(service.run(invitation, "Pixel") is PairingService.Outcome.ApprovalPending)
+        val job = kotlinx.coroutines.SupervisorJob()
+        val scope = kotlinx.coroutines.CoroutineScope(job + kotlinx.coroutines.Dispatchers.Unconfined)
+        try {
+            val session = com.remoteeverything.app.PairingSession(scope, service, {})
+            val started = System.nanoTime()
+            session.foregroundChanged(true)
+            assertEquals(setOf(client.origin), session.checking.value)
+            session.resumePendingPairing(client.origin)
+            assertEquals(2, client.activateCalls)
+            kotlinx.coroutines.withTimeout(4_000) {
+                while (session.checking.value.isNotEmpty()) kotlinx.coroutines.delay(10)
+            }
+            val elapsedMs = (System.nanoTime() - started) / 1_000_000
+            assertTrue("feedback ended at $elapsedMs ms", elapsedMs >= com.remoteeverything.core.model.Cadence.approvalFeedbackMinMs)
+            session.foregroundChanged(false)
+        } finally { job.cancel() }
+    }
+
+    @Test fun `cancelled replacement preserves existing credentials and all other gateway connections`() = runBlocking {
+        val password = "test-password-12345"
+        val (archive, fingerprint) = generatePkcs12(password)
+        val material = Pkcs12.load(Base64.getDecoder().decode(archive), password)
+        val vault = FakeVault()
+        val repo = FakeRepo()
+        val old = Identity("https://gw.example.com", "Old", fingerprint, "old-key", null, 1)
+        val other = old.copy(origin = "https://other.example", credentialRef = "other-key")
+        repo.list = listOf(old, other)
+        vault.store(old.credentialRef, material); vault.store(other.credentialRef, material)
+        val client = TestApiClient(PairingResponse(true,"New",fingerprint,"pkcs12",archive,"2099-01-01T00:00:00Z"), activateError=ClientError(ErrorCode.APPROVAL_PENDING,202))
+        val service = PairingService(vault,SetupTransaction(tempFolder.newFile("preserve.json")),repo,
+            generatePassword={password},clientFactory={_,_,_->client})
+        val invitation = SetupUri.Invitation("a".repeat(64),"New node",old.origin,"b".repeat(43),null)
+        assertTrue(service.run(invitation,"New") is PairingService.Outcome.ApprovalPending)
+        val staged = service.pendingSetups().single()
+        assertTrue(staged.credentialRef != old.credentialRef)
+        assertTrue(vault.load(old.credentialRef) === material)
+        service.discardStaged(old.origin)
+        assertEquals(listOf(old,other),repo.list)
+        assertTrue(vault.load(old.credentialRef) === material)
+        assertTrue(vault.load(other.credentialRef) === material)
+        assertNull(vault.load(staged.credentialRef))
+        assertTrue(service.run(invitation.copy(invitation="c".repeat(43)),"New") is PairingService.Outcome.ApprovalPending)
+        client.activateError = null
+        val approved = service.resume() as PairingService.Outcome.Activated
+        assertEquals(other,repo.list.first { it.origin == other.origin })
+        assertEquals(approved.identity,repo.list.first { it.origin == old.origin })
+        assertNull(vault.load(old.credentialRef))
+        assertNotNull(vault.load(approved.identity.credentialRef))
+    }
+
+    @Test fun `a superseded redeem reply cannot restore its cancelled request`() = runBlocking {
+        val password = "test-password-12345"
+        val (archive, fingerprint) = generatePkcs12(password)
+        val response = PairingResponse(true,"Phone",fingerprint,"pkcs12",archive,"2099-01-01T00:00:00Z")
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val reply = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val oldClient = TestApiClient(response,activateError=ClientError(ErrorCode.APPROVAL_PENDING,202)).apply {
+            beforePair = { entered.complete(Unit); reply.await() }
+        }
+        val newClient = TestApiClient(response,activateError=ClientError(ErrorCode.APPROVAL_PENDING,202))
+        val repo=FakeRepo(); val vault=FakeVault()
+        val service=PairingService(vault,SetupTransaction(tempFolder.newFile("superseded.json")),repo,
+            generatePassword={password},clientFactory={origin,_,_->if(origin=="https://old.example")oldClient else newClient})
+        val oldInvite=SetupUri.Invitation("a".repeat(64),"Old","https://old.example","b".repeat(43),null)
+        val oldRun=async { service.run(oldInvite,"Phone") }
+        entered.await()
+        val newInvite=oldInvite.copy(origin="https://new.example",node="c".repeat(64),invitation="d".repeat(43))
+        assertTrue(service.run(newInvite,"Phone") is PairingService.Outcome.ApprovalPending)
+        val latest=service.pendingSetups().single()
+        reply.complete(Unit)
+        assertTrue(oldRun.await() is PairingService.Outcome.Failed)
+        assertEquals(listOf(latest),service.pendingSetups())
+        assertEquals(newInvite.origin,latest.origin)
+        assertTrue(repo.list.isEmpty())
+    }
+
+    @Test fun `an approval arriving after cancel cannot replace an existing identity`() = runBlocking {
+        val password="test-password-12345"
+        val (archive,fingerprint)=generatePkcs12(password)
+        val entered=kotlinx.coroutines.CompletableDeferred<Unit>();val reply=kotlinx.coroutines.CompletableDeferred<Unit>()
+        val client=TestApiClient(PairingResponse(true,"Phone",fingerprint,"pkcs12",archive,"2099-01-01T00:00:00Z")).apply {
+            beforeActivate={entered.complete(Unit);reply.await()}
+        }
+        val repo=FakeRepo();val old=Identity(client.origin,"Old",fingerprint,"live",null,0);repo.list=listOf(old)
+        val vault=FakeVault();val material=Pkcs12.load(Base64.getDecoder().decode(archive),password);vault.store("live",material)
+        val service=PairingService(vault,SetupTransaction(tempFolder.newFile("late-approval.json")),repo,
+            generatePassword={password},clientFactory={_,_,_->client})
+        val run=async { service.run(SetupUri.Invitation("a".repeat(64),"Desk",client.origin,"b".repeat(43),null),"Phone") }
+        entered.await();service.cancelPending();reply.complete(Unit)
+        assertTrue(run.await() is PairingService.Outcome.Failed)
+        assertEquals(listOf(old),repo.list);assertTrue(vault.load("live")===material)
+        assertTrue(service.pendingSetups().isEmpty())
+    }
+
+    @Test fun `only the latest pending record survives restart`() {
         val file = tempFolder.newFile("multiple.json")
         val store = SetupTransaction(file)
         val first = StagedSetup(origin="https://one.example",nodeId="a".repeat(64),nodeName="One",deviceName="Phone",
-            certificateFingerprint="f".repeat(64),pendingExpiresAtEpochMs=9999999999999,createdAtEpochMs=0)
+            certificateFingerprint="f".repeat(64),credentialRef="pending-one",pendingExpiresAtEpochMs=9999999999999,createdAtEpochMs=0)
         val second = first.copy(origin="https://two.example",nodeName="Two")
         store.stage(first); store.stage(second)
         val restarted = SetupTransaction(file)
-        assertEquals(listOf(first,second),restarted.loadAll())
+        assertEquals(listOf(second),restarted.loadAll())
         restarted.clear(first.origin)
         assertEquals(listOf(second),SetupTransaction(file).loadAll())
     }

@@ -82,7 +82,7 @@
     },
     {
       "name": "camera_permission_reason",
-      "value": "Scan an invitation QR code."
+      "value": "Scan an invitation QR code or let an application use the camera."
     },
     {
       "name": "device_category_default",
@@ -563,6 +563,10 @@
     {
       "name": "web_session_failed",
       "value": "Could not safely switch application sessions. Restart the client and try again."
+    },
+    {
+      "name": "pair_scan_light",
+      "value": "Light"
     }
   ]
 }

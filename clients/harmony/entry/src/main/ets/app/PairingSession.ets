@@ -28,14 +28,16 @@ export class PairingSession {
   @Trace pairingBusy: boolean = false;
   @Trace pendingSetups: StagedSetup[] = [];
   @Trace nameLocked: boolean = false;
+  @Trace checkingOrigins: string[] = [];
   private approvalTimer: number = -1;
-  private approvalStartedAt: number = 0;
   private approvalGeneration: number = 0;
+  private approvalRunning: boolean = false;
   private pairingRun: number = 0;
   private activeOrigin: string = '';
   private readonly resuming: Set<string> = new Set<string>();
   varForeground: boolean = true;
   onFinished?: () => void;
+  get waitingOrigin(): string { return this.activeOrigin; }
 
   constructor(service: PairingService, transaction: StagedSetupStore, nodes: NodesController) {
     this.pairingService = service; this.transaction = transaction; this.nodesController = nodes;
@@ -49,6 +51,9 @@ export class PairingSession {
   private refreshPending(): void { this.pendingSetups = this.transaction.readAll(); }
 
   beginPairing(deviceName: string): void {
+    this.stopApprovalPolling();
+    this.pairingService.cancelPending();
+    this.pairingBusy = false;
     this.nameLocked = false;
     this.pairingRun += 1;
     this.activeOrigin = '';
@@ -58,6 +63,10 @@ export class PairingSession {
   }
 
   cancelPairing(): void {
+    if (this.pairingBusy) {
+      this.pairingService.cancelPending();
+      this.pairingBusy = false;
+    }
     this.pairingRun += 1;
     this.activeOrigin = '';
     this.invitationText = '';
@@ -70,7 +79,7 @@ export class PairingSession {
     if (this.activeOrigin === origin) {
       this.pairingRun += 1; this.activeOrigin = ''; this.invitationText = ''; this.pairing = PairingState.idle();
     }
-    const removed: boolean = await this.transaction.discard(origin);
+    const removed: boolean = await this.pairingService.discard(origin);
     this.refreshPending();
     if (this.pendingSetups.length === 0) { this.stopApprovalPolling(); }
     else { this.beginApprovalPolling(); }
@@ -103,6 +112,7 @@ export class PairingSession {
       const result: PairingResult = await this.pairingService.pair(setup, this.pairing.deviceName);
       this.refreshPending();
       this.nodesController.reloadIdentities();
+      if (this.pendingSetups.length > 0) { this.beginApprovalPolling(); }
       if (run !== this.pairingRun) {
         if (result.verdict === PairingVerdict.Activated) { await this.nodesController.refreshNodes(true); }
         return;
@@ -120,27 +130,34 @@ export class PairingSession {
         this.pairing = new PairingState(PairingStage.Confirm, setup, this.pairing.deviceName,
           result.errorKey ?? MessageKeys.PAIR_GATEWAY_TROUBLE);
       }
-    } finally { this.pairingBusy = false; }
+    } finally { if (run === this.pairingRun) { this.pairingBusy = false; } }
   }
 
   async retryPairing(): Promise<void> { await this.confirmPairing(); }
 
   beginApprovalPolling(): void {
     this.refreshPending();
-    if (this.approvalTimer >= 0 || this.pendingSetups.length === 0) { return; }
-    this.approvalStartedAt = Date.now();
+    if (!this.varForeground || this.approvalRunning || this.pendingSetups.length === 0) { return; }
+    this.approvalRunning = true;
     const generation: number = ++this.approvalGeneration;
     const step = async (): Promise<void> => {
       this.approvalTimer = -1;
-      if (generation !== this.approvalGeneration || !this.varForeground || Date.now() - this.approvalStartedAt >= Cadence.approvalPollTimeoutMs) { return; }
-      await this.resumeRecords();
-      if (generation === this.approvalGeneration && this.varForeground && this.pendingSetups.length > 0) { this.approvalTimer = setTimeout(step, Cadence.approvalPollMs); }
+      if (generation !== this.approvalGeneration) { return; }
+      if (!this.varForeground) {
+        this.approvalRunning = false; return;
+      }
+      try { await this.resumeRecords(); }
+      finally {
+        if (generation === this.approvalGeneration && this.varForeground && this.pendingSetups.length > 0) { this.approvalTimer = setTimeout(step, Cadence.approvalPollMs); }
+        else if (generation === this.approvalGeneration) { this.approvalRunning = false; }
+      }
     };
     this.approvalTimer = setTimeout(step, Cadence.approvalPollMs);
   }
 
   stopApprovalPolling(): void {
     this.approvalGeneration += 1;
+    this.approvalRunning = false;
     if (this.approvalTimer >= 0) { clearTimeout(this.approvalTimer); this.approvalTimer = -1; }
   }
 
@@ -148,6 +165,9 @@ export class PairingSession {
     for (const staged of this.transaction.readAll()) {
       if ((origin !== undefined && origin !== staged.origin) || this.resuming.has(staged.origin)) { continue; }
       this.resuming.add(staged.origin);
+      this.checkingOrigins = Array.from(this.resuming);
+      const feedbackStarted: number = Date.now();
+      const run: number = this.pairingRun;
       try {
         const identity: Identity | null = this.nodesController.identitiesSnapshot()
           .find((record: Identity) => record.origin === staged.origin) ?? null;
@@ -155,7 +175,7 @@ export class PairingSession {
         this.nodesController.reloadIdentities();
         this.refreshPending();
         if (result.verdict === PairingVerdict.Activated) { await this.nodesController.refreshNodes(true); }
-        if (this.activeOrigin !== staged.origin || this.pairingBusy) { continue; }
+        if (run !== this.pairingRun || this.activeOrigin !== staged.origin || this.pairingBusy) { continue; }
         if (result.verdict === PairingVerdict.Activated) {
           this.invitationText = ''; this.pairing = PairingState.idle(); this.onFinished?.();
         } else if (result.verdict === PairingVerdict.WaitingApproval) {
@@ -163,7 +183,14 @@ export class PairingSession {
         } else {
           this.pairing = new PairingState(PairingStage.Input, null, staged.deviceName, result.errorKey);
         }
-      } finally { this.resuming.delete(staged.origin); }
+      } finally {
+        const remaining: number = Cadence.approvalFeedbackMinMs - (Date.now() - feedbackStarted);
+        if (this.varForeground && remaining > 0) {
+          await new Promise<void>((resolve) => { setTimeout(resolve, remaining); });
+        }
+        this.resuming.delete(staged.origin);
+        this.checkingOrigins = Array.from(this.resuming);
+      }
     }
     this.refreshPending();
   }

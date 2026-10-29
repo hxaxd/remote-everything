@@ -60,6 +60,7 @@ export class ProtocolClient {
   private readonly pins: Map<string, string> = new Map<string, string>();
   private readonly epochs: Map<string, number> = new Map<string, number>();
   private readonly versions: Map<string, number> = new Map<string, number>();
+  private readonly credentialKeys: Map<string, string> = new Map<string, string>();
   private generation: number = 0;
 
   constructor(vault: IdentityVault) {
@@ -67,21 +68,21 @@ export class ProtocolClient {
   }
 
   /** Opens (or refreshes) the session for one gateway. Sessions are not opened twice. */
-  async connect(origin: string, serverPin: ServerPin | null): Promise<void> {
+  async connect(origin: string, serverPin: ServerPin | null, credentialKey: string = origin): Promise<void> {
     const pinKey: string = serverPin === null ? '' : `${serverPin.certFingerprint}|${serverPin.publicKeyPin}`;
-    const version: number = this.vault.version(origin);
+    const version: number = this.vault.version(credentialKey);
     const generation: number = this.generation;
-    if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version) {
+    if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version && this.credentialKeys.get(origin) === credentialKey) {
       return;
     }
     const epoch: number = this.epochs.get(origin) ?? 0;
-    const material: CredentialMaterial = await this.vault.material(origin);
+    const material: CredentialMaterial = await this.vault.material(credentialKey);
     try {
-      if ((this.epochs.get(origin) ?? 0) !== epoch || this.vault.version(origin) !== version || this.generation !== generation) {
+      if ((this.epochs.get(origin) ?? 0) !== epoch || this.vault.version(credentialKey) !== version || this.generation !== generation) {
         throw ClientError.transport('identity changed while opening the session');
       }
       // Another caller may have opened this same session while the credential was loading.
-      if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version) {
+      if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version && this.credentialKeys.get(origin) === credentialKey) {
         return;
       }
       const identity: SessionIdentity = new SessionIdentity(copyOf(material.archive), material.password, serverPin);
@@ -89,6 +90,7 @@ export class ProtocolClient {
       this.transport.open(origin, identity);
       this.pins.set(origin, pinKey);
       this.versions.set(origin,version);
+      this.credentialKeys.set(origin,credentialKey);
     } finally {
       material.wipe();
     }
@@ -98,6 +100,7 @@ export class ProtocolClient {
     this.epochs.set(origin, (this.epochs.get(origin) ?? 0) + 1);
     this.pins.delete(origin);
     this.versions.delete(origin);
+    this.credentialKeys.delete(origin);
     this.transport.close(origin);
   }
 
@@ -105,6 +108,7 @@ export class ProtocolClient {
     this.generation += 1;
     this.pins.clear();
     this.versions.clear();
+    this.credentialKeys.clear();
     this.transport.closeAll();
   }
 

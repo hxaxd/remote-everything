@@ -153,6 +153,15 @@ class CatalogController(
         watchNode(node, force = true)
     }
 
+    fun recheckAfter(refresh: suspend () -> Unit) {
+        val nodeId = watchingNodeId ?: return
+        val generation = catalogGeneration
+        scope.launch {
+            refresh()
+            if (isCurrent(nodeId, generation)) recheckNow()
+        }
+    }
+
     /**
      * Starting and stopping are asked for, then waited on. The row says what was
      * asked for at once — `starting` or `stopping` — because the alternative is a

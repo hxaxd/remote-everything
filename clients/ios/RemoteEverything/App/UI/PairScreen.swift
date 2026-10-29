@@ -26,14 +26,21 @@ struct PairScreen: View {
                         pairingView(theme)
                     case .waitingApproval(let staged):
                         VStack(spacing: Theme.gapM) {
-                            ProgressView()
+                            ZStack {
+                                if model.checkingApprovals.contains(staged.origin) {
+                                    ProgressView()
+                                } else {
+                                    Image(systemName: "clock").font(.title).foregroundStyle(theme.warn)
+                                }
+                            }.frame(width: 40, height: 40)
                             Text(l10n(MessageKeys.PAIR_WAITING_APPROVAL)).font(Theme.headline)
                             Text(staged.nodeName).font(Theme.body)
                             Button(l10n(MessageKeys.ACTION_RETRY)) {
                                 Task { await model.resumeStagedSetups(origin: staged.origin) }
                             }
                             .buttonStyle(.borderedProminent)
-                            Button(l10n(MessageKeys.ACTION_BACK)) { model.cancelAddNode(); dismiss() }
+                            .disabled(model.checkingApprovals.contains(staged.origin))
+                            Button(l10n(MessageKeys.ACTION_BACK)) { model.leaveAddNode(); dismiss() }
                         }
                         .frame(maxWidth: .infinity)
                     case .idle, .failed:
@@ -56,7 +63,6 @@ struct PairScreen: View {
                         model.cancelAddNode()
                         dismiss()
                     }
-                    .disabled(model.pairingPhase == .pairing)
                 }
             }
         }
@@ -122,10 +128,11 @@ struct PairScreen: View {
                     .autocorrectionDisabled(true)
                     .textFieldStyle(.roundedBorder)
                     .disabled(resumingAttempt)
-                Text(l10n(model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                          ? MessageKeys.PAIR_DEVICE_NAME_REQUIRED : MessageKeys.PAIR_DEVICE_NAME_HINT))
-                    .font(Theme.caption)
-                    .foregroundStyle(theme.textSecondary)
+                if model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(l10n(MessageKeys.PAIR_DEVICE_NAME_REQUIRED))
+                        .font(Theme.caption)
+                        .foregroundStyle(theme.danger)
+                }
             }
             if case .failed(let failure) = model.pairingPhase {
                 Text(ErrorText.text(for: failure))

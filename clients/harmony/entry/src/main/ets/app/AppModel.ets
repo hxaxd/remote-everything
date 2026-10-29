@@ -5,7 +5,7 @@
 // idiom (NavPathStack belongs to the ability's UI, not to a use case), so the few
 // wrappers below are the whole of it.
 
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { LinkKind, AppInfo, AppState, Appearance, GatewayPath, Identity, Language, NodeStatus } from '../core/model/Models';
 import { decodeRelease, ReleaseManifest, RELEASE_URL, UpdateCheck, verdictFor } from '../core/update/UpdateChecker';
@@ -47,6 +47,7 @@ function pad2(value: number): string {
 export class AppModel {
   @Trace settings: Settings = Settings.defaults();
   @Trace dark: boolean = false;
+  @Trace fontScale: number = 1;
   @Trace loaded: boolean = false;
   @Trace update: UpdateCheck | null = null;
   @Trace checkingUpdate: boolean = false;
@@ -76,6 +77,8 @@ export class AppModel {
   get webFailed(): string { return this.catalogController.webFailed; }
   get pairing(): PairingState { return this.pairingSession.pairing; }
   get pendingSetups(): StagedSetup[] { return this.pairingSession.pendingSetups; }
+  get checkingApprovals(): string[] { return this.pairingSession.checkingOrigins; }
+  get pairingOrigin(): string { return this.pairingSession.waitingOrigin; }
   get pairingNameLocked(): boolean { return this.pairingSession.nameLocked; }
   get pairingInvitationText(): string { return this.pairingSession.invitationText; }
   get pairingBusy(): boolean { return this.pairingSession.pairingBusy; }
@@ -104,7 +107,7 @@ export class AppModel {
   constructor() {
     this.client = new ProtocolClient(this.vault);
     this.transaction = new StagedSetupStore(this.vault);
-    this.pairingService = new PairingService(this.client, this.vault, this.transaction, this.settingsStore);
+    this.pairingService = new PairingService(new ProtocolClient(this.vault), this.vault, this.transaction, this.settingsStore);
 
     const nodesCtrl = new NodesController(
       this.vault,
@@ -139,12 +142,14 @@ export class AppModel {
     }
     this.started = true;
     this.context = context;
+    this.fontScale = context.config.fontSizeScale ?? 1;
     AtomicFile.init(context.filesDir);
     this.settings = this.settingsStore.open(context);
     Strings.attach(context.resourceManager, this.settings.language);
     Strings.apply(context, this.settings.language);
     this.systemDark = WindowLayout.readSystemDark(context);
     this.dark = WindowLayout.effectiveDark(this.settings.appearance, this.systemDark);
+    WindowLayout.applySystemBars(context, this.dark);
     // The network the device is on is watched from here up: a change asks every
     // gateway again immediately, the way the other clients answer a network swap.
     this.environment.onNetworkChange = (): void => {
@@ -182,8 +187,8 @@ export class AppModel {
     }
   }
 
-  refreshSystemDark(): void {
-    if (this.context === null) {
+  refreshSystemDark(colorMode: ConfigurationConstant.ColorMode | undefined): void {
+    if (this.context === null || colorMode === undefined) {
       return;
     }
     // The application's own colour choice rides in this config while one is
@@ -193,8 +198,9 @@ export class AppModel {
     if (this.settings.appearance !== Appearance.System) {
       return;
     }
-    this.systemDark = WindowLayout.readSystemDark(this.context);
+    this.systemDark = colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     this.dark = WindowLayout.effectiveDark(this.settings.appearance, this.systemDark);
+    WindowLayout.applySystemBars(this.context, this.dark);
   }
 
   setLanguage(language: Language): void {
@@ -211,14 +217,12 @@ export class AppModel {
     if (this.context !== null) {
       WindowLayout.applyColorMode(this.context, appearance);
     }
-    this.dark = WindowLayout.effectiveDark(appearance, this.systemDark);
-    if (appearance === Appearance.System && this.context !== null) {
-      // Unsetting the application's own colour mode lands a beat later; the
-      // system's real answer is read once it has.
-      setTimeout((): void => {
-        this.refreshSystemDark();
-      }, 200);
+    if (appearance !== Appearance.System) {
+      this.dark = WindowLayout.effectiveDark(appearance, this.systemDark);
+      if (this.context !== null) { WindowLayout.applySystemBars(this.context, this.dark); }
     }
+    // Following the system is resolved by its configuration event, in the same
+    // frame as the native colour transition, rather than from a cached app mode.
   }
 
   listenWindowSize(context: Context | undefined): void {
@@ -511,7 +515,7 @@ export class AppModel {
   }
 
   async abandonPending(origin: string): Promise<void> {
-    if (await this.pairingSession.forget(origin)) { await this.nodesController.forget(origin); }
+    await this.pairingSession.forget(origin);
   }
 
   /** A network came or went: ask every gateway again, now, not on the next timer. */

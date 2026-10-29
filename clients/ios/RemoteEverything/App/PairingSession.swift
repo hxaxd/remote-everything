@@ -12,9 +12,16 @@ final class PairingSession: ObservableObject {
     @Published private(set) var pairingPhase: PairingPhase = .idle
 
     private var pairingAttempt: PairingCoordinator.Attempt?
+    private var pairingTask: Task<Void, Never>?
     private var pendingLoop: Task<Void, Never>?
     private var activePendingOrigin: String?
-    private var resumingOrigins: Set<String> = []
+    @Published private(set) var resumingOrigins: Set<String> = []
+    private var foreground = false
+
+    func foregroundChanged(_ active: Bool) {
+        foreground = active
+        if active { startPendingLoop() } else { stopLoops() }
+    }
 
     private let pairing: PairingCoordinator
     private let nodesController: NodesController
@@ -39,6 +46,11 @@ final class PairingSession: ObservableObject {
     }
 
     func beginAddNode() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        stopLoops()
+        pairing.cancelPending()
+        for staged in nodesController.stagedSetups { nodesController.removeStaged(origin: staged.origin) }
         activePendingOrigin = nil
         addNodeText = ""
         invitation = nil
@@ -50,7 +62,15 @@ final class PairingSession: ObservableObject {
     }
 
     func cancelAddNode() {
-        if case .pairing = pairingPhase { return }
+        pairingTask?.cancel()
+        pairingTask = nil
+        stopLoops()
+        pairing.cancelPending()
+        for staged in nodesController.stagedSetups { nodesController.removeStaged(origin: staged.origin) }
+        leaveAddNode()
+    }
+
+    func leaveAddNode() {
         isAddingNode = false
         activePendingOrigin = nil
         pairingAttempt = nil
@@ -87,9 +107,7 @@ final class PairingSession: ObservableObject {
 
     func handleIncomingURL(_ url: URL) {
         let text = url.absoluteString
-        if !isAddingNode {
-            beginAddNode()
-        }
+        beginAddNode()
         addNodeText = text
         parseInvitation(text)
     }
@@ -98,7 +116,7 @@ final class PairingSession: ObservableObject {
         guard let invitation, pairingPhase != .pairing,
               !deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         if case .failed(.network) = pairingPhase, let attempt = pairingAttempt {
-            await runPairing(attempt)
+            await launchPairing(attempt)
             return
         }
         let attempt = PairingCoordinator.Attempt(
@@ -106,12 +124,19 @@ final class PairingSession: ObservableObject {
             deviceName: deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         pairingAttempt = attempt
-        await runPairing(attempt)
+        await launchPairing(attempt)
     }
 
     func retryPairing() async {
         guard let attempt = pairingAttempt else { return }
-        await runPairing(attempt)
+        await launchPairing(attempt)
+    }
+
+    private func launchPairing(_ attempt: PairingCoordinator.Attempt) async {
+        pairingTask?.cancel()
+        let task = Task { await runPairing(attempt) }
+        pairingTask = task
+        await task.value
     }
 
     func finishPairingSheet() {
@@ -130,12 +155,14 @@ final class PairingSession: ObservableObject {
             let outcome = try await pairing.run(attempt)
             switch outcome {
             case .approved(let identity, let catalog):
+                guard pairing.isCurrentIdentity(identity) else { return }
                 nodesController.record(identity)
                 clients.drop(origin: identity.origin)
                 onCatalogReady?(attempt.invitation.node, catalog)
                 await nodesController.refreshNodes()
                 finishIfCurrent(attempt)
             case .pendingApproval(let staged):
+                guard pairing.staged(origin: staged.origin) == staged else { return }
                 nodesController.setStaged(staged)
                 if pairingAttempt === attempt {
                     activePendingOrigin = staged.origin
@@ -180,11 +207,10 @@ final class PairingSession: ObservableObject {
     }
 
     func startPendingLoop() {
-        pendingLoop?.cancel()
-        guard !nodesController.stagedSetups.isEmpty else { return }
+        guard foreground, pendingLoop == nil, !nodesController.stagedSetups.isEmpty else { return }
         pendingLoop = Task { [weak self] in
-            let deadline = Date().addingTimeInterval(Cadence.approvalPollTimeout)
-            while !Task.isCancelled, Date() < deadline {
+            defer { if !Task.isCancelled { self?.pendingLoop = nil } }
+            while !Task.isCancelled {
                 guard let self else { return }
                 if self.nodesController.stagedSetups.isEmpty { return }
                 await self.resumeStagedSetups()
@@ -216,6 +242,7 @@ final class PairingSession: ObservableObject {
         for staged in nodesController.stagedSetups where origin == nil || origin == staged.origin {
             guard resumingOrigins.insert(staged.origin).inserted else { continue }
             defer { resumingOrigins.remove(staged.origin) }
+            let feedbackEnd = ContinuousClock.now.advanced(by: .milliseconds(Cadence.approvalFeedbackMinMs))
             if staged.isExpired {
                 pairing.discard(staged)
                 nodesController.removeStaged(origin: staged.origin)
@@ -226,6 +253,7 @@ final class PairingSession: ObservableObject {
             do {
                 switch try await pairing.resume(staged) {
                 case .approved(let identity, let catalog):
+                    guard pairing.isCurrentIdentity(identity) else { continue }
                     nodesController.record(identity)
                     clients.drop(origin: identity.origin)
                     onCatalogReady?(staged.nodeID, catalog)
@@ -235,6 +263,8 @@ final class PairingSession: ObservableObject {
                 case .pendingApproval:
                     break
                 }
+            } catch is CancellationError {
+                return
             } catch let error as ClientError {
                 if PairingCoordinator.endsTheAttempt(error.code) {
                     nodesController.removeStaged(origin: staged.origin)
@@ -242,6 +272,10 @@ final class PairingSession: ObservableObject {
                     onNotice?(error.code == .invitationExpired ? .invitationExpired : .nodeGone)
                 }
             } catch {
+            }
+            if foreground {
+                do { try await Task.sleep(until: feedbackEnd, clock: .continuous) }
+                catch { return }
             }
         }
     }
