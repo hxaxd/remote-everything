@@ -13,7 +13,7 @@ import (
 func testLog(format string, args ...any) {}
 
 func TestDSHAdapterWaitsForTokenPrintedAfterPortOpens(t *testing.T) {
-	source, err := os.ReadFile("../../apps/dsh/adapter.js")
+	source, err := os.ReadFile("../../../apps/dsh/adapter.js")
 	if err != nil {
 		t.Fatal(err)
 	}
