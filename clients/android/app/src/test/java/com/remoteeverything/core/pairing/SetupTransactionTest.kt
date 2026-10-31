@@ -24,6 +24,7 @@ class SetupTransactionTest {
         nodeName = "客厅电脑",
         deviceName = "Pixel",
         certificateFingerprint = "b".repeat(64),
+        credentialRef = "pending-test",
         serverPin = null,
         pendingExpiresAtEpochMs = expiresAt,
         createdAtEpochMs = 1_000,

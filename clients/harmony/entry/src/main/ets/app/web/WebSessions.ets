@@ -7,6 +7,7 @@ import { WebCookieRecords } from '../../core/store/WebCookieRecords';
 import { WebSessionScope } from '../../core/store/WebSessionScope';
 import { hostOf } from '../../core/api/Origins';
 import { WebDownloads } from './WebDownloads';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const SEAL_ALIAS: string = 'remote-everything-web-cookies';
 
@@ -49,6 +50,7 @@ export class WebSessions {
         }
         WebDownloads.allowSession();
       } catch (error) {
+        hilog.error(0, 'RemoteEverything', 'web session restore failed');
         WebSessions.poisoned = true;
         webview.WebCookieManager.clearAllCookiesSync(true);
         throw new Error('application session restore failed');
@@ -75,15 +77,19 @@ export class WebSessions {
           AtomicFile.writeBytesAtomic(`web-sessions/${scope}.sealed`, sealed);
         } finally { wipe(data); }
       } catch (error) {
+        hilog.error(0, 'RemoteEverything', 'web session snapshot failed');
         WebSessions.poisoned = true;
         throw new Error('application session snapshot failed');
       } finally {
         try {
           await destroy();
+          // Detaching Web components does not clear the shared private storage.
+          webview.WebStorage.deleteAllData(true);
           webview.WebCookieManager.clearAllCookiesSync(true);
           if (webview.WebCookieManager.existCookie(true)) { throw new Error('private cookies survived teardown'); }
           WebSessions.active = '';
         } catch (error) {
+          hilog.error(0, 'RemoteEverything', 'web session teardown failed');
           WebSessions.poisoned = true;
           throw new Error('application session teardown failed');
         }

@@ -1,0 +1,54 @@
+{
+  "cases": [
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "app.gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "host": "a.b.gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "host": "outside.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "127.0.0.1"
+    },
+    {
+      "certificate": "valid",
+      "trusted": true,
+      "host": "2001:db8::1"
+    },
+    {
+      "certificate": "expired",
+      "trusted": false,
+      "host": "gateway.example"
+    },
+    {
+      "certificate": "valid",
+      "trusted": false,
+      "mismatch": true,
+      "host": "gateway.example"
+    }
+  ],
+  "pin": {
+    "fingerprint": "e3f1b4e79c641eef8ffd74b981c02f6526c5c8efff0c15e5a7d942ad644ca2db",
+    "publicKeyPin": "hpgWMpHsBIplx8b9ZN4NbTQFurkL4+Bsuq1gB53Bfao="
+  },
+  "certificates": {
+    "valid": "MIIB8zCCAZqgAwIBAgIUUXWp8pVyNXGUt4seJMCanz1K9bswCgYIKoZIzj0EAwIwGjEYMBYGA1UEAwwPZ2F0ZXdheS5leGFtcGxlMB4XDTI2MTAzMTE4NTcwM1oXDTI5MDEwODE4NTcwM1owGjEYMBYGA1UEAwwPZ2F0ZXdheS5leGFtcGxlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAucw5x4CTlIzSbMs7MZ6jV7i6iM5OJl/d9qgGaxw9Ykl41zIgiE/dR2j8VLAF9XAzMibpE3oJaOplEMtu9g4uqOBvTCBujAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAdBgNVHQ4EFgQUe7aDemIG6WGIg1uuyEN2RHw07fowHwYDVR0jBBgwFoAUe7aDemIG6WGIg1uuyEN2RHw07fowRQYDVR0RBD4wPIIPZ2F0ZXdheS5leGFtcGxlghEqLmdhdGV3YXkuZXhhbXBsZYcEfwAAAYcQIAENuAAAAAAAAAAAAAAAATAKBggqhkjOPQQDAgNHADBEAiBkWJaXOOMekcsA/p7cp7rIqQQdCt37JcBUNEwJG6WacwIgIL8WHdthJ14rGUzADs2eSGsdJrqgEKR+jv69+rMwk+k=",
+    "expired": "MIIB9DCCAZqgAwIBAgIUPrX/QeNRXdRrkbUKCUHelfmwPS8wCgYIKoZIzj0EAwIwGjEYMBYGA1UEAwwPZ2F0ZXdheS5leGFtcGxlMB4XDTIwMDEwMTAwMDAwMFoXDTIxMDEwMTAwMDAwMFowGjEYMBYGA1UEAwwPZ2F0ZXdheS5leGFtcGxlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEN+hX/NE1W2bJQpfZluvchvX2vuc8JZRZ8IRX+YDSyCRurIJcv37wxP+ZPgflTJMd+jrmY7WoBSkhk80ZVyNexKOBvTCBujAMBgNVHRMBAf8EAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAdBgNVHQ4EFgQUMYmwsX4l8al7d6p+b7H/U5h0IzIwHwYDVR0jBBgwFoAUMYmwsX4l8al7d6p+b7H/U5h0IzIwRQYDVR0RBD4wPIIPZ2F0ZXdheS5leGFtcGxlghEqLmdhdGV3YXkuZXhhbXBsZYcEfwAAAYcQIAENuAAAAAAAAAAAAAAAATAKBggqhkjOPQQDAgNIADBFAiA8Ap0jenuZ0fEubTLU/OFHfHHNZpuF0X+a/0Gt7po6fAIhAJOAxGiMh/idLVlDdW3KcGP5TnWHf3GAJN5aR9d23IX7"
+  },
+  "validUntil": "2029-01-08"
+}

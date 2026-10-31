@@ -2,9 +2,8 @@ import Foundation
 import Security
 
 /// Where a gateway's credential lives, once the private key is no longer ours to
-/// export. One entry per origin; the entry *is* the identity. Losing it means
-/// that origin must be paired again, and pretending otherwise is how a client
-/// ends up keeping a record of a connection it can no longer make.
+/// export. An identity references its own Keychain entry; pending replacements
+/// use separate entries until admitted, so cancellation preserves live keys.
 ///
 /// Used from the main thread only: the import cache is not synchronised, and the
 /// one place a credential is needed off the main thread (a TLS challenge) is
@@ -18,10 +17,13 @@ final class IdentityVault {
         case unusableCredential
     }
 
-    private let keychain: KeychainCredentialStore
+    private let keychain: CredentialStorage
     private var imported: [String: DeviceCredential] = [:]
+    private var versions: [String: Int] = [:]
+    func version(origin: String) -> Int { versions[Self.alias(forOrigin:origin),default:0] }
+    func version(aliasRef: String) -> Int { versions[aliasRef, default: 0] }
 
-    init(keychain: KeychainCredentialStore = KeychainCredentialStore()) {
+    init(keychain: CredentialStorage = KeychainCredentialStore()) {
         self.keychain = keychain
     }
 
@@ -36,6 +38,7 @@ final class IdentityVault {
     func store(origin: String, pkcs12: Data, password: String) throws -> String {
         let alias = IdentityVault.alias(forOrigin: origin)
         try keychain.store(alias: alias, pkcs12: pkcs12, password: password)
+        versions[alias,default:0] += 1
         _ = imported.removeValue(forKey: alias)
         return alias
     }
@@ -45,11 +48,21 @@ final class IdentityVault {
     func hasCredential(origin: String) -> Bool {
         keychain.exists(alias: IdentityVault.alias(forOrigin: origin))
     }
+    func hasCredential(aliasRef: String) -> Bool { keychain.exists(alias: aliasRef) }
+
+    func storePending(pkcs12: Data, password: String) throws -> String {
+        let alias = "pending-" + UUID().uuidString
+        try keychain.store(alias: alias, pkcs12: pkcs12, password: password)
+        return alias
+    }
 
     /// Loads the device credential for an origin, re-importing it when the cache
     /// does not hold it yet.
     func credential(origin: String) throws -> DeviceCredential {
-        let alias = IdentityVault.alias(forOrigin: origin)
+        try credential(aliasRef: IdentityVault.alias(forOrigin: origin))
+    }
+
+    func credential(aliasRef alias: String) throws -> DeviceCredential {
         if let cached = imported[alias] { return cached }
         guard let record = keychain.load(alias: alias) else { throw Failure.missingCredential }
         do {
@@ -72,16 +85,19 @@ final class IdentityVault {
             return nil
         }
     }
+    func prepare(aliasRef: String) -> DeviceCredential? { try? credential(aliasRef: aliasRef) }
 
     /// Deletes an origin's credential. The reference and the material go together.
     func forget(origin: String) {
         let alias = IdentityVault.alias(forOrigin: origin)
+        versions[alias,default:0] += 1
         keychain.delete(alias: alias)
         _ = imported.removeValue(forKey: alias)
     }
 
     /// Drops a credential that no identity and no staged setup refers to any more.
     func forget(aliasRef: String) {
+        versions[aliasRef,default:0] += 1
         keychain.delete(alias: aliasRef)
         _ = imported.removeValue(forKey: aliasRef)
     }

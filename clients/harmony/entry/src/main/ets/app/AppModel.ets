@@ -5,7 +5,7 @@
 // idiom (NavPathStack belongs to the ability's UI, not to a use case), so the few
 // wrappers below are the whole of it.
 
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { LinkKind, AppInfo, AppState, Appearance, GatewayPath, Identity, Language, NodeStatus } from '../core/model/Models';
 import { decodeRelease, ReleaseManifest, RELEASE_URL, UpdateCheck, verdictFor } from '../core/update/UpdateChecker';
@@ -47,6 +47,7 @@ function pad2(value: number): string {
 export class AppModel {
   @Trace settings: Settings = Settings.defaults();
   @Trace dark: boolean = false;
+  @Trace fontScale: number = 1;
   @Trace loaded: boolean = false;
   @Trace update: UpdateCheck | null = null;
   @Trace checkingUpdate: boolean = false;
@@ -75,6 +76,11 @@ export class AppModel {
   get web(): WebSession | null { return this.catalogController.web; }
   get webFailed(): string { return this.catalogController.webFailed; }
   get pairing(): PairingState { return this.pairingSession.pairing; }
+  get pendingSetups(): StagedSetup[] { return this.pairingSession.pendingSetups; }
+  get checkingApprovals(): string[] { return this.pairingSession.checkingOrigins; }
+  get pairingOrigin(): string { return this.pairingSession.waitingOrigin; }
+  get pairingNameLocked(): boolean { return this.pairingSession.nameLocked; }
+  get pairingInvitationText(): string { return this.pairingSession.invitationText; }
   get pairingBusy(): boolean { return this.pairingSession.pairingBusy; }
 
   private readonly vault: IdentityVault = new IdentityVault();
@@ -98,13 +104,10 @@ export class AppModel {
   private openingApp: boolean = false;
   /** The pushed screens, mirroring the navigation stack, to know which one is on top. */
   private paneStack: string[] = [];
-  /** The node page to return to after a cold start, until it is either found or given up. */
-  private pendingRestoreNode: string = '';
-
   constructor() {
     this.client = new ProtocolClient(this.vault);
     this.transaction = new StagedSetupStore(this.vault);
-    this.pairingService = new PairingService(this.client, this.vault, this.transaction, this.settingsStore);
+    this.pairingService = new PairingService(new ProtocolClient(this.vault), this.vault, this.transaction, this.settingsStore);
 
     const nodesCtrl = new NodesController(
       this.vault,
@@ -127,7 +130,7 @@ export class AppModel {
     };
 
     pairingSess.onFinished = (): void => {
-      this.popPane();
+      if (this.paneStack[this.paneStack.length - 1] === 'add') { this.popPane(); }
     };
   }
 
@@ -139,12 +142,14 @@ export class AppModel {
     }
     this.started = true;
     this.context = context;
+    this.fontScale = context.config.fontSizeScale ?? 1;
     AtomicFile.init(context.filesDir);
     this.settings = this.settingsStore.open(context);
     Strings.attach(context.resourceManager, this.settings.language);
     Strings.apply(context, this.settings.language);
     this.systemDark = WindowLayout.readSystemDark(context);
     this.dark = WindowLayout.effectiveDark(this.settings.appearance, this.systemDark);
+    WindowLayout.applySystemBars(context, this.dark);
     // The network the device is on is watched from here up: a change asks every
     // gateway again immediately, the way the other clients answer a network swap.
     this.environment.onNetworkChange = (): void => {
@@ -152,12 +157,11 @@ export class AppModel {
     };
     this.environment.start();
     this.nodesController.reloadIdentities();
-    const staged: StagedSetup | null = await this.transaction.reconcile();
-    if (staged !== null) {
+    const staged: StagedSetup[] = await this.transaction.reconcile();
+    if (staged.length > 0) {
       this.pairingSession.beginApprovalPolling();
     }
     this.loaded = true;
-    this.pendingRestoreNode = this.settingsStore.readLastNode();
     await this.refreshNodes();
   }
 
@@ -183,8 +187,8 @@ export class AppModel {
     }
   }
 
-  refreshSystemDark(): void {
-    if (this.context === null) {
+  refreshSystemDark(colorMode: ConfigurationConstant.ColorMode | undefined): void {
+    if (this.context === null || colorMode === undefined) {
       return;
     }
     // The application's own colour choice rides in this config while one is
@@ -194,8 +198,9 @@ export class AppModel {
     if (this.settings.appearance !== Appearance.System) {
       return;
     }
-    this.systemDark = WindowLayout.readSystemDark(this.context);
+    this.systemDark = colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     this.dark = WindowLayout.effectiveDark(this.settings.appearance, this.systemDark);
+    WindowLayout.applySystemBars(this.context, this.dark);
   }
 
   setLanguage(language: Language): void {
@@ -212,14 +217,12 @@ export class AppModel {
     if (this.context !== null) {
       WindowLayout.applyColorMode(this.context, appearance);
     }
-    this.dark = WindowLayout.effectiveDark(appearance, this.systemDark);
-    if (appearance === Appearance.System && this.context !== null) {
-      // Unsetting the application's own colour mode lands a beat later; the
-      // system's real answer is read once it has.
-      setTimeout((): void => {
-        this.refreshSystemDark();
-      }, 200);
+    if (appearance !== Appearance.System) {
+      this.dark = WindowLayout.effectiveDark(appearance, this.systemDark);
+      if (this.context !== null) { WindowLayout.applySystemBars(this.context, this.dark); }
     }
+    // Following the system is resolved by its configuration event, in the same
+    // frame as the native colour transition, rather than from a cached app mode.
   }
 
   listenWindowSize(context: Context | undefined): void {
@@ -236,22 +239,6 @@ export class AppModel {
 
   async refreshNodes(force: boolean = false): Promise<void> {
     await this.nodesController.refreshNodes(force);
-    this.maybeRestoreNode();
-  }
-
-  /** Returns to the node page a cold start was asked to, once it is on the list. */
-  private maybeRestoreNode(): void {
-    if (this.pendingRestoreNode === '') {
-      return;
-    }
-    const nodeId: string = this.pendingRestoreNode;
-    if (this.nodeRow(nodeId) === null) {
-      // The gateway has not answered for it yet — or it is gone. Either way it is
-      // not on the list to be opened, and the next refresh tries again.
-      return;
-    }
-    this.pendingRestoreNode = '';
-    this.selectNode(nodeId);
   }
 
   nodeRow(nodeId: string): NodeRow | null {
@@ -496,7 +483,7 @@ export class AppModel {
     // The pairing still staged for this gateway is part of what is being
     // forgotten — its staged file and its approval polling go with the identity
     // (behavior README: forgetting leaves no half-pairing).
-    this.pairingSession.forget(origin);
+    await this.pairingSession.forget(origin);
     await this.nodesController.forget(origin);
     this.catalogController.forgetApplicationHosts(origin);
     if (this.catalogController.catalogNodeId !== '') {
@@ -523,8 +510,12 @@ export class AppModel {
   }
 
   /** Asking a pending pairing to ask again, from the banner or the waiting screen. */
-  retryStaged(): Promise<void> {
-    return this.pairingSession.retryStaged();
+  retryStaged(origin?: string): Promise<void> {
+    return this.pairingSession.retryStaged(origin);
+  }
+
+  async abandonPending(origin: string): Promise<void> {
+    await this.pairingSession.forget(origin);
   }
 
   /** A network came or went: ask every gateway again, now, not on the next timer. */
@@ -561,7 +552,6 @@ export class AppModel {
   }
 
   selectNode(nodeId: string): void {
-    this.settingsStore.writeLastNode(nodeId);
     this.catalogController.catalogNodeId = nodeId;
     this.catalogController.catalog = new CatalogState(CatalogPhase.Loading, nodeId, [], null, '');
     this.loadCatalog(nodeId);
@@ -571,7 +561,6 @@ export class AppModel {
 
   backToList(): void {
     this.stopCatalogRefresh();
-    this.settingsStore.writeLastNode('');
     this.popPane();
   }
 
@@ -625,6 +614,7 @@ export class AppModel {
     if (this.stack === null) {
       return;
     }
+    if (this.paneStack[this.paneStack.length - 1] === 'add') { this.pairingSession.cancelPairing(); }
     this.stack.pop();
     this.paneStack.pop();
     this.syncPane();

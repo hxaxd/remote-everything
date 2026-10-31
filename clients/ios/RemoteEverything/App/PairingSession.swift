@@ -12,7 +12,16 @@ final class PairingSession: ObservableObject {
     @Published private(set) var pairingPhase: PairingPhase = .idle
 
     private var pairingAttempt: PairingCoordinator.Attempt?
+    private var pairingTask: Task<Void, Never>?
     private var pendingLoop: Task<Void, Never>?
+    private var activePendingOrigin: String?
+    @Published private(set) var resumingOrigins: Set<String> = []
+    private var foreground = false
+
+    func foregroundChanged(_ active: Bool) {
+        foreground = active
+        if active { startPendingLoop() } else { stopLoops() }
+    }
 
     private let pairing: PairingCoordinator
     private let nodesController: NodesController
@@ -20,9 +29,6 @@ final class PairingSession: ObservableObject {
 
     var onNotice: ((Notice) -> Void)?
     var onCatalogReady: ((String, CatalogResponse) -> Void)?
-    /// The pairing page is pushed by the app model, so only it can close it: a
-    /// waiting pairing that just ended asks through this callback.
-    var onClosePairPage: (() -> Void)?
 
     init(
         pairing: PairingCoordinator,
@@ -40,6 +46,12 @@ final class PairingSession: ObservableObject {
     }
 
     func beginAddNode() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        stopLoops()
+        pairing.cancelPending()
+        for staged in nodesController.stagedSetups { nodesController.removeStaged(origin: staged.origin) }
+        activePendingOrigin = nil
         addNodeText = ""
         invitation = nil
         invitationError = nil
@@ -49,23 +61,28 @@ final class PairingSession: ObservableObject {
         isAddingNode = true
     }
 
-    /// Cancels the attempt in flight, back to the input with the invitation
-    /// kept — Android's cancelPairing leaves the field as it was. The answer
-    /// that still arrives is committed but touches neither page nor phase.
-    func cancelPairingAttempt() {
+    func cancelAddNode() {
+        pairingTask?.cancel()
+        pairingTask = nil
+        stopLoops()
+        pairing.cancelPending()
+        for staged in nodesController.stagedSetups { nodesController.removeStaged(origin: staged.origin) }
+        leaveAddNode()
+    }
+
+    func leaveAddNode() {
+        isAddingNode = false
+        activePendingOrigin = nil
         pairingAttempt = nil
-        if case .pairing = pairingPhase {
-            pairingPhase = .idle
-        }
+        pairingPhase = .idle
+        invitation = nil
+        invitationError = nil
+        addNodeText = ""
     }
 
     func parseInvitation(_ text: String) {
+        guard pairingPhase != .pairing else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Editing the text is a new attempt: the failure it replaces goes with
-        // it, the way Android's resetPairing clears the line under the field.
-        if case .failed = pairingPhase {
-            pairingPhase = .idle
-        }
         guard !trimmed.isEmpty else {
             invitation = nil
             invitationError = nil
@@ -73,6 +90,10 @@ final class PairingSession: ObservableObject {
         }
         do {
             let parsed = try SetupURI.parse(trimmed)
+            if case .failed = pairingPhase, parsed != pairingAttempt?.invitation {
+                pairingPhase = .idle
+                pairingAttempt = nil
+            }
             invitation = parsed
             invitationError = nil
         } catch let rejection as SetupURI.Rejected {
@@ -86,24 +107,40 @@ final class PairingSession: ObservableObject {
 
     func handleIncomingURL(_ url: URL) {
         let text = url.absoluteString
-        if !isAddingNode {
-            beginAddNode()
-        }
+        beginAddNode()
         addNodeText = text
         parseInvitation(text)
     }
 
     func confirmPairing() async {
-        guard let invitation, case .idle = pairingPhase else { return }
+        guard let invitation, pairingPhase != .pairing,
+              !deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if case .failed(.network) = pairingPhase, let attempt = pairingAttempt {
+            await launchPairing(attempt)
+            return
+        }
         let attempt = PairingCoordinator.Attempt(
             invitation: invitation,
             deviceName: deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         pairingAttempt = attempt
-        await runPairing(attempt)
+        await launchPairing(attempt)
+    }
+
+    func retryPairing() async {
+        guard let attempt = pairingAttempt else { return }
+        await launchPairing(attempt)
+    }
+
+    private func launchPairing(_ attempt: PairingCoordinator.Attempt) async {
+        pairingTask?.cancel()
+        let task = Task { await runPairing(attempt) }
+        pairingTask = task
+        await task.value
     }
 
     func finishPairingSheet() {
+        activePendingOrigin = nil
         isAddingNode = false
         pairingAttempt = nil
         pairingPhase = .idle
@@ -118,16 +155,19 @@ final class PairingSession: ObservableObject {
             let outcome = try await pairing.run(attempt)
             switch outcome {
             case .approved(let identity, let catalog):
+                guard pairing.isCurrentIdentity(identity) else { return }
                 nodesController.record(identity)
                 clients.drop(origin: identity.origin)
                 onCatalogReady?(attempt.invitation.node, catalog)
                 await nodesController.refreshNodes()
                 finishIfCurrent(attempt)
             case .pendingApproval(let staged):
+                guard pairing.staged(origin: staged.origin) == staged else { return }
                 nodesController.setStaged(staged)
-                // The page stays open, saying the device is waiting — the same
-                // screen Android keeps, with the same retry and the same way back.
-                pairingPhase = .pendingApproval(nodeName: staged.nodeName)
+                if pairingAttempt === attempt {
+                    activePendingOrigin = staged.origin
+                    pairingPhase = .waitingApproval(staged)
+                }
                 startPendingLoop()
                 await nodesController.refreshNodes()
             }
@@ -150,22 +190,27 @@ final class PairingSession: ObservableObject {
     private func finishIfCurrent(_ attempt: PairingCoordinator.Attempt) {
         guard pairingAttempt === attempt else { return }
         finishPairingSheet()
-        // Success closes the page itself — Android's pair screen navigates
-        // back the moment the gateway admits the device.
-        onClosePairPage?()
     }
 
     private func failIfCurrent(_ attempt: PairingCoordinator.Attempt, _ failure: PairingFailure) {
+        if let staged = pairing.staged(origin: attempt.invitation.origin) {
+            nodesController.setStaged(staged)
+            if pairingAttempt === attempt {
+                activePendingOrigin = staged.origin
+                pairingPhase = .waitingApproval(staged)
+            }
+            startPendingLoop()
+            return
+        }
         guard pairingAttempt === attempt else { return }
         pairingPhase = .failed(failure)
     }
 
     func startPendingLoop() {
-        pendingLoop?.cancel()
-        guard !nodesController.stagedSetups.isEmpty else { return }
+        guard foreground, pendingLoop == nil, !nodesController.stagedSetups.isEmpty else { return }
         pendingLoop = Task { [weak self] in
-            let deadline = Date().addingTimeInterval(Cadence.approvalPollTimeout)
-            while !Task.isCancelled, Date() < deadline {
+            defer { if !Task.isCancelled { self?.pendingLoop = nil } }
+            while !Task.isCancelled {
                 guard let self else { return }
                 if self.nodesController.stagedSetups.isEmpty { return }
                 await self.resumeStagedSetups()
@@ -183,57 +228,58 @@ final class PairingSession: ObservableObject {
     /// the credential it names — go too, exactly as an expired stage does in
     /// `resumeStagedSetups`. The coordinator owns the stage store, so the
     /// discard goes through it; the row removal is the controller's.
-    func discardStagedSetups(origin: String) {
+    @discardableResult
+    func discardStagedSetups(origin: String) -> Bool {
+        var removed = false
         for staged in nodesController.stagedSetups where staged.origin == origin {
-            pairing.discard(staged)
+            removed = pairing.discard(staged) || removed
         }
         nodesController.removeStaged(origin: origin)
+        return removed
     }
 
-    func resumeStagedSetups() async {
-        for staged in nodesController.stagedSetups {
+    func resumeStagedSetups(origin: String? = nil) async {
+        for staged in nodesController.stagedSetups where origin == nil || origin == staged.origin {
+            guard resumingOrigins.insert(staged.origin).inserted else { continue }
+            defer { resumingOrigins.remove(staged.origin) }
+            let feedbackEnd = ContinuousClock.now.advanced(by: .milliseconds(Cadence.approvalFeedbackMinMs))
             if staged.isExpired {
                 pairing.discard(staged)
                 nodesController.removeStaged(origin: staged.origin)
+                if activePendingOrigin == staged.origin { pairingPhase = .failed(.refusal(ClientError(.invitationExpired))) }
                 onNotice?(.invitationExpired)
-                closePendingPageIfOpen()
                 continue
             }
             do {
                 switch try await pairing.resume(staged) {
                 case .approved(let identity, let catalog):
+                    guard pairing.isCurrentIdentity(identity) else { continue }
                     nodesController.record(identity)
                     clients.drop(origin: identity.origin)
                     onCatalogReady?(staged.nodeID, catalog)
                     nodesController.removeStaged(origin: staged.origin)
+                    if activePendingOrigin == staged.origin { finishPairingSheet() }
                     await nodesController.refreshNodes()
-                    closePendingPageIfOpen()
                 case .pendingApproval:
                     break
                 }
+            } catch is CancellationError {
+                return
             } catch let error as ClientError {
                 if PairingCoordinator.endsTheAttempt(error.code) {
                     nodesController.removeStaged(origin: staged.origin)
-                    closePendingPageIfOpen()
+                    if activePendingOrigin == staged.origin { pairingPhase = .failed(.refusal(error)) }
                     onNotice?(error.code == .invitationExpired ? .invitationExpired : .nodeGone)
                 }
             } catch {
             }
+            if foreground {
+                do { try await Task.sleep(until: feedbackEnd, clock: .continuous) }
+                catch { return }
+            }
         }
     }
 
-    /// A pairing the page is still showing has ended: the page closes itself
-    /// the way Android's pair screen navigates back on success or expiry.
-    private func closePendingPageIfOpen() {
-        if case .pendingApproval = pairingPhase {
-            finishPairingSheet()
-            onClosePairPage?()
-        }
-    }
-
-    /// The name this phone introduces itself with: the device's own name as
-    /// iOS reports it. (The local hostname was tried as a fallback and came
-    /// back "localhost", so the device name stands alone.)
     static func defaultDeviceName() -> String {
         let systemName = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"

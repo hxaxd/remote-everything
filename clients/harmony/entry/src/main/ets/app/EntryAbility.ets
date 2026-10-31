@@ -67,7 +67,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onConfigurationUpdate(configuration: Configuration): void {
-    model.refreshSystemDark();
+    model.fontScale = configuration.fontSizeScale ?? model.fontScale;
+    model.refreshSystemDark(configuration.colorMode);
   }
 
   /** `remote-everything://setup?…` opens the add-node flow with the link filled in. */

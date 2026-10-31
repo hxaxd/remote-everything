@@ -1,0 +1,6 @@
+{
+  "name": "remote-everything-client-regressions",
+  "private": true,
+  "scripts": { "test": "node tests/run.cjs" },
+  "devDependencies": { "playwright": "1.63.0", "typescript": "4.9.5" }
+}

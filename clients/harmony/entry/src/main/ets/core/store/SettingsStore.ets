@@ -21,7 +21,6 @@ const STORE_NAME = 'settings';
 const KEY_LANGUAGE = 'language';
 const KEY_APPEARANCE = 'appearance';
 /** The node page that was open when the app last left, for a cold start to return to. */
-const KEY_LAST_NODE = 'last_node_id';
 /** One preferences entry per application, named by the application. */
 const PREFIX_WEB_PREFS = 'web_prefs.';
 
@@ -160,34 +159,6 @@ export class SettingsStore {
     } catch (error) {
       // A setting that could not be written is a setting for this run only; the app
       // stays usable and the next change tries again.
-    }
-  }
-
-  // ---- Where the app was when it last left -------------------------------------
-
-  /** The node page that was open, or '' when the app last left the list. */
-  readLastNode(): string {
-    const store: preferences.Preferences | null = this.store;
-    if (store === null) {
-      return '';
-    }
-    try {
-      return store.getSync(KEY_LAST_NODE, '') as string;
-    } catch (error) {
-      return '';
-    }
-  }
-
-  writeLastNode(nodeId: string): void {
-    const store: preferences.Preferences | null = this.store;
-    if (store === null) {
-      return;
-    }
-    try {
-      store.putSync(KEY_LAST_NODE, nodeId);
-      store.flushSync();
-    } catch (error) {
-      // A navigation that could not be remembered is a cold start on the list.
     }
   }
 

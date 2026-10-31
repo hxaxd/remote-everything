@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
@@ -39,7 +40,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remoteeverything.app.AppModel
@@ -65,11 +66,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NodeScreen(vm: AppModel, nodeId: String, onBack: () -> Unit) {
+fun NodeScreen(vm: AppModel, nodeId: String, onBack: () -> Unit, embedded: Boolean = false) {
     val state by vm.state.collectAsStateWithLifecycle()
     val node = state.nodes.firstOrNull { it.id == nodeId }
     Scaffold(
-        topBar = { NodeBar(vm = vm, node = node, onBack = onBack) },
+        contentWindowInsets = if (embedded) WindowInsets(0,0,0,0) else androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
+        topBar = { NodeBar(vm = vm, node = node, onBack = if (embedded) null else onBack, embedded = embedded) },
     ) { padding ->
         NodeContent(vm = vm, nodeId = nodeId, onGone = onBack, modifier = Modifier.padding(padding))
     }
@@ -125,8 +127,8 @@ fun NodeContent(vm: AppModel, nodeId: String, onGone: () -> Unit, modifier: Modi
     val node = state.nodes.firstOrNull { it.id == nodeId }
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var openingAppId by remember { mutableStateOf<String?>(null) }
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) { openingAppId = null }
     val dark = when (state.settings.appearance) {
         Appearance.SYSTEM -> isSystemInDarkTheme()
         Appearance.LIGHT -> false
@@ -140,7 +142,6 @@ fun NodeContent(vm: AppModel, nodeId: String, onGone: () -> Unit, modifier: Modi
         onDispose { vm.stopWatching() }
     }
     NoticeEffect(snackbar, state.notice, vm::consumeNotice)
-    val openFailed = l10n(MessageKeys.APP_OPEN_FAILED)
 
     Scaffold(modifier = modifier, snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         val current = node
@@ -206,25 +207,11 @@ fun NodeContent(vm: AppModel, nodeId: String, onGone: () -> Unit, modifier: Modi
                                     onOpen = {
                                         if (openingAppId == null) {
                                             openingAppId = app.id
-                                            scope.launch {
-                                                val target = vm.open(current, app.id)
-                                                val identityOrigin = vm.originFor(current)
-                                                if (target == null || identityOrigin == null) {
-                                                    snackbar.showSnackbar(openFailed)
-                                                } else {
-                                                    context.startActivity(
-                                                        AppWebActivity.intent(
-                                                            context = context,
-                                                            url = target.url + app.launchFragment,
-                                                            identityOrigin = identityOrigin,
-                                                            appKey = "${current.id}/${app.id}",
-                                                            serverPin = target.serverPin,
-                                                            dark = dark,
-                                                        ),
-                                                    )
-                                                }
-                                                openingAppId = null
-                                            }
+                                            val origin = vm.pathFor(current)?.origin ?: current.paths.firstOrNull()?.origin
+                                            if (origin != null) context.startActivity(AppWebActivity.intent(
+                                                context = context, url = app.launchFragment, identityOrigin = origin,
+                                                appKey = "${current.id}/${app.id}", serverPin = null, dark = dark))
+                                            else openingAppId = null
                                         }
                                     },
                                     onControl = { start -> vm.control(current, app.id, start) },
@@ -252,9 +239,9 @@ private fun AppRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
-            .clickable(enabled = !isOpening && (app.code != AppState.STOPPED || app.enabled), onClick = onOpen)
-            .padding(horizontal = 16.dp),
+            .heightIn(min = 72.dp)
+            .clickable(enabled = !isOpening && app.code != AppState.STOPPED && app.code != AppState.STOPPING, onClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -272,13 +259,14 @@ private fun AppRow(
             }
         }
         Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(app.name, style = MaterialTheme.typography.titleMedium)
+            Text(app.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (app.description.isNotEmpty()) {
                 Text(
                     app.description,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

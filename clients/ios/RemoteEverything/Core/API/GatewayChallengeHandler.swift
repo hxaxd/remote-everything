@@ -43,6 +43,9 @@ final class GatewayChallengeHandler {
         if let at = value.lastIndex(of: "@") {
             value = String(value[value.index(after: at)...])
         }
+        if value.hasPrefix("["), let close = value.firstIndex(of:"]") {
+            return String(value[value.index(after:value.startIndex)..<close]).lowercased()
+        }
         if let colon = value.lastIndex(of: ":") {
             let port = value[value.index(after: colon)...]
             if !port.isEmpty, port.allSatisfy({ $0.isNumber }) {
@@ -57,9 +60,11 @@ final class GatewayChallengeHandler {
     /// address and a port of its own. A suffix match is only ever done with the
     /// separating dot, so `evil-example.com` is not `example.com`.
     func isGatewayHost(_ host: String) -> Bool {
-        let candidate = host.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        var candidate = host.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if candidate.hasPrefix("["),candidate.hasSuffix("]") { candidate = String(candidate.dropFirst().dropLast()) }
         guard !candidate.isEmpty, !gatewayHost.isEmpty else { return false }
         if candidate == gatewayHost { return true }
+        if gatewayHost.contains(":") || gatewayHost.allSatisfy({ $0.isNumber || $0 == "." }) { return false }
         return candidate.hasSuffix("." + gatewayHost)
     }
 
@@ -71,7 +76,7 @@ final class GatewayChallengeHandler {
             guard let trust = space.serverTrust else { return Answer(disposition: .performDefaultHandling, credential: nil) }
             // A gateway signed by an authority is the system's business: the
             // certificate renews and pinning it is how a client locks itself out.
-            guard let pin else { return Answer(disposition: .performDefaultHandling, credential: nil) }
+            guard let pin, isGatewayHost(space.host) else { return Answer(disposition: .performDefaultHandling, credential: nil) }
             if PinnedTrust.evaluate(trust, pin: pin) {
                 return Answer(disposition: .useCredential, credential: URLCredential(trust: trust))
             }

@@ -29,6 +29,7 @@ final class GatewayClient {
     /// The header that names the node a request is for. Every request except the
     /// node list carries it, because a gateway serves several nodes.
     static let nodeHeader = "X-Remote-Everything-Node"
+    static let stopTimeout: TimeInterval = 30
 
     let origin: String
     let originURL: URL
@@ -37,16 +38,15 @@ final class GatewayClient {
     private let session: URLSession
     private let sessionDelegate: GatewaySessionDelegate
 
-    init(origin: String, credential: DeviceCredential?, pin: ServerPin?) {
+    init(origin: String, credential: DeviceCredential?, pin: ServerPin?, configuration: URLSessionConfiguration = .ephemeral) {
         self.origin = origin
         self.originURL = GatewayClient.url(forOrigin: origin)
         let handler = GatewayChallengeHandler(gatewayOrigin: origin, pin: pin, credential: credential)
         self.handler = handler
         self.sessionDelegate = GatewaySessionDelegate(handler: handler)
 
-        let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = Cadence.requestTimeout
-        configuration.timeoutIntervalForResource = Cadence.requestTimeout * 2
+        configuration.timeoutIntervalForResource = max(Cadence.requestTimeout * 2, Self.stopTimeout)
         configuration.httpShouldSetCookies = false
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -101,7 +101,7 @@ final class GatewayClient {
         case 202:
             let refusal = try refusal(from: data, status: 202)
             if refusal.code == .approvalPending { return .pendingApproval }
-            throw refusal
+            throw UnreadableAnswer("invalid pending activation answer")
         default:
             throw try refusal(from: data, status: response.statusCode)
         }
@@ -123,8 +123,8 @@ final class GatewayClient {
         return try decode(CatalogResponse.self, from: data)
     }
 
-    func status(nodeID: String, appID: String) async throws -> ControlResponse {
-        let request = try makeRequest(method: "GET", path: Paths.status(appID), nodeID: nodeID, timeout: Cadence.requestTimeout)
+    func status(nodeID: String, appID: String, timeout: TimeInterval = Cadence.requestTimeout) async throws -> ControlResponse {
+        let request = try makeRequest(method: "GET", path: Paths.status(appID), nodeID: nodeID, timeout: timeout)
         return try await control(request)
     }
 
@@ -134,7 +134,7 @@ final class GatewayClient {
     }
 
     func stop(nodeID: String, appID: String) async throws -> ControlResponse {
-        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: Cadence.requestTimeout)
+        let request = try makeRequest(method: "POST", path: Paths.stop(appID), nodeID: nodeID, timeout: Self.stopTimeout)
         return try await control(request)
     }
 
@@ -154,13 +154,6 @@ final class GatewayClient {
             // pointing at the gateway instead of at nothing.
             guard let url = URL(string: location, relativeTo: originURL)?.absoluteURL else {
                 throw ClientError(.internalError, httpStatus: response.statusCode)
-            }
-            // A redirect is a redirect, but the place it names must be this
-            // gateway's: a substituted Location must not move this device's
-            // certificate to another host (the same rule Android and Harmony
-            // keep, spelled the same way).
-            guard handler.isGatewayHost(url.host ?? "") else {
-                throw UnreadableAnswer("the gateway pointed at an origin that is not its own")
             }
             return url
         case 200:
@@ -217,6 +210,7 @@ final class GatewayClient {
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+        guard String(data:data,encoding:.utf8) != nil else { throw UnreadableAnswer("invalid response encoding") }
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
@@ -231,6 +225,7 @@ final class GatewayClient {
     /// because "the gateway refused this device" and "the gateway said something I do not understand"
     /// send the operator to two different places.
     private func refusal(from data: Data, status: Int) throws -> ClientError {
+        guard String(data:data,encoding:.utf8) != nil else { throw UnreadableAnswer("invalid response encoding") }
         guard let body = try? JSONDecoder().decode(ErrorResponse.self, from: data) else {
             throw UnreadableAnswer("HTTP \(status) without a refusal this client can read")
         }

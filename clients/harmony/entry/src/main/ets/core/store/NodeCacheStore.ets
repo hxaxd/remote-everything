@@ -7,18 +7,21 @@
 // same reason (ui-contract §2/S1, architecture §4).
 
 import { JsonReader } from '../json/Strict';
-import { CachedNodes, GatewayPath, Node } from '../model/Models';
+import { CachedNodes, GatewayPath, LinkKind, Node } from '../model/Models';
 import { AtomicFile } from './AtomicFile';
 
 const SCHEMA = 1;
 const FINGERPRINT = new RegExp('^[a-f0-9]{64}$');
 
 function decodeIdentityRef(reader: JsonReader): GatewayPath {
-  reader.rejectUnknown(['origin', 'identity_ref', 'private']);
+  reader.rejectUnknown(['origin', 'identity_ref', 'private', 'link']);
   const origin: string = reader.string('origin');
   const identityRef: string = reader.optionalString('identity_ref') ?? '';
   const isPrivate: boolean = reader.bool('private');
-  return new GatewayPath(origin, identityRef, null, null, isPrivate, null);
+  const link: string = reader.string('link');
+  if (link !== LinkKind.Local && link !== LinkKind.Tunnel) { throw new Error('invalid cached link'); }
+  return new GatewayPath(origin, identityRef, null, null, isPrivate, null,
+    link === LinkKind.Local ? LinkKind.Local : LinkKind.Tunnel);
 }
 
 function decodeNode(reader: JsonReader): Node {
@@ -55,7 +58,7 @@ export class NodeCacheStore {
         // If credentialRef is supplied and path identityRef was empty, enrich it
         if (credentialRef) {
           const enrichedPaths = node.paths.map((p: GatewayPath) =>
-            p.identityRef ? p : new GatewayPath(p.origin, credentialRef, p.reachable, p.latencyMs, p.isPrivate, p.lastCheckedAt)
+            p.identityRef ? p : new GatewayPath(p.origin, credentialRef, p.reachable, p.latencyMs, p.isPrivate, p.lastCheckedAt, p.link)
           );
           nodes.push(new Node(node.id, node.name, enrichedPaths));
         } else {
@@ -73,7 +76,8 @@ export class NodeCacheStore {
     AtomicFile.ensureDirectory('cache/nodes');
     const encoded: string[] = [];
     for (const node of nodes) {
-      encoded.push(this.encodeNode(node));
+      const mine: GatewayPath[] = node.paths.filter((p: GatewayPath) => p.origin === origin);
+      if (mine.length > 0) { encoded.push(this.encodeNode(new Node(node.id, node.name, mine))); }
     }
     const document: string = `{"schema":${SCHEMA},"origin":${JSON.stringify(origin)},` +
       `"fetched_at":${fetchedAt},"nodes":[${encoded.join(',')}]}`;
@@ -87,7 +91,7 @@ export class NodeCacheStore {
   private encodeNode(node: Node): string {
     const paths: string[] = [];
     for (const path of node.paths) {
-      paths.push(`{"origin":${JSON.stringify(path.origin)},"identity_ref":${JSON.stringify(path.identityRef)},"private":${path.isPrivate}}`);
+      paths.push(`{"origin":${JSON.stringify(path.origin)},"identity_ref":${JSON.stringify(path.identityRef)},"private":${path.isPrivate},"link":${JSON.stringify(path.link)}}`);
     }
     return `{"id":${JSON.stringify(node.id)},"name":${JSON.stringify(node.name)},"paths":[${paths.join(',')}]}`;
   }

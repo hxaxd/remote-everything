@@ -119,58 +119,69 @@ export struct NodeAppsScreen {
 
   @Builder
   AppRowView(app: AppInfo) {
-    Row({ space: Metrics.gapM }) {
-      IconTile({ icon: app.icon, accent: app.accent, dark: model.dark })
-      Column({ space: 2 }) {
-        Text(app.name)
-          .fontSize(TypeScale.headline)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(palette(model.dark).textPrimary)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (app.description !== '') {
-          Text(app.description)
-            .fontSize(TypeScale.caption)
-            .fontColor(palette(model.dark).textSecondary)
+    Column({ space: Metrics.gapS }) {
+      Row({ space: Metrics.gapM }) {
+        IconTile({ icon: app.icon, accent: app.accent, dark: model.dark })
+        Column({ space: 2 }) {
+          Text(app.name)
+            .fontSize(TypeScale.headline)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(palette(model.dark).textPrimary)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (app.description !== '') {
+            Text(app.description)
+              .fontSize(TypeScale.caption)
+              .fontColor(palette(model.dark).textSecondary)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
         }
-      }
-      .layoutWeight(1)
-      .alignItems(HorizontalAlign.Start)
-      StateBadge({
-        label: Strings.appState(app.code),
-        color: appTone(app.code, model.dark),
-        dark: model.dark
-      })
-      if (app.code === AppState.Starting || app.code === AppState.Stopping) {
-        // A request is in flight: the row shows that rather than a button that
-        // would send it a second time.
-        LoadingProgress().width(20).height(20).color(palette(model.dark).accent)
-      } else {
-        Text(Strings.text(app.code === AppState.Stopped ? MessageKeys.ACTION_START : MessageKeys.ACTION_STOP))
-          .fontSize(TypeScale.caption)
-          .fontColor(palette(model.dark).accent)
-          .padding({ left: Metrics.gapS, right: Metrics.gapS, top: 6, bottom: 6 })
-          .backgroundColor(withAlpha(palette(model.dark).accent, tileAlpha(model.dark)))
-          .borderRadius(Metrics.radiusPill)
-          .onClick(() => {
-            model.toggleApp(model.catalogNodeId, app);
-          })
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        if (model.fontScale <= 1.3) {
+          this.AppControls(app)
+        }
+      }.width('100%').alignItems(VerticalAlign.Center)
+      if (model.fontScale > 1.3) {
+        Row({ space: Metrics.gapM }) {
+          Blank()
+          this.AppControls(app)
+        }.width('100%').alignItems(VerticalAlign.Center)
       }
     }
     .width('100%')
-    .height(Metrics.rowApp)
-    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin })
-    .alignItems(VerticalAlign.Center)
+    .constraintSize({ minHeight: Metrics.rowApp })
+    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin, top: 8, bottom: 8 })
     .onClick(() => {
-      // A stopped application that will not start itself on open is not a door:
-      // tapping it does nothing, the way the other clients behave. Start it first.
-      if (app.code === AppState.Stopped && !app.enabled) {
-        return;
-      }
+      if (app.code === AppState.Stopped || app.code === AppState.Stopping) { return; }
       model.openApp(model.catalogNodeId, app);
     })
+  }
+
+  @Builder
+  AppControls(app: AppInfo) {
+    StateBadge({
+      label: Strings.appState(app.code),
+      color: appTone(app.code, model.dark),
+      dark: model.dark
+    })
+    if (app.code === AppState.Starting || app.code === AppState.Stopping) {
+      // A request is in flight: the row shows that rather than a button that
+      // would send it a second time.
+      LoadingProgress().width(20).height(20).color(palette(model.dark).accent)
+    } else {
+      Text(Strings.text(app.code === AppState.Stopped ? MessageKeys.ACTION_START : MessageKeys.ACTION_STOP))
+        .fontSize(TypeScale.caption)
+        .fontColor(palette(model.dark).accent)
+        .padding({ left: Metrics.gapS, right: Metrics.gapS, top: 6, bottom: 6 })
+        .constraintSize({ minHeight: 44 })
+        .backgroundColor(withAlpha(palette(model.dark).accent, tileAlpha(model.dark)))
+        .borderRadius(Metrics.radiusPill)
+        .onClick(() => {
+          model.toggleApp(model.catalogNodeId, app);
+        })
+    }
   }
 }
 

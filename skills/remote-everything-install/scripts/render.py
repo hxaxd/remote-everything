@@ -235,21 +235,33 @@ def port(value, name):
 
 
 def render_frp(kind, input_path, output):
-    if kind == "frps":
+    lan = kind.endswith("-lan")
+    if kind.startswith("frps"):
         keys = {"frps_port", "frps_token_file", "frps_log"}
+        if lan:
+            keys |= {"bind_host", "tunnel_server_cert", "tunnel_server_key", "tunnel_ca_file"}
         value = load_values(input_path, keys)
         fields = {
             "FRPS_PORT": port(value["frps_port"], "frps_port"),
             "FRPS_TOKEN_FILE": toml_string(portable_absolute(value["frps_token_file"], "frps_token_file"), "frps_token_file"),
             "FRPS_LOG": toml_string(portable_absolute(value["frps_log"], "frps_log"), "frps_log"),
         }
+        if lan:
+            bind_host = text(value["bind_host"], "bind_host")
+            address = ipaddress.IPv4Address(bind_host)
+            if address.is_multicast or str(address) == "255.255.255.255":
+                fail("bind_host must be a listening IPv4 address")
+            fields["BIND_HOST"] = bind_host
+            for source, target in (("tunnel_server_cert", "TUNNEL_SERVER_CERT"), ("tunnel_server_key", "TUNNEL_SERVER_KEY"), ("tunnel_ca_file", "TUNNEL_CA_FILE")):
+                fields[target] = toml_string(portable_absolute(value[source], source), source)
     else:
         keys = {"public_host", "tunnel_client_cert", "tunnel_client_key", "frps_token_file", "frpc_log", "node_id", "node_host", "node_port", "node_tunnel_port"}
+        if lan:
+            keys = (keys - {"public_host"}) | {"server_host", "server_port", "tunnel_ca_file", "tunnel_server_name"}
         value = load_values(input_path, keys)
         if not HEX64.fullmatch(value["node_id"]):
             fail("invalid node_id")
         fields = {
-            "PUBLIC_HOST": toml_string(hostname(value["public_host"], "public_host"), "public_host"),
             "TUNNEL_CLIENT_CERT": toml_string(portable_absolute(value["tunnel_client_cert"], "tunnel_client_cert"), "tunnel_client_cert"),
             "TUNNEL_CLIENT_KEY": toml_string(portable_absolute(value["tunnel_client_key"], "tunnel_client_key"), "tunnel_client_key"),
             "FRPS_TOKEN_FILE": toml_string(portable_absolute(value["frps_token_file"], "frps_token_file"), "frps_token_file"),
@@ -257,6 +269,15 @@ def render_frp(kind, input_path, output):
             "NODE_ID": value["node_id"], "NODE_HOST": node_host(value["node_host"], "node_host"),
             "NODE_PORT": port(value["node_port"], "node_port"), "NODE_TUNNEL_PORT": port(value["node_tunnel_port"], "node_tunnel_port"),
         }
+        if lan:
+            fields.update({
+                "SERVER_HOST": hostname(value["server_host"], "server_host"),
+                "SERVER_PORT": port(value["server_port"], "server_port"),
+                "TUNNEL_SERVER_NAME": hostname(value["tunnel_server_name"], "tunnel_server_name"),
+                "TUNNEL_CA_FILE": toml_string(portable_absolute(value["tunnel_ca_file"], "tunnel_ca_file"), "tunnel_ca_file"),
+            })
+        else:
+            fields["PUBLIC_HOST"] = toml_string(hostname(value["public_host"], "public_host"), "public_host")
     atomic_write(output, replace(read_template(kind + ".toml.tmpl"), fields))
 
 
@@ -301,7 +322,7 @@ def render_caddy(input_path, output):
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="kind", required=True)
-    for kind in ("systemd", "systemd-user", "caddy-systemd", "launchd", "frpc", "frps", "caddy"):
+    for kind in ("systemd", "systemd-user", "caddy-systemd", "launchd", "frpc", "frps", "frpc-lan", "frps-lan", "caddy"):
         command = subparsers.add_parser(kind)
         command.add_argument("--input", required=True)
         command.add_argument("--output", required=True)
@@ -316,7 +337,7 @@ def main():
         elif args.kind == "caddy-systemd": render_caddy_systemd(args.input, args.output)
         elif args.kind == "launchd": render_launchd(args.input, args.output)
         elif args.kind == "windows": render_windows(args.input, args.output, args.launcher_output)
-        elif args.kind in ("frpc", "frps"): render_frp(args.kind, args.input, args.output)
+        elif args.kind in ("frpc", "frps", "frpc-lan", "frps-lan"): render_frp(args.kind, args.input, args.output)
         else: render_caddy(args.input, args.output)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

@@ -8,6 +8,14 @@ import { WebOrientation } from '../core/store/WebAppPrefs';
 export const WIDE_WIDTH_VP = 840;
 
 export class WindowLayout {
+  static applySystemBars(context: common.UIAbilityContext, dark: boolean): void {
+    window.getLastWindow(context).then((host: window.Window) => {
+      return host.setWindowSystemBarProperties({
+        statusBarContentColor: dark ? '#FFFFFF' : '#000000',
+        navigationBarContentColor: dark ? '#FFFFFF' : '#000000'
+      });
+    }).catch(() => {});
+  }
   /**
    * Watches the window: a window width of 840 vp or more is a screen with room for two
    * columns, and a foldable unfolding is a size change rather than a new screen. The

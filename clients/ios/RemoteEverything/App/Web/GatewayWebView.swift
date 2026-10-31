@@ -59,7 +59,7 @@ final class WebViewHandle: ObservableObject {
 /// be presented from.
 ///
 /// It is one WKWebView for the life of the screen: rotating the device does not
-/// touch it, and the only thing that rebuilds it is the web
+/// touch it (ui-contract §2/S4), and the only thing that rebuilds it is the web
 /// content process dying, which the screen asks for by changing the view's id.
 ///
 /// Everything a page may ask the device for is answered here: a file to upload
@@ -98,64 +98,30 @@ struct GatewayWebView: UIViewRepresentable {
             context.coordinator.blobRelay,
             name: Coordinator.blobMessageName
         )
-
-        // Web applications inside Remote Everything belong in a native frame:
-        // pinch-to-zoom and gesture zooming are disabled to prevent loose floating layouts,
-        // matching the behavior on Android and HarmonyOS.
-        let viewportScriptSource = """
-        (function() {
-          function enforceViewport() {
-            let meta = document.querySelector('meta[name="viewport"]');
-            if (!meta) {
-              meta = document.createElement('meta');
-              meta.name = 'viewport';
-              (document.head || document.documentElement).appendChild(meta);
-            }
-            let content = meta.getAttribute('content') || '';
-            if (!content.includes('user-scalable=no')) {
-              meta.setAttribute('content', (content ? content + ', ' : '') + 'maximum-scale=1.0, user-scalable=no');
-            }
-          }
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', enforceViewport);
-          } else {
-            enforceViewport();
-          }
-          document.addEventListener('gesturestart', function(e) {
-            e.preventDefault();
-          }, { passive: false });
-        })();
-        """
-        let viewportScript = WKUserScript(
-            source: viewportScriptSource,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: false
-        )
-        configuration.userContentController.addUserScript(viewportScript)
-
+        configuration.userContentController.add(context.coordinator.paintRelay, name: Coordinator.paintMessageName)
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: Coordinator.firstPaintScript, injectionTime: .atDocumentStart, forMainFrameOnly: true
+        ))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-        webView.scrollView.delegate = context.coordinator
-        webView.scrollView.bounces = false
-        webView.scrollView.alwaysBounceVertical = false
-        webView.scrollView.alwaysBounceHorizontal = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.allowsBackForwardNavigationGestures = true
         webView.overrideUserInterfaceStyle = interfaceStyle
         webView.isOpaque = true
-        webView.backgroundColor = UIColor.systemBackground
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
         handle.attach(webView)
         handle.onReload = { [weak coordinator = context.coordinator] url in
             coordinator?.load(url, force: true)
         }
         handle.onReloadPage = { [weak coordinator = context.coordinator] in
-            coordinator?.webView?.reload()
+            coordinator?.reloadPage()
         }
         handle.onUserAgent = { [weak coordinator = context.coordinator] mode in
             coordinator?.applyUserAgent(mode, reload: true)
         }
         context.coordinator.webView = webView
+        context.coordinator.coverInitialPage(webView)
         context.coordinator.rememberDefaultUserAgent()
         context.coordinator.applyUserAgent(prefs.userAgent, reload: false)
         context.coordinator.load(target.url)
@@ -171,17 +137,34 @@ struct GatewayWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.closePopup()
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.scrollView.delegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Coordinator.blobMessageName)
-        webView.configuration.userContentController.removeAllUserScripts()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: Coordinator.paintMessageName)
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, UIScrollViewDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
 
         static let blobMessageName = "RemoteEverythingBlob"
+        static let paintMessageName = "RemoteEverythingPaint"
+        static let firstPaintScript = """
+            (() => {
+                const painted = () => window.webkit.messageHandlers.RemoteEverythingPaint.postMessage('painted');
+                if (performance.getEntriesByName('first-contentful-paint').length) {
+                    painted();
+                    return;
+                }
+                const observer = new PerformanceObserver(list => {
+                    if (list.getEntries().some(entry => entry.name === 'first-contentful-paint')) {
+                        observer.disconnect();
+                        painted();
+                    }
+                });
+                observer.observe({ type: 'paint', buffered: true });
+            })();
+            """
 
         private var target: WebTarget
         private let handle: WebViewHandle
@@ -189,19 +172,72 @@ struct GatewayWebView: UIViewRepresentable {
         private let onNotice: (String) -> Void
         private(set) var loadedURL: URL?
         weak var webView: WKWebView?
+        private var popup: WKWebView?
+        private var popupClose: UIButton?
+        private var initialLoading: UIView?
+        private var popupLoading: UIView?
+
+        func coverInitialPage(_ webView: WKWebView) {
+            initialLoading?.removeFromSuperview()
+            initialLoading = Self.loadingSurface(in: webView)
+        }
+
+        private func revealInitialPage(_ webView: WKWebView) {
+            if webView === popup {
+                popupLoading?.removeFromSuperview()
+                popupLoading = nil
+            } else if webView === self.webView {
+                initialLoading?.removeFromSuperview()
+                initialLoading = nil
+            }
+        }
+
+        private static func loadingSurface(in webView: WKWebView) -> UIView {
+            let surface = UIView(frame: webView.bounds)
+            surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            surface.backgroundColor = UIColor { traits in
+                UIColor(Theme(traits.userInterfaceStyle == .dark ? .dark : .light).bg)
+            }
+            let spinner = UIActivityIndicatorView(style: .medium)
+            spinner.startAnimating()
+            let label = UILabel()
+            label.text = l10n(MessageKeys.WEB_LOADING)
+            label.font = .preferredFont(forTextStyle: .body)
+            label.adjustsFontForContentSizeCategory = true
+            label.textColor = .secondaryLabel
+            let content = UIStackView(arrangedSubviews: [spinner, label])
+            content.axis = .vertical
+            content.alignment = .center
+            content.spacing = 16
+            content.translatesAutoresizingMaskIntoConstraints = false
+            surface.addSubview(content)
+            NSLayoutConstraint.activate([
+                content.centerXAnchor.constraint(equalTo: surface.centerXAnchor),
+                content.centerYAnchor.constraint(equalTo: surface.centerYAnchor)
+            ])
+            webView.addSubview(surface)
+            return surface
+        }
+
+        func closePopup() {
+            popup?.stopLoading()
+            popup?.navigationDelegate = nil
+            popup?.uiDelegate = nil
+            popup?.removeFromSuperview()
+            popupClose?.removeFromSuperview()
+            popupLoading?.removeFromSuperview()
+            popupLoading = nil
+            popup = nil
+            popupClose = nil
+        }
 
         private var appliedUserAgent: WebUserAgent?
         private var defaultUserAgent: String?
         private var savedDownloads: [ObjectIdentifier: URL] = [:]
         private var blobSinks: [String: BlobSink] = [:]
 
-        /// The size a blob handed over by a page may be, and the size a download
-        /// a server announces is refused up front: the same two caps the other
-        /// clients keep (behavior README).
-        private static let maxBlobBytes = 16 * 1024 * 1024
-        private static let maxDownloadBytes = 512 * 1024 * 1024
-
         private struct BlobSink {
+            /// The type the page declared, replaced when the data URL says what it is.
             var mime: String
             var data: Data
         }
@@ -210,7 +246,14 @@ struct GatewayWebView: UIViewRepresentable {
         /// strongly and the handler is this coordinator: without the indirection
         /// the two would keep each other alive for the life of the app.
         lazy var blobRelay = ScriptMessageRelay { [weak self] message in
-            self?.receive(blobMessage: message)
+            guard let body = message.body as? [String: Any] else { return }
+            self?.receive(blobMessage: body)
+        }
+
+        lazy var paintRelay = ScriptMessageRelay { [weak self] message in
+            guard message.frameInfo.isMainFrame, message.body as? String == "painted",
+                  let webView = message.webView else { return }
+            self?.revealInitialPage(webView)
         }
 
         init(
@@ -240,7 +283,14 @@ struct GatewayWebView: UIViewRepresentable {
         func load(_ url: URL, force: Bool = false) {
             guard force || loadedURL != url else { return }
             loadedURL = url
+            if let webView { coverInitialPage(webView) }
             webView?.load(URLRequest(url: url))
+        }
+
+        func reloadPage() {
+            guard let webView else { return }
+            coverInitialPage(webView)
+            webView.reload()
         }
 
         // MARK: - The page's own identity
@@ -264,6 +314,7 @@ struct GatewayWebView: UIViewRepresentable {
                 webView.customUserAgent = Coordinator.desktopUserAgent(from: defaultUserAgent)
             }
             if reload, changed {
+                coverInitialPage(webView)
                 // The page is loaded again, rather than reloaded: a reload re-sends
                 // the request that was last made, headers and all, so the identity
                 // just chosen would only appear on the load after next.
@@ -321,39 +372,30 @@ struct GatewayWebView: UIViewRepresentable {
             }
             switch scheme {
             case "https":
-                if target.handler.isGatewayHost(url.host ?? "") {
+                if target.handler.isGatewayHost(url.host ?? "") || webView === popup {
                     decisionHandler(.allow)
                 } else {
-                    // Anything that leaves the gateway goes to the system browser —
-                    // but only when a person asked for it: a page that bounces this
-                    // WebView, which carries a device certificate, to another site
-                    // gets nothing rather than a ride.
-                    if navigationAction.navigationType == .linkActivated {
-                        UIApplication.shared.open(url)
-                    }
+                    // Anything that leaves the gateway goes to the system browser:
+                    // this WebView carries a device certificate, and it is not for
+                    // other sites.
+                    UIApplication.shared.open(url)
                     decisionHandler(.cancel)
                 }
-            case "http":
-                if navigationAction.navigationType == .linkActivated {
-                    UIApplication.shared.open(url)
-                }
-                decisionHandler(.cancel)
             case "blob":
+                if webView === popup { decisionHandler(.allow); return }
                 // A blob only lives in the page: the page reads it and hands the
                 // bytes over, and the navigation is cancelled.
                 decisionHandler(.cancel)
                 fetchBlob(url)
             case "data":
+                if webView === popup { decisionHandler(.allow); return }
                 decisionHandler(.cancel)
                 saveDataURL(url)
-            case "mailto", "tel":
-                if navigationAction.navigationType == .linkActivated {
-                    UIApplication.shared.open(url)
-                }
-                decisionHandler(.cancel)
+            case "about":
+                decisionHandler(url.absoluteString == "about:blank" ? .allow : .cancel)
             default:
-                // Everything else — custom schemes, unknown protocols — is not a
-                // link worth leaving this WebView for, whatever the page says.
+                // tel:, mailto:, and whatever else the page links to: the system's.
+                UIApplication.shared.open(url)
                 decisionHandler(.cancel)
             }
         }
@@ -367,24 +409,25 @@ struct GatewayWebView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.phase = .loading
             handle.canGoBack = webView.canGoBack
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.canGoBack = webView.canGoBack
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard webView === self.webView else { return }
             handle.canGoBack = webView.canGoBack
             handle.phase = .loaded
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            // Cancelling is not failing: a navigation superseded by another, or a
-            // download taken over, ends with NSURLErrorCancelled and must not show
-            // a page that says it did not load.
-            guard (error as NSError).code != NSURLErrorCancelled else { return }
+            if webView === popup { closePopup(); return }
+            guard webView === self.webView else { return }
             handle.phase = .failed
         }
 
@@ -393,11 +436,15 @@ struct GatewayWebView: UIViewRepresentable {
             didFailProvisionalNavigation navigation: WKNavigation!,
             withError error: Error
         ) {
-            guard (error as NSError).code != NSURLErrorCancelled else { return }
+            if webView === popup { closePopup(); return }
+            guard webView === self.webView else { return }
             handle.phase = .failed
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            if webView === popup { closePopup(); return }
+            guard webView === self.webView else { return }
+            closePopup()
             // The process that died is not this one: ask for the view to be
             // rebuilt rather than leaving a blank page behind.
             onProcessTerminated()
@@ -405,19 +452,36 @@ struct GatewayWebView: UIViewRepresentable {
 
         // MARK: - What the page may ask the device for
 
-        /// window.open / target=_blank: the page arrives here, in the page that
-        /// asked; there is no second window to keep track of.
+        /// A child WebView keeps window.opener and returns to its parent when closed.
         func webView(
             _ webView: WKWebView,
             createWebViewWith configuration: WKWebViewConfiguration,
             for navigationAction: WKNavigationAction,
             windowFeatures: WKWindowFeatures
         ) -> WKWebView? {
-            if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
-                webView.load(URLRequest(url: url))
-            }
-            return nil
+            guard popup == nil, let parent = self.webView else { return nil }
+            let child = WKWebView(frame:parent.bounds,configuration:configuration)
+            child.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+            child.navigationDelegate = self
+            child.uiDelegate = self
+            child.customUserAgent = parent.customUserAgent
+            child.overrideUserInterfaceStyle = parent.overrideUserInterfaceStyle
+            child.isOpaque = true
+            child.backgroundColor = .white
+            child.scrollView.backgroundColor = .white
+            parent.addSubview(child)
+            popup = child
+            popupLoading = Self.loadingSurface(in: child)
+            let close = UIButton(type:.close)
+            close.translatesAutoresizingMaskIntoConstraints = false
+            close.addAction(UIAction { [weak self] _ in self?.closePopup() },for:.touchUpInside)
+            parent.addSubview(close)
+            NSLayoutConstraint.activate([close.topAnchor.constraint(equalTo:parent.safeAreaLayoutGuide.topAnchor,constant:8),close.trailingAnchor.constraint(equalTo:parent.safeAreaLayoutGuide.trailingAnchor,constant:-12)])
+            popupClose = close
+            return child
         }
+
+        func webViewDidClose(_ webView: WKWebView) { if webView === popup { closePopup() } }
 
         /// The page asks for the camera or the microphone. The gateway's own
         /// pages may have them, and the platform's own question is asked before
@@ -429,7 +493,8 @@ struct GatewayWebView: UIViewRepresentable {
             type: WKMediaCaptureType,
             decisionHandler: @escaping (WKPermissionDecision) -> Void
         ) {
-            guard target.handler.isGatewayHost(origin.host) else {
+            guard origin.protocol == "https", target.handler.isGatewayHost(origin.host),
+                  webView === self.webView || webView === popup else {
                 decisionHandler(.deny)
                 return
             }
@@ -445,13 +510,12 @@ struct GatewayWebView: UIViewRepresentable {
                 group.enter()
                 AVCaptureDevice.requestAccess(for: media) { _ in group.leave() }
             }
-            group.notify(queue: .main) {
-                // The platform's own question was asked and answered; the page is
-                // told the truth about what it was answered. A page that was told
-                // "yes" while the phone said "no" would show a camera that does
-                // not work and a prompt that was already spent.
-                let granted = needed.allSatisfy { AVCaptureDevice.authorizationStatus(for: $0) == .authorized }
-                decisionHandler(granted ? .grant : .deny)
+            let page = webView.url
+            group.notify(queue: .main) { [weak self, weak webView] in
+                guard let self, let webView, webView.url == page,
+                      webView === self.webView || webView === self.popup,
+                      needed.allSatisfy({ AVCaptureDevice.authorizationStatus(for:$0) == .authorized }) else { decisionHandler(.deny); return }
+                decisionHandler(.grant)
             }
         }
 
@@ -479,15 +543,6 @@ struct GatewayWebView: UIViewRepresentable {
             suggestedFilename: String,
             completionHandler: @escaping (URL?) -> Void
         ) {
-            // A download the server announces as larger than the cap is refused
-            // up front rather than written out and discarded.
-            let expected = response.expectedContentLength
-            if expected > 0, expected > Coordinator.maxDownloadBytes {
-                savedDownloads.removeValue(forKey: ObjectIdentifier(download))
-                onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
-                completionHandler(nil)
-                return
-            }
             let destination = Coordinator.downloadsDirectory()
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
                 .appendingPathComponent(sanitised(suggestedFilename))
@@ -554,11 +609,6 @@ struct GatewayWebView: UIViewRepresentable {
                 blobSinks[token] = sink
             case "append":
                 if let chunk = blobMessage["data"] as? String, let bytes = Data(base64Encoded: chunk) {
-                    if sink.data.count + bytes.count > Coordinator.maxBlobBytes {
-                        blobSinks.removeValue(forKey: token)
-                        onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
-                        return
-                    }
                     sink.data.append(bytes)
                     blobSinks[token] = sink
                 }
@@ -609,10 +659,6 @@ struct GatewayWebView: UIViewRepresentable {
                 onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
                 return
             }
-            guard bytes.count <= Coordinator.maxBlobBytes else {
-                onNotice(l10n(MessageKeys.WEB_DOWNLOAD_FAILED))
-                return
-            }
             var sink = BlobSink(mime: mime.isEmpty ? "application/octet-stream" : mime, data: Data())
             sink.data = bytes
             finish(blob: sink)
@@ -657,12 +703,6 @@ struct GatewayWebView: UIViewRepresentable {
                 .replacingOccurrences(of: "\n", with: "\\n")
             return "\"\(escaped)\""
         }
-
-        // MARK: - UIScrollViewDelegate (prevent pinch zooming)
-
-        func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-            nil
-        }
     }
 }
 
@@ -673,14 +713,13 @@ struct GatewayWebView: UIViewRepresentable {
 /// type may not appear in it.)
 final class ScriptMessageRelay: NSObject, WKScriptMessageHandler {
 
-    private let onMessage: ([String: Any]) -> Void
+    private let onMessage: (WKScriptMessage) -> Void
 
-    init(onMessage: @escaping ([String: Any]) -> Void) {
+    init(onMessage: @escaping (WKScriptMessage) -> Void) {
         self.onMessage = onMessage
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any] else { return }
-        onMessage(body)
+        onMessage(message)
     }
 }

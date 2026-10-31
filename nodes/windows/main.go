@@ -116,28 +116,27 @@ func (windowsPlatform) PrepareLifetime() (func(), error) {
 
 func (windowsPlatform) RunCommand(ctx context.Context, name string, arguments ...string) error {
 	command := exec.CommandContext(ctx, name, arguments...)
-	command.Stdin = nil
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
-	return command.Run()
+	// Nil streams use the null device, so inherited handles cannot keep Wait
+	// blocked after the helper exits and before its descendants are reaped.
+	job, err := startInJob(command)
+	if err != nil {
+		return err
+	}
+	defer syscall.CloseHandle(job)
+	return command.Wait()
 }
 
-func (windowsPlatform) Launch(app nodecore.AppDefinition, output io.Writer) (nodecore.ManagedProcess, error) {
-	command := exec.Command(app.Command, app.Arguments...)
-	command.Dir = app.WorkDir
-	command.Stdin = nil
-	command.Stdout = output
-	command.Stderr = output
-	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow | createSuspended}
-	if err := command.Start(); err != nil {
-		return nil, err
-	}
+// startInJob assigns the suspended process before any command code can spawn
+// descendants. Closing the returned job reaps the complete command tree.
+func startInJob(command *exec.Cmd) (syscall.Handle, error) {
 	job, err := createKillOnCloseJob()
 	if err != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return nil, err
+		return 0, err
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow | createSuspended}
+	if err := command.Start(); err != nil {
+		_ = syscall.CloseHandle(job)
+		return 0, err
 	}
 	processHandle, err := syscall.OpenProcess(processSetQuota|processSuspendResume|syscall.PROCESS_TERMINATE, false, uint32(command.Process.Pid))
 	if err == nil {
@@ -156,6 +155,19 @@ func (windowsPlatform) Launch(app nodecore.AppDefinition, output io.Writer) (nod
 		_ = syscall.CloseHandle(job)
 		_ = command.Process.Kill()
 		_ = command.Wait()
+		return 0, err
+	}
+	return job, nil
+}
+
+func (windowsPlatform) Launch(app nodecore.AppDefinition, output io.Writer) (nodecore.ManagedProcess, error) {
+	command := exec.Command(app.Command, app.Arguments...)
+	command.Dir = app.WorkDir
+	command.Stdin = nil
+	command.Stdout = output
+	command.Stderr = output
+	job, err := startInJob(command)
+	if err != nil {
 		return nil, err
 	}
 	process := &windowsProcess{command: command, done: make(chan struct{}), started: time.Now(), job: job}

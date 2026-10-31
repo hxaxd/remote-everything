@@ -5,7 +5,7 @@
 // An unexpected host never receives the certificate.
 
 import { belongsToGateway } from './ProtocolClient';
-import { DEFAULT_TLS_PORT, hostOf, portOf } from './Origins';
+import { DEFAULT_TLS_PORT, hostOf, hostnameOf, portOf } from './Origins';
 
 export const PORT_UNKNOWN = 0;
 export const PORT_OMITTED = -1;
@@ -16,10 +16,11 @@ export class ClientAuthPolicy {
    * answered with, or a host inside its domain.
    */
   static isKnownApplicationHost(gatewayOrigin: string, sessionUrl: string, host: string): boolean {
-    if (host === hostOf(gatewayOrigin) || host === hostOf(sessionUrl)) {
+    const candidate: string = host.toLowerCase().replace('[','').replace(']','');
+    if (candidate === hostnameOf(gatewayOrigin).toLowerCase() || candidate === hostnameOf(sessionUrl).toLowerCase()) {
       return true;
     }
-    return belongsToGateway(gatewayOrigin, `https://${host}`);
+    return belongsToGateway(gatewayOrigin, `https://${host.toLowerCase()}`);
   }
 
   /**

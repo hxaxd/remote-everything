@@ -30,6 +30,7 @@
         android:theme="@style/Theme.RemoteEverything">
         <activity
             android:name=".MainActivity"
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true">
             <intent-filter>

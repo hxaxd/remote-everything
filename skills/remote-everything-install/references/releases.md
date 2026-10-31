@@ -31,15 +31,19 @@ FRP 固定为 `v0.70.0`，Caddy 固定为 `v2.11.4`。均从官方发布下载�
 
 ## 本地构建与发布
 
+Go 版本以 `go.mod` 为准；CI 和本地发布脚本都选择该版本构建及验证，避免使用其它已安装但未修补的工具链。
+
 Release 可以走 `.github/workflows/release.yml`；CI 不可用或需要本地出包时，Windows 维护机使用 `scripts/release-local.ps1` 完成验证、跨平台 Go 构建、Android 签名、校验清单和 GitHub Release 发布。
 
 ### 签名材料
 
 脚本默认读取 `Documents/key/android-release-v2.jks` 和 `Documents/key/android-release-v2.password.clixml`。密码文件由 Windows DPAPI 保护。两份文件不得提交；丢失签名密钥或密码后已安装客户端无法升级。
 
+公开的签名证书 SHA-256 固定在 `clients/android/release-signer.sha256`；本地脚本与 Release CI 共用这一来源，校验密钥与最终 APK 的签名身份。
+
 ### 前置工具
 
-需要 `staticcheck` v0.7.0、`govulncheck` v1.6.0 和 `gitleaks` v8.30.1。前两项通过 Go 安装；Gitleaks 从官方 Release 下载校验，脚本也会识别 `.runtime/bin/gitleaks-8.30.1/gitleaks.exe`。
+需要 `staticcheck` v0.8.1、`govulncheck` v1.8.0 和 `gitleaks` v8.30.1。前两项通过 Go 安装；Gitleaks 从官方 Release 下载校验，脚本也会识别 `.runtime/bin/gitleaks-8.30.1/gitleaks.exe`。
 
 ### 使用
 

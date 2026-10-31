@@ -1,9 +1,9 @@
-// Package tunnelbootstrap is the material the tunnel in front of a public gateway
-// runs on: the token the tunnel server authenticates clients with, the authority it
+// Package tunnelbootstrap is the material a gateway's tunnel runs on:
+// the token the tunnel server authenticates clients with, the authority it
 // issues client identities from, and the identity each node's tunnel agent presents.
 //
-// It belongs to the public shape, which is the only shape that has a tunnel: a node
-// never reads any of it, the gateway keeps the server half on its own machine, and
+// Both gateway shapes can have a tunnel. A node never reads any of it:
+// the gateway keeps the server half on its own machine, and
 // only each node's own material travels in the handover bundle that machine is
 // given.
 package tunnelbootstrap
@@ -35,6 +35,11 @@ const (
 	TunnelCAKeyName      = "tunnel-ca.key.pem"
 	TunnelClientCertName = "tunnel-client.crt.pem"
 	TunnelClientKeyName  = "tunnel-client.key.pem"
+	TunnelServerCertName = "tunnel-server.crt.pem"
+	TunnelServerKeyName  = "tunnel-server.key.pem"
+	// TunnelServerName is authenticated by the installation's own CA. It is a
+	// TLS identity, not a DNS lookup; agents may dial a literal IP address.
+	TunnelServerName = "remote-everything-frps"
 	// TunnelMaterialDir is the directory inside the handover bundle that holds
 	// what the tunnel agent on the node machine reads.
 	TunnelMaterialDir = "frpc"
@@ -60,8 +65,8 @@ var hex64 = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // GatewayMaterial is the tunnel material a gateway owns on its own machine: the
 // token the tunnel server authenticates clients with and the tunnel CA it issues
-// client identities from. None of it is delivered to a node; the tunnel CA private
-// key never leaves the gateway.
+// client identities from. Only its public CA certificate and shared token travel
+// to the tunnel agent; the tunnel CA private key never leaves the gateway.
 type GatewayMaterial struct {
 	InstallationID string
 	FRPSToken      string
@@ -82,6 +87,7 @@ type TunnelMaterial struct {
 	CertificateFile string
 	KeyFile         string
 	Fingerprint     string
+	CACertFile      string
 }
 
 func parseCertificate(contents []byte) (*x509.Certificate, error) {
@@ -262,7 +268,15 @@ func tunnelMaterialPaths(directory string) TunnelMaterial {
 		TokenFile:       filepath.Join(directory, FRPSTokenName),
 		CertificateFile: filepath.Join(directory, TunnelClientCertName),
 		KeyFile:         filepath.Join(directory, TunnelClientKeyName),
+		CACertFile:      filepath.Join(directory, TunnelCACertName),
 	}
+}
+
+func writeAgentTrust(delivered TunnelMaterial, material GatewayMaterial) error {
+	if err := atomicfile.Write(delivered.TokenFile, []byte(material.FRPSToken+"\n"), 0o600); err != nil {
+		return err
+	}
+	return atomicfile.Write(delivered.CACertFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: material.CACertificate.Raw}), 0o644)
 }
 
 // validTunnelClient reports whether a certificate is a current client identity
@@ -289,7 +303,7 @@ func EnsureTunnelMaterial(bootstrapDir string, material GatewayMaterial) (Tunnel
 		return TunnelMaterial{}, err
 	}
 	delivered := tunnelMaterialPaths(directory)
-	if err := atomicfile.Write(delivered.TokenFile, []byte(material.FRPSToken+"\n"), 0o600); err != nil {
+	if err := writeAgentTrust(delivered, material); err != nil {
 		return TunnelMaterial{}, err
 	}
 	certPEM, certErr := os.ReadFile(delivered.CertificateFile)
@@ -328,7 +342,7 @@ func RenewTunnelMaterial(bootstrapDir string, material GatewayMaterial) (TunnelM
 		return TunnelMaterial{}, err
 	}
 	delivered := tunnelMaterialPaths(directory)
-	if err := atomicfile.Write(delivered.TokenFile, []byte(material.FRPSToken+"\n"), 0o600); err != nil {
+	if err := writeAgentTrust(delivered, material); err != nil {
 		return TunnelMaterial{}, err
 	}
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

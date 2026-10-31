@@ -12,6 +12,8 @@ final class NodesController: ObservableObject {
 
     private var failedProbes: [String: [LinkAttempt]] = [:]
     private var lastAnswerAt: [String: Date] = [:]
+    private var refreshQueued = false
+    private var identityEpoch: [String: Int] = [:]
 
     private let store: ClientStore
     private let vault: IdentityVault
@@ -44,7 +46,7 @@ final class NodesController: ObservableObject {
         var kept: [Identity] = []
         var lost: [String] = []
         for identity in liveIdentities {
-            if vault.hasCredential(origin: identity.origin) {
+            if vault.hasCredential(aliasRef: identity.credentialRef) {
                 kept.append(identity)
             } else {
                 lost.append(identity.origin)
@@ -62,23 +64,18 @@ final class NodesController: ObservableObject {
 
     /// Asks every gateway what it serves, in parallel, and rebuilds the merged list.
     func refreshNodes() async {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else { refreshQueued = true; return }
         isRefreshing = true
-        defer { isRefreshing = false }
-
-        // Re-read identities from store so newly added or modified identities are picked up.
-        let liveIdentities = store.loadIdentities()
-        var currentIdentities: [Identity] = []
-        for identity in liveIdentities {
-            if vault.hasCredential(origin: identity.origin) {
-                currentIdentities.append(identity)
+        defer {
+            isRefreshing = false
+            if refreshQueued {
+                refreshQueued = false
+                Task { await self.refreshNodes() }
             }
         }
-        if !currentIdentities.isEmpty || identities.isEmpty {
-            identities = currentIdentities
-        }
+        let snapshot = identities
+        let epochs = identityEpoch
 
-        let started = Date()
         var prepared: [(identity: Identity, client: GatewayClient)] = []
         for identity in identities {
             if let client = clients.deviceClient(for: identity, vault: vault) {
@@ -101,8 +98,11 @@ final class NodesController: ObservableObject {
                 return collected
             }
 
-            for result in results {
+            for result in results.sorted(by: { left, right in
+                snapshot.firstIndex(of: left.identity)! < snapshot.firstIndex(of: right.identity)!
+            }) {
                 let origin = result.identity.origin
+                guard identities.contains(result.identity), identityEpoch[origin] == epochs[origin] else { continue }
                 switch result.outcome {
                 case .answered(let response, let latency):
                     identityConditions[origin] = .ok
@@ -133,16 +133,6 @@ final class NodesController: ObservableObject {
 
         nodes = NodeMerge.merge(answers)
         refreshPendingRows()
-
-        // A refresh that finishes before the eye can read it is a refresh nobody
-        // saw: hold the working line just long enough for the tap or the pull to
-        // be the thing it is, even when every gateway answered from its cache.
-        // The hold lives here, while `isRefreshing` is still true, so the line
-        // it drives actually shows.
-        let elapsed = Date().timeIntervalSince(started)
-        if elapsed < 0.4 {
-            try? await Task.sleep(nanoseconds: UInt64((0.4 - elapsed) * 1_000_000_000))
-        }
     }
 
     func status(of node: Node) -> NodeStatus {
@@ -176,14 +166,8 @@ final class NodesController: ObservableObject {
     }
 
     func orderedPaths(for node: Node) -> [Path] {
-        // The chosen path goes first, then the other roads that answered — the
-        // same "roads" a catalog or an open is fetched down (Android: roads =
-        // chosen + paths whose reachable == true). A path that did not answer is
-        // not a road worth trying twice in one minute.
         let chosen = pathSelector.preferred(node: node, networkKey: network.key)
-        let rest = node.paths.filter { path in
-            path.origin != chosen?.origin && path.reachable == true
-        }
+        let rest = node.paths.filter { $0.reachable == true && $0.origin != chosen?.origin }
         return (chosen.map { [$0] } ?? []) + rest
     }
 
@@ -212,8 +196,11 @@ final class NodesController: ObservableObject {
     }
 
     func record(_ identity: Identity) {
-        var updated = identities.filter { $0.origin != identity.origin }
-        updated.append(identity)
+        identityEpoch[identity.origin, default: 0] += 1
+        var updated = identities
+        if let index = updated.firstIndex(where: { $0.origin == identity.origin }) {
+            updated[index] = identity
+        } else { updated.append(identity) }
         identities = updated
         store.saveIdentities(updated)
     }
@@ -229,8 +216,9 @@ final class NodesController: ObservableObject {
     }
 
     func forget(origin: String) {
+        identityEpoch[origin, default: 0] += 1
         clients.drop(origin: origin)
-        vault.forget(origin: origin)
+        if let identity = identities.first(where: { $0.origin == origin }) { vault.forget(aliasRef: identity.credentialRef) }
         pathSelector.reset()
         store.clearCachedNodes(origin: origin)
         identities = identities.filter { $0.origin != origin }

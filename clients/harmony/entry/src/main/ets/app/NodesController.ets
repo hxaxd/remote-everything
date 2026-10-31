@@ -1,6 +1,6 @@
 // Node list management, origin probing, merging and caching.
 
-import { GatewayPath, Identity, Node, NodeStatus } from '../core/model/Models';
+import { GatewayPath, Identity, Node, NodeStatus, sameIdentity } from '../core/model/Models';
 import { NodeRow } from './State';
 import { SettingsStore } from '../core/store/SettingsStore';
 import { NodeCacheStore } from '../core/store/NodeCacheStore';
@@ -10,6 +10,7 @@ import { PathSelector } from '../core/pathselect/PathSelector';
 import { NetworkEnvironment } from '../core/pathselect/NetworkEnvironment';
 import { OriginProbe, mergeNodes } from '../core/api/Merge';
 import { Cadence } from '../core/model/Cadence';
+import { NodeSummary } from '../core/api/Dto';
 import { LINK_ATTEMPTS_KEPT, LinkAttempt, LinkFailure, LinkTrouble, classifyFailure } from '../core/diag/LinkReport';
 
 /** How long a refresh stays visible at minimum, so its spinner is one a person saw. */
@@ -28,6 +29,7 @@ export class NodesController {
   @Trace nodes: NodeRow[] = [];
   @Trace refreshing: boolean = false;
   private refreshQueued: boolean = false;
+  private readonly epochs: Map<string, number> = new Map<string, number>();
 
   /**
    * Per gateway, why it is not answering now. A gateway that answers has no entry
@@ -84,11 +86,13 @@ export class NodesController {
     this.selector.setEnvironment(this.environment.key());
     try {
       const known: Identity[] = this.identitiesSnapshot();
+      const epochs: Map<string, number> = new Map<string, number>();
+      for (const identity of known) { epochs.set(identity.origin, this.epochs.get(identity.origin) ?? 0); }
       for (const identity of known) {
         try {
           await this.client.connect(identity.origin, identity.serverPin);
         } catch (error) {
-          this.client.release(identity.origin);
+          if (this.stillKnown(identity, epochs.get(identity.origin) ?? 0)) { this.client.release(identity.origin); }
         }
       }
       const previous: Node[] = this.nodes.map((row: NodeRow) => row.node);
@@ -100,17 +104,21 @@ export class NodesController {
           }
         }
       }
-      const origins: string[] = known.map((identity: Identity) => identity.origin);
-      const probes: OriginProbe[] = await Promise.all(origins.map((o: string) => this.probeOne(o)));
-      const merged: Node[] = mergeNodes(probes, known, previous).map((n: Node) => this.selector.route(n));
+      const probes: OriginProbe[] = await Promise.all(known.map((identity: Identity) =>
+        this.probeOne(identity, epochs.get(identity.origin) ?? 0)));
+      const current: Identity[] = known.filter((identity: Identity) => this.stillKnown(identity, epochs.get(identity.origin) ?? 0));
+      const validProbes: OriginProbe[] = probes.filter((probe: OriginProbe) => current.some((identity: Identity) => identity.origin === probe.origin));
+      const merged: Node[] = mergeNodes(validProbes, current, previous).map((n: Node) => this.selector.route(n));
       this.selector.remember(merged);
       this.nodes = merged.map((node: Node) => new NodeRow(node, this.statusOf(node)));
-      for (const probe of probes) {
+      for (const probe of validProbes) {
         if (!probe.reachable) {
           continue;
         }
         const mine: Node[] = merged.filter((node: Node) => node.paths.some((path: GatewayPath) =>
-          path.origin === probe.origin && path.reachable === true));
+          path.origin === probe.origin && path.reachable === true)).map((node: Node) =>
+          new Node(node.id, probe.nodes.find((summary: NodeSummary) => summary.id === node.id)?.name ?? node.name,
+            node.paths.filter((path: GatewayPath) => path.origin === probe.origin)));
         this.cache.write(probe.origin, mine, Date.now());
       }
     } finally {
@@ -128,14 +136,19 @@ export class NodesController {
     }
   }
 
-  private async probeOne(origin: string): Promise<OriginProbe> {
+  private stillKnown(identity: Identity, epoch: number): boolean {
+    return (this.epochs.get(identity.origin) ?? 0) === epoch && this.identitiesSnapshot().some((current: Identity) => sameIdentity(identity, current));
+  }
+
+  private async probeOne(identity: Identity, epoch: number): Promise<OriginProbe> {
+    const origin: string = identity.origin;
     const started: number = Date.now();
     try {
       const answer = await this.client.nodes(origin, Cadence.probeTimeoutMs);
-      this.answered(origin);
+      if (this.stillKnown(identity, epoch)) { this.answered(origin); }
       return OriginProbe.answer(origin, Date.now() - started, answer);
     } catch (error) {
-      this.failed(origin, classifyFailure(error as Error, this.environment.offline()));
+      if (this.stillKnown(identity, epoch)) { this.failed(origin, classifyFailure(error as Error, this.environment.offline())); }
       return OriginProbe.unreachable(origin, error);
     }
   }
@@ -195,6 +208,7 @@ export class NodesController {
 
   /** Forgetting a connection forgets what was remembered about its link. */
   drop(origin: string): void {
+    this.epochs.set(origin, (this.epochs.get(origin) ?? 0) + 1);
     this.lastAnswerAt.delete(origin);
     this.failedProbes.delete(origin);
     this.clearTrouble(origin);
@@ -233,6 +247,17 @@ export class NodesController {
     return this.selector;
   }
 
+  markPath(nodeId: string, origin: string, reachable: boolean): void {
+    this.selector.forget(nodeId);
+    this.nodes = this.nodes.map((row: NodeRow) => {
+      if (row.node.id !== nodeId) { return row; }
+      const paths: GatewayPath[] = row.node.paths.map((path: GatewayPath) => path.origin === origin
+        ? new GatewayPath(path.origin, path.identityRef, reachable, path.latencyMs, path.isPrivate, Date.now(), path.link) : path);
+      const node: Node = this.selector.route(new Node(row.node.id, row.node.name, paths));
+      return new NodeRow(node, this.statusOf(node));
+    });
+  }
+
   nodeRow(nodeId: string): NodeRow | null {
     for (const row of this.nodes) {
       if (row.node.id === nodeId) {
@@ -253,16 +278,17 @@ export class NodesController {
   }
 
   async forget(origin: string): Promise<void> {
+    this.drop(origin);
+    const remaining: Identity[] = this.identitiesSnapshot().filter((identity: Identity) => identity.origin !== origin);
+    this.store.writeIdentities(remaining);
+    this.reloadIdentities();
     await this.vault.forget(origin);
     this.cache.remove(origin);
     this.client.release(origin);
     this.drop(origin);
-    this.nodes = this.nodes.filter((row: NodeRow) =>
-      !row.node.paths.some((path: GatewayPath) => path.origin === origin));
-    const remaining: Identity[] = this.identitiesSnapshot().filter((identity: Identity) =>
-      identity.origin !== origin);
-    this.store.writeIdentities(remaining);
-    this.reloadIdentities();
-    await this.refreshNodes();
+    this.nodes = this.nodes.map((row: NodeRow) => new NodeRow(
+      new Node(row.node.id, row.node.name, row.node.paths.filter((path: GatewayPath) => path.origin !== origin)), row.status))
+      .filter((row: NodeRow) => row.node.paths.length > 0);
+    await this.refreshNodes(true);
   }
 }

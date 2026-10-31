@@ -1,14 +1,46 @@
 # 部署模板
 
-`assets/` 中的模板使用 `{{NAME}}` 占位符。把组件初始化输出和目标系统观测值作为只含该模板精确字段的 JSON，通过标准输入调用 `scripts/render.py KIND --input - --output TARGET`；需要保存可复现输入时再把 `-` 换成文件路径。Windows 另传 `--launcher-output TARGET.vbs`。渲染器按 systemd 参数、XML、Windows 命令行、VBScript、TOML 或 Caddy token 的上下文编码，拒绝未知字段、错误类型、相对路径和控制字符。不得直接字符串替换模板。
+`assets/` 使用 `{{NAME}}` 占位符。将初始化输出与目标系统观测值作为精确字段的 JSON，调用 `scripts/render.py KIND --input - --output TARGET`；需保存输入时将 `-` 换成文件路径。Windows 另传 `--launcher-output TARGET.vbs`。渲染器负责对应格式的转义，并拒绝未知字段、错误类型、相对路径和控制字符。
 
-- `systemd-user.service.tmpl`：Linux 节点侧 `node/lan/frpc`；安装到部署用户的 `~/.config/systemd/user/`，用 `systemctl --user daemon-reload` 和 `systemctl --user enable --now` 管理，不启用 lingering，仅在该用户登录期间可用。服务 ID 里那个 64 位十六进制值按组件给：节点自己的服务（`node`）用它自己的 `node_id`，隧道（`frpc`）用它所属网关的 `installation_id`（一条隧道一个网关），入口（`lan`）用入口自己的 `installation_id`。
-- `systemd.service.tmpl`：Linux 服务器侧 `gateway/frps`；安装到 `/etc/systemd/system/`，服务 ID 包含 `installation_id`，进程树由 `KillMode=control-group` 回收。
-- `caddy-systemd.service.tmpl`：无既有 443 入口时的 Linux Caddy；以非 root 部署账户运行，只授予绑定 443 的 capability，并把证书数据与自动配置放入 `.runtime`。
-- `launchd.plist.tmpl`：macOS 节点侧；安装到部署用户的 `~/Library/LaunchAgents/`，label 里那个 64 位十六进制值与上面同规则（`node` 用 `node_id`，`frpc` 用它所属网关的 `installation_id`，`lan` 用入口自己的），仅在该用户登录期间可用。
-- `scheduled-task.xml.tmpl` / `hidden-launcher.vbs.tmpl`：Windows 节点侧；渲染器用确定的 Windows 命令行规则生成每组件隐藏启动器，计划任务由用户登录触发并只经 wscript 调用该启动器。任务名的 ID 与上同规则。
-- `frpc.toml.tmpl` / `frps.toml.tmpl`：固定 FRP v0.70.0、wire protocol v2、WSS `/~!frp`、32 条预建工作连接及相同服务端池上限、由 443 入口验证的独立隧道客户端证书、系统信任的公网服务端证书、文件 token 和明文 loopback FRPS 上游；**每台节点的隧道端口只发布在 loopback 上**（`proxyBindAddr` 显式写死，不靠 frp 版本默认值——那是网关拨这台节点控制面的地址，默认值变一次就等于把它摆到公网上）。TLS 只在 frpc 到 443 入口这一段终止一次：出机器的只有到云端 443 的那一段，网关拨 frps、frps 拨节点的隧道端口都在本机 loopback 上。**一台节点一份 frpc 配置**：节点映射目标取自节点状态——`node_host` 是节点监听的主机（同机时是 `127.0.0.1`，节点在别处时是它自己的地址），`node_port` 是它的端口，两者由 Agent 从该节点的 `listen_address` 读出；`node_tunnel_port` 取该节点 `node add` 输出里 `node_address` 的端口（也是这个网关拨它的地址）；`node_id` 既是代理名（`node-<node_id>`，frps 用它区分多台节点的隧道，同一 frps 下重名会冲突），也是这份材料的目录名。
-- `Caddyfile.tmpl`：固定 Caddy v2.11.4；配对、设备和隧道按路径与证书 issuer 分类，覆盖设备指纹头，所有上游取自 `server.json`。`<域名>` 支持自有域名（如 `example.com`）与中划线格式的 IP 泛解析域名（首选 `47-97-117-46.nip.io`，备选 `47-97-117-46.sslip.io`；`*.sslip.io` 存在被按 SNI 重置的链路，选型前先实测），模板天然同构支持，无需任何特殊定制。**三个 site block**：网关自己的 443 主机（移动端 mTLS 协议端点，未带证书流量直接 401 或留给既有网站）、`https://*.*.<域名>`（每个应用一个主机，形如 `<应用>.<节点前缀>.<域名>`，on_demand 证书与 mTLS 鉴权）、以及专供普通 Web 浏览器免客户端证书直达的 Web 客户端高端口 block（默认为 `8443`，直接复用公网 CA 证书，反代至 status 上游，直通网关内嵌 SPA 页面与 Web 会话代理，完全不抢占 443 根路径）。应用主机没有可用的通配证书（Caddy 的 `*` 只代表一个 label，多 label 的通配证书签发机构也不发），因此全部走 `tls { on_demand }` 按需签发，签发前由全局块的 `on_demand_tls { ask http://<status 上游>/__remote_everything_tls_ask }` 问网关这台主机是否确实是它在服务的（节点离线、应用不在目录里一律 403）；应用站点沿用同一个 device 匹配器、同一份 client_auth 与同一个 status 上游，未出示设备证书的请求在入口就被 `respond 401` 挡住。
-- `scripts/cloud/frps-healthcheck/`：public 云端 frps 兜底探活，仅 Linux 服务器侧安装。`frps-healthcheck.sh` 与 `remote-everything-frps-healthcheck.service` 同样是 `{{NAME}}` 占位符模板，但不走 `render.py`；由该目录 `install.sh --installation-id <ID> --frps-listen <init 输出的 frps_listen> --tunnel-listen <每台节点的 node_address，一台一次>` 渲染四处占位符（脚本实际路径、installation_id、frps 自己的地址、全部节点隧道地址）并安装启用 timer。**它看的就是它要重启的东西**：重启的是 frps，所以判据落在 frps 上——frps 自己的端口连不上，或所有隧道一起断（它们共用这一个 frps，一起断就是它的问题）才重启；只有部分隧道断说明是那几台节点自己不在线，只记一行日志。因此每台节点的 `node_address` 都要给出来，只给一台就等于把那台关机当成 frps 楔死。systemd 不展开 ExecStart 可执行名中的环境变量，因此路径只能在安装期渲染，不得改成 `$VAR` 形式。
+## 服务管理器
 
-渲染后运行对应检查：`systemd-analyze verify`、`plutil -lint`、计划任务 XML 注册后查询，以及 `scripts/validate_deployment.py` 对 FRP/Caddy 的契约和原生解析检查。无现有入口时用 `render.py caddy-systemd` 生成 Caddy 系统服务；把模板、渲染文件、管理器 ID 和检查结果写入运行记录。
+| 模板 | 适用组件与安装位置 |
+| --- | --- |
+| `systemd-user` | Linux 节点、本地 LAN 入口和 FRPC；部署用户的 `~/.config/systemd/user/`，用 `systemctl --user` 管理，不启用 lingering |
+| `systemd` | Linux 服务器上的 gateway/FRPS；远端 LAN 隧道的 LAN/FRPS 也用系统服务；进程树以 `KillMode=control-group` 回收 |
+| `caddy-systemd` | 没有既有入口时的项目 Caddy；非 root 账户，仅授予绑定低端口的 capability，数据在运行目录内 |
+| `launchd` | macOS 节点、LAN 和 FRPC；用户的 `~/Library/LaunchAgents/` |
+| `scheduled-task` 与隐藏 VBS 启动器 | Windows 节点、LAN 和 FRPC；用户登录触发，由 wscript 隐藏启动 |
+
+用户会话服务仅在部署用户登录期间可用。管理器名称中的身份：node 用 `node_id`，FRPC 用所属网关 `installation_id`，入口用自身 `installation_id`；同一记录内多组件用独立组件 ID，规则见 [runtime.md](runtime.md)。
+
+Windows 启动器拉起的进程会脱离计划任务实例；停止任务后，仍须按 runtime 的可执行路径、完整参数、PID 和启动时间匹配残留进程，再结束该组件的进程树。停止其中一条隧道不能按 `frpc.exe` 名字全机清理。
+
+## FRP 配置
+
+版本固定值见 [releases.md](releases.md)。两种传输均使用 wire v2、客户端 `poolCount=32` 与服务端 `maxPoolCount=32`；多设备、轮询和长连接共用池，过小会引起丢连接和重连。FRPS 的 `proxyBindAddr` 必须为 loopback，避免把节点控制面发布到公网。
+
+| 渲染模式 | 传输及配置 |
+| --- | --- |
+| `frps` | public 的明文 loopback FRPS；输入 `frps_port/frps_token_file/frps_log` |
+| `frpc` | public 的 WSS `/~!frp`、443、系统服务端信任与隧道客户端证书；输入见下表 |
+| `frps-lan` / `frpc-lan` | 直连双向 TLS；完整字段与服务端证书维护见 [lan-tunnel.md](lan-tunnel.md) |
+
+public FRPC 输入字段：
+
+| 字段 | 取值 |
+| --- | --- |
+| `public_host` | 网关 origin 的域名 |
+| `node_id` | 该节点的稳定 ID，代理名为 `node-<node_id>` |
+| `node_host` / `node_port` | 该节点自身 `listen_address` 的主机与端口 |
+| `node_tunnel_port` | 网关 `node add` 输出 `node_address` 的端口，或 `node list` 对应项 `address` 的端口 |
+| `tunnel_client_cert` / `tunnel_client_key` / `frps_token_file` | 节点机器上交付材料的最终绝对路径 |
+| `frpc_log` | 该隧道的日志绝对路径 |
+
+材料交付见 [server-cli.md](server-cli.md#节点交付与隧道材料)，运行归属与跨网关隔离见 [runtime.md](runtime.md)。public 的 TLS 在 Caddy 终止，Caddy→FRPS 和网关→回环隧道端口留在网关机器内。
+
+## HTTPS 与健康检查
+
+`render.py caddy` 使用 `Caddyfile.tmpl`；路由、浏览器端口、证书签发、复用入口与验收统一见 [reverse-proxy.md](reverse-proxy.md)。public FRPS 检查由 [健康检查安装器](frps-healthcheck.md) 管理，不走本渲染器。
+
+渲染后运行对应验证：`systemd-analyze verify`、`plutil -lint`、计划任务注册后查询，以及 `scripts/validate_deployment.py` 的契约和二进制原生解析。将模板输入、产物、管理器 ID 和检查结果写入运行记录。

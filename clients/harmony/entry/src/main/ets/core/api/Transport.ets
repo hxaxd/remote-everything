@@ -271,9 +271,9 @@ export class Transport {
       return '';
     }
     try {
-      return new util.TextDecoder().decodeToString(new Uint8Array(body));
+      return new util.TextDecoder('utf-8', { fatal: true }).decodeToString(new Uint8Array(body));
     } catch (error) {
-      return '';
+      throw ClientError.client('invalid response encoding');
     }
   }
 
@@ -302,6 +302,7 @@ export class Transport {
 
   /** A transport failure is typed like everything else: no caller reads a message. */
   private translate(error: Object): ClientError {
+    if (error instanceof ClientError) { return error; }
     const business: BusinessError = error as BusinessError;
     const code: number | undefined = business.code;
     if (code === CANCELED || code === SESSION_CLOSED) {

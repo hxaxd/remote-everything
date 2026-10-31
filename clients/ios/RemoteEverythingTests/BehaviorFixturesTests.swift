@@ -1,4 +1,5 @@
 import XCTest
+import Security
 @testable import RemoteEverything
 
 /// The behaviour all three clients share, asserted against the fixtures in
@@ -153,6 +154,57 @@ final class BehaviorFixturesTests: XCTestCase {
     }
 
     // MARK: - paths.json
+    private struct TLSFixture: Decodable {
+        struct Pin: Decodable { let fingerprint:String; let publicKeyPin:String }
+        struct Entry: Decodable { let certificate:String; let host:String; let trusted:Bool; let mismatch:Bool? }
+        let certificates:[String:String]; let pin:Pin; let cases:[Entry]
+    }
+
+    func testSharedTLSRequiresHostValidityAndPin() throws {
+        let fixture = try fixture(TLSFixture.self,"tls.json")
+        for entry in fixture.cases {
+            let bytes = try XCTUnwrap(Data(base64Encoded:try XCTUnwrap(fixture.certificates[entry.certificate])))
+            let certificate = try XCTUnwrap(SecCertificateCreateWithData(nil,bytes as CFData))
+            var trust: SecTrust?
+            XCTAssertEqual(SecTrustCreateWithCertificates(certificate,SecPolicyCreateSSL(true,entry.host as CFString),&trust),errSecSuccess)
+            let pin = ServerPin(certFingerprint:entry.mismatch == true ? String(repeating:"0",count:64) : fixture.pin.fingerprint,
+                publicKeyPin:entry.mismatch == true ? String(repeating:"A",count:43)+"=" : fixture.pin.publicKeyPin)
+            XCTAssertEqual(PinnedTrust.evaluate(try XCTUnwrap(trust),pin:pin),entry.trusted,entry.host)
+        }
+    }
+    private struct HostsFixture: Decodable {
+        struct Entry: Decodable { let host: String; let `private`: Bool }
+        let privateHosts: [Entry]
+    }
+
+    private struct RouteUpdates: Decodable {
+        struct Chain: Decodable {
+            struct Step: Decodable {
+                struct Road: Decodable { let origin:String; let reachable:Bool; let latencyMs:Int; let isPrivate:Bool; let link:String }
+                let paths:[Road]; let chosen:String; let link:String
+            }
+            let name:String; let steps:[Step]
+        }
+        let updates:[Chain]
+    }
+
+    func testDeclarationFallbackAndRestorationFollowTheSharedActionChain() throws {
+        for chain in try fixture(RouteUpdates.self,"paths.json").updates {
+            let cache = PathSelector.Cache()
+            for step in chain.steps {
+                let paths = step.paths.map { Path(origin:$0.origin,reachable:$0.reachable,latencyMs:$0.latencyMs,isPrivate:$0.isPrivate,lastCheckedAt:nil,link:LinkKind(rawValue:$0.link)) }
+                let chosen = cache.resolve(node:Node(id:"node",name:chain.name,paths:paths),networkKey:"wifi")
+                XCTAssertEqual(chosen?.origin,step.chosen,chain.name)
+                XCTAssertEqual(chosen?.link.rawValue,step.link,chain.name)
+            }
+        }
+    }
+
+    func testPrivateIPv4IPv6AndMappedAddressesAgree() throws {
+        for entry in try fixture(HostsFixture.self,"paths.json").privateHosts {
+            XCTAssertEqual(entry.private,Merge.isPrivateHost(entry.host),entry.host)
+        }
+    }
 
     private struct PathsFixture: Decodable {
         struct Case: Decodable {
@@ -201,7 +253,7 @@ final class BehaviorFixturesTests: XCTestCase {
         let controlPollCeilingMs: Int
         let controlPollTimeoutMs: Int
         let approvalPollMs: Int
-        let approvalPollTimeoutMs: Int
+        let approvalFeedbackMinMs: Int
         let probeTimeoutMs: Int
         let requestTimeoutMs: Int
     }
@@ -218,7 +270,7 @@ final class BehaviorFixturesTests: XCTestCase {
         XCTAssertEqual(fixture.controlPollCeilingMs, Cadence.controlPollCeilingMs, "controlPollCeilingMs")
         XCTAssertEqual(fixture.controlPollTimeoutMs, Cadence.controlPollTimeoutMs, "controlPollTimeoutMs")
         XCTAssertEqual(fixture.approvalPollMs, Cadence.approvalPollMs, "approvalPollMs")
-        XCTAssertEqual(fixture.approvalPollTimeoutMs, Cadence.approvalPollTimeoutMs, "approvalPollTimeoutMs")
+        XCTAssertEqual(fixture.approvalFeedbackMinMs, Cadence.approvalFeedbackMinMs, "approvalFeedbackMinMs")
         XCTAssertEqual(fixture.probeTimeoutMs, Cadence.probeTimeoutMs, "probeTimeoutMs")
         XCTAssertEqual(fixture.requestTimeoutMs, Cadence.requestTimeoutMs, "requestTimeoutMs")
     }
@@ -311,17 +363,18 @@ final class BehaviorFixturesTests: XCTestCase {
     }
 
     private struct XCStringsCatalog: Decodable {
-        struct Entry: Decodable {
-            struct StringUnit: Decodable {
+        /// One language's answer to one key: `{ "stringUnit": { state, value } }`.
+        struct Localization: Decodable {
+            struct Unit: Decodable {
                 let state: String
                 let value: String
             }
-            struct Language: Decodable {
-                let stringUnit: StringUnit
-            }
+            let stringUnit: Unit
+        }
+        struct Entry: Decodable {
             struct Localizations: Decodable {
-                let en: Language?
-                let zhHans: Language?
+                let en: Localization?
+                let zhHans: Localization?
                 enum CodingKeys: String, CodingKey {
                     case en
                     case zhHans = "zh-Hans"

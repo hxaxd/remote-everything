@@ -4,6 +4,7 @@ import { WebCookieRecords } from '../../../../main/ets/core/store/WebCookieRecor
 import { WebSessions } from '../../../../main/ets/app/web/WebSessions';
 import { WebSessionScope } from '../../../../main/ets/core/store/WebSessionScope';
 import { AtomicFile } from '../../../../main/ets/core/store/AtomicFile';
+import { WebPermissions } from '../../../../main/ets/app/web/WebPermissions';
 
 function cookie(): webview.WebHttpCookie {
   return {
@@ -15,6 +16,13 @@ function cookie(): webview.WebHttpCookie {
 
 export default function webSessionsTests() {
   describe('WebSessions', () => {
+    it('web_capture_resources_map_to_system_permissions', 0, () => {
+      const permissions = WebPermissions.required([ProtectedResourceType.VIDEO_CAPTURE, ProtectedResourceType.AUDIO_CAPTURE]);
+      expect(permissions?.join(',')).assertEqual('ohos.permission.CAMERA,ohos.permission.MICROPHONE');
+      expect(WebPermissions.required([])).assertNull();
+      expect(WebPermissions.required([ProtectedResourceType.VIDEO_CAPTURE, ProtectedResourceType.SENSOR])).assertNull();
+      expect(WebPermissions.required(['ohos.permission.CAMERA'])).assertNull();
+    });
     it('restores_only_the_current_host_with_security_attributes', 0, () => {
       const value: webview.WebHttpCookie = cookie();
       const header: string = WebCookieRecords.header(value, Date.now()) as string;

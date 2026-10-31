@@ -72,6 +72,7 @@ export struct Header {
         .fontSize(TypeScale.headline)
         .fontColor([palette(this.dark).textSecondary])
         .padding({ left: Metrics.gapS, right: Metrics.gapS })
+        .constraintSize({ minWidth: 44, minHeight: 44 })
         .onClick(() => {
           onTap();
         })
@@ -83,16 +84,23 @@ export struct Header {
       this.Action(this.actionIcon0, (): void => {
         this.onAction0();
       })
-      Text(this.title)
-        .fontSize(TypeScale.title)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(palette(this.dark).textPrimary)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (this.pathLabel !== '') {
-        StateBadge({ label: this.pathLabel, color: this.pathColor, dark: this.dark })
+      Column({ space: 2 }) {
+        Text(this.title)
+          .fontSize(TypeScale.title)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(palette(this.dark).textPrimary)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.pathLabel !== '') {
+          Text(this.pathLabel)
+            .fontSize(TypeScale.caption)
+            .fontColor(this.pathColor)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
       }
-      Blank()
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
       this.Action(this.actionIcon3, (): void => {
         this.onAction3();
       })
@@ -104,9 +112,9 @@ export struct Header {
       })
     }
     .width('100%')
-    .height(Metrics.rowSettings)
+    .constraintSize({ minHeight: Metrics.rowSettings })
     .alignItems(VerticalAlign.Center)
-    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin })
+    .padding({ left: Metrics.pageMargin, right: Metrics.pageMargin, top: 8, bottom: 8 })
   }
 }
 

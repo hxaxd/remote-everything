@@ -7,7 +7,7 @@
   "controlPollCeilingMs": 5000,
   "controlPollTimeoutMs": 60000,
   "approvalPollMs": 5000,
-  "approvalPollTimeoutMs": 600000,
+  "approvalFeedbackMinMs": 1500,
   "probeTimeoutMs": 2000,
   "requestTimeoutMs": 10000
 }

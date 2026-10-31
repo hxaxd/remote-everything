@@ -6,8 +6,21 @@ node_root=$1
 suite=$2
 temp_root=$(mktemp -d)
 control_pid=
+fixture_group_file="$temp_root/fixture.group"
 cleanup() {
   if [[ -n "$control_pid" ]]; then kill -KILL "$control_pid" 2>/dev/null || true; fi
+  if [[ -s "${stop_child_pid_file:-}" ]]; then
+    stop_child_pid=$(cat "$stop_child_pid_file")
+    if [[ "$stop_child_pid" =~ ^[0-9]+$ ]] && [[ "$stop_child_pid" -gt 1 ]] && port_open "$stop_child_port"; then
+      kill -KILL "$stop_child_pid" 2>/dev/null || true
+    fi
+  fi
+  if [[ -s "$fixture_group_file" ]]; then
+    fixture_group=$(cat "$fixture_group_file")
+    if [[ "$fixture_group" =~ ^[0-9]+$ ]] && [[ "$fixture_group" -gt 1 ]]; then
+      kill -KILL -- "-$fixture_group" 2>/dev/null || true
+    fi
+  fi
   rm -rf -- "$temp_root"
 }
 trap cleanup EXIT
@@ -63,18 +76,27 @@ command -v python3 >/dev/null || fail 'python3 is required'
 command -v curl >/dev/null || fail 'curl is required'
 
 app_port=$(free_port)
+child_port=$(free_port)
+stop_child_port=$(free_port)
+stop_child_pid_file="$temp_root/stop-child.pid"
 state_root="$temp_root/state"
 repo_root=$(CDPATH= cd -- "$harness_dir/../../../.." && pwd)
 token=$(printf '01%.0s' {1..32})
 installation_id=$(printf '02%.0s' {1..32})
-command -v go >/dev/null || fail 'Go compiler is required (genbundle is built alongside the control binary)'
 if [[ -n "${CONTROL_BINARY:-}" ]]; then
   cp "$CONTROL_BINARY" "$temp_root/control"
   chmod +x "$temp_root/control"
 else
+  command -v go >/dev/null || fail 'Go compiler or CONTROL_BINARY is required'
   (cd "$node_root" && go build -o "$temp_root/control" .)
 fi
-(cd "$repo_root" && go build -o "$temp_root/genbundle" ./internal/node/nodecore/testharness/genbundle)
+if [[ -n "${GENBUNDLE_BINARY:-}" ]]; then
+  cp "$GENBUNDLE_BINARY" "$temp_root/genbundle"
+  chmod +x "$temp_root/genbundle"
+else
+  command -v go >/dev/null || fail 'Go compiler or GENBUNDLE_BINARY is required'
+  (cd "$repo_root" && go build -o "$temp_root/genbundle" ./internal/node/nodecore/testharness/genbundle)
+fi
 init_json=$("$temp_root/control" init --state "$state_root")
 printf '%s' "$init_json" | assert_json 'value["ok"] and len(value["node_id"]) == 64' 'init creates node state'
 "$temp_root/control" init --state "$state_root" | assert_json 'value["ok"]' 'init is idempotent'
@@ -105,14 +127,16 @@ control '{"action":"destroy","id":"x"}' | assert_json 'value["code"] == "command
 curl -sS "http://127.0.0.1:$control_port/" | grep -q '尚未选择远程应用' || fail 'proxy has no implicit application'
 
 definition="$temp_root/fixture.json"
-python3 - "$definition" "$harness_dir/fixture_server.py" "$app_port" <<'PY'
+python3 - "$definition" "$harness_dir/fixture_server.py" "$app_port" "$child_port" "$fixture_group_file" "$stop_child_port" "$stop_child_pid_file" <<'PY'
 import json
 import sys
 value = {
     "id": "fixture", "name": "Fixture", "description": "", "icon": "F", "accent": "#2563eb",
     "proxy_url": f"http://127.0.0.1:{sys.argv[3]}",
-    "command": sys.executable, "arguments": [sys.argv[2], sys.argv[3]], "stop_command": "",
-    "stop_arguments": [], "workdir": ""
+    "command": sys.executable,
+    "arguments": [sys.argv[2], sys.argv[3], "--with-child", sys.argv[4], sys.argv[5]],
+    "stop_command": sys.executable,
+    "stop_arguments": [sys.argv[2], "--stop-child", sys.argv[6], sys.argv[7]], "workdir": ""
 }
 open(sys.argv[1], "w", encoding="utf-8").write(json.dumps(value))
 PY
@@ -130,12 +154,16 @@ status=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Cookie: RemoteEverythingApp
 
 control '{"action":"start","id":"fixture"}' | assert_json 'value["ok"] and value["enabled"]' 'start enables application'
 wait_port "$app_port" open fixture-start
+wait_port "$child_port" open fixture-child-start
 control '{"action":"status","id":"fixture"}' | assert_json 'value["running"] and value["code"] == "ready"' 'status becomes ready'
 curl -sS -H 'Cookie: RemoteEverythingApp=fixture; KeepMe=yes' \
   "http://127.0.0.1:$control_port/deep?q=1" | assert_json 'value["path"] == "/deep?q=1" and value["cookie"] == "KeepMe=yes"' 'proxy semantics are stable'
 control '{"action":"status","id":"missing"}' | assert_json 'not value["ok"] and value["code"] == "app_not_found"' 'unknown application error is stable'
 control '{"action":"stop","id":"fixture"}' | assert_json 'value["ok"] and not value["enabled"]' 'stop disables application'
 wait_port "$app_port" closed fixture-stop
+wait_port "$child_port" closed fixture-child-stop
+[[ -s "$stop_child_pid_file" ]] || fail 'stop helper did not create a listening descendant'
+wait_port "$stop_child_port" closed stop-helper-descendant
 
 tree_port=$(free_port)
 tree_pid_file="$temp_root/tree.pid"
@@ -162,12 +190,14 @@ wait_port "$tree_port" closed tree-stop
 
 control '{"action":"start","id":"fixture"}' >/dev/null
 wait_port "$app_port" open fixture-restart
+wait_port "$child_port" open fixture-child-restart
 kill -KILL "$control_pid"
 wait "$control_pid" 2>/dev/null || true
 control_pid=
 wait_port "$app_port" closed parent-exit
+wait_port "$child_port" closed descendant-parent-exit
 
 "$temp_root/control" app remove --state "$state_root" fixture | assert_json 'value["ok"] and value["changed"]' 'app remove deletes application'
 "$temp_root/control" app remove --state "$state_root" fixture | assert_json 'value["ok"] and not value["changed"]' 'app remove is idempotent'
 
-printf '{"ok":true,"suite":"%s-node","semantics":21}\n' "$suite"
+printf '{"ok":true,"suite":"%s-node","semantics":24}\n' "$suite"

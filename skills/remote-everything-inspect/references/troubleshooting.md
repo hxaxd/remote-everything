@@ -1,50 +1,37 @@
-# 排障与恢复
+# 连接排障与隧道恢复
 
-次序是固定的：**先服务端证据，再客户端连通，最后才怀疑代码**。「连不上」「节点离线」在屏幕上只有一副面孔，而只有服务端日志能证明请求到没到。
+先确认入口访问日志和时间范围，再结合客户端请求定位；“没有日志”只有在对应入口确实记录这类请求时才是证据。
 
-## 1. 先分类
+## 按观测分类
 
-| 现象 | 证据 | 结论 |
-|------|------|------|
-| 设备自己出不了网 | 同一台设备上换几个无关域名（github.com、厂商域名等）全部解析超时，裸 IP 能 ping 但 https 建不起来 | 与该部署无关，先修设备的网络/VPN |
-| 请求没到入口 | 入口访问日志里**没有**这台设备的记录 | 手机到网关这一跳的问题（见 §3） |
-| 请求到了入口，节点却不可达 | `/__remote_everything/nodes` 正常 200，而 `/__remote_everything/apps` 一条都没有 | 隧道断了（§2），或客户端根本没发（§4） |
+| 观测 | 下一步 |
+| --- | --- |
+| 同设备访问多个无关站点也失败 | 检查设备网络、VPN 和 DNS |
+| 目标请求未到入口 | 检查设备→入口的 DNS、TCP/TLS、代理及外部入站规则 |
+| `/nodes` 正常，但没有 `/apps` 请求 | 检查客户端所选节点/路由及是否发起目录请求 |
+| 目录返回 `computer_connected:false` | 从网关检查节点地址、控制令牌和对应 FRPC/隧道 |
+| 请求返回 401/403 | 核对证书、设备状态、节点授权；应用页面 403 另检查自身 Host/Origin 白名单 |
 
-一台已激活设备会按 cadence 轮询目录，入口会为每次请求记下客户端证书的 `client_common_name`。**有记录 = 手机到网关这一跳是通的**，问题在网关之后；**没记录 = 这一跳就没到**。这条把三分法里的后两类一刀分开，比任何猜测都快。
+## 隧道断开
 
-## 2. 公网形态：隧道断了（节点离线）的恢复
+按 `node list` 的 `address` 检查回环隧道端口，再看节点 FRPC 与网关 FRPS 日志。`i/o deadline reached`、`replaced by client`、`proxy already exists`、工作池告警是定位线索，不能仅凭其中一条判定某进程故障。工作池配置见 [templates.md](../../remote-everything-install/references/templates.md#frp-配置)，自动恢复判据见 [健康检查](../../remote-everything-install/references/frps-healthcheck.md)。
 
-症状：设备侧显示节点离线；服务器上该节点的隧道端口（`node list` 里 `node_address` 的端口）连不上；节点机器的隧道代理日志反复 `i/o deadline reached`、`replaced by client`，常伴随 `work connection pool is full, discarding`。
+确认需要重启恢复后，按 update Skill 执行：
 
-恢复顺序（**顺序错了会变成两个代理抢同一个发布**）：
+1. 停目标 FRPC 启动器，按 runtime 身份清理该组件残留，确认匹配进程为 0；Windows 停任务不等于代理已经退出。
+2. 重启该网关 FRPS，再启动该条 FRPC。
+3. 确认该组件匹配进程恰好一个，并验证实际节点目录和应用；其它网关代理应保留。
 
-1. 停隧道代理的启动器（Windows 上是计划任务），再确认代理进程**真的没了**：这类启动器常是 `wscript` + `Shell.Run` 拉起，停任务只结束 launcher，被拉起的进程会脱离计划任务继续跑。必须显式结束残留进程并确认数量为 0。
-2. 重启服务器侧的 FRPS。
-3. 启动隧道代理。
-4. 验证：服务器日志出现 `new proxy … success` 且**没有** `already exists`；节点机器上代理进程只有一个。
+Windows 可用 `scripts/recover-frp-tunnel.ps1 -InstallationId <ID> -RuntimePath <runtime.json> -ComponentId <组件ID> -ServerAlias <SSH别名> -TunnelProbe <回环节点探活URL>`；此脚本会执行停止和重启，不属于只读巡检。
 
-两个补充：
+## TCP 通但 TLS 失败
 
-- 服务器侧一般装了 FRPS 健康检查定时器（按名单周期探每条隧道，坏了自行重启 FRPS）。它修的是服务器端，上面的顺序修的是节点端，两者互补。
-- 工作连接池固定 32（`frpc.transport.poolCount` / `frps.transport.maxPoolCount`），调小会在多设备 + 长连接下打满并引起抖动；入口不对上游做 `max_conns`，见 [reverse-proxy.md](../remote-everything-install/references/reverse-proxy.md)。
+对照 DNS 解析、同一 IP 上携带不同服务端名字的 TLS 握手，以及入口日志；TCP 建连不能证明域名的 TLS 通路正常。客户端启用 Fake-IP/TUN 或出站代理时，检查实际解析/分流规则，临时直连目标服务并重建连接复测；绕过代理不能修复上游按 SNI 的拦截。
 
-## 3. 「TCP 通、TLS 被重置」这类链路拦截
+外部端口是否可达必须从外网测试：本机 curl 成功不代表主机防火墙和云安全组允许入站。域名选择与更换流程见 [networking.md](../../remote-everything-install/references/networking.md)。
 
-有些链路上按域名（SNI）拦截：TCP 能建连、DNS 正常解析、ICMP 可达，但 ClientHello 一带上某个域名就被 RST。它在设备上的表现与 DNS/代理故障**完全同形**。
+## 应用与凭据
 
-区分方法：服务器访问日志里没有任何对应请求；同一个 IP 直连正常、换一个域名的名字就正常。**不要用服务器本机 curl 做结论**——同机走回环，可能绕过链路上的拦截。换域名后必须从外网 vantage 验证真能握手（手机蜂窝与外网各测一次更稳）。**同一条原则适用于任何新增的入站端口**（例如公网入口免证书 Web 客户端的高端口 8443）：Caddy 在听、服务器上 `curl 127.0.0.1:<端口>` 回 200，都只说明机器这一侧没问题；入站放行在云安全组里，机器上看不到，必须从外面测一次。域名选型与换域名的完整动作见 [networking.md](../remote-everything-install/references/networking.md)。
-
-## 4. 请求到了网关，节点却没被访问
-
-- 隧道断了：见 §2。
-- **客户端自己没发**：目录拉取只在选中路径可达时才发请求。若入口日志里 `/nodes` 每分钟 200、而 `/apps` 是**零请求**，那是客户端的选路/状态问题，不是部署问题——把入口日志的时间戳与客户端行为对齐即可判定，不必改服务端。
-- 授权问题：设备已被 `revoke`、或它不持有那台节点，表现为 401 而不是超时；先看设备记录里它持有的 `nodes`。
-
-## 5. 两处最常见的自伤
-
-- **换 origin 之后没删旧 Profile**：客户端仍按旧 `identityHost` 决定要不要出示证书 → 401，或浏览器层的 `ERR_HTTP_RESPONSE_CODE_FAILURE`。删掉那条连接重新配对即可（完整动作见 networking.md 的「换域名的完整动作」）。
-- **应用二进制在外部被重装/升级**：节点注册不会因此自动重启它，执行 `stop → start` 一次，否则跑的还是旧进程（见 [patterns.md](../remote-everything-app/references/patterns.md)）。
-
-## 边界
-
-本文档的恢复动作会改状态（重启服务、结束进程、重启隧道代理）。规矩不变：**inspect 只读定位，动手走对应 Skill**——隧道与组件重启按 update，设备与凭据按 device，应用按 app。
+- 改过 origin 后，核对客户端是否仍保存旧连接，并按 device Skill 重新配对。
+- 页面可开而 API/实时链路失败，检查[适配器](../../remote-everything-app/references/patterns.md#适配器adapterjs)对 Host/Origin/Referer 的处理。
+- 应用二进制被外部升级后仍是旧行为，按 [app Skill 更新流程](../../remote-everything-app/SKILL.md#更新) 停止并重新启动。

@@ -47,11 +47,13 @@ struct WebPanelView: View {
                 actionRow("xmark", l10n(MessageKeys.WEB_EXIT), action: onExit)
             }
             .padding(Theme.gapM)
-            .reGlassCard(cornerRadius: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(theme.bgElevated)
+            )
             .frame(maxWidth: Theme.contentMaxWidth)
             .padding(10)
         }
-        .reGlassContainer()
     }
 
     private func settingRow<T: Equatable>(

@@ -57,30 +57,58 @@ export class Activation {
 export class ProtocolClient {
   private readonly transport: Transport = new Transport();
   private readonly vault: IdentityVault;
+  private readonly pins: Map<string, string> = new Map<string, string>();
+  private readonly epochs: Map<string, number> = new Map<string, number>();
+  private readonly versions: Map<string, number> = new Map<string, number>();
+  private readonly credentialKeys: Map<string, string> = new Map<string, string>();
+  private generation: number = 0;
 
   constructor(vault: IdentityVault) {
     this.vault = vault;
   }
 
   /** Opens (or refreshes) the session for one gateway. Sessions are not opened twice. */
-  async connect(origin: string, serverPin: ServerPin | null): Promise<void> {
-    if (this.transport.has(origin)) {
+  async connect(origin: string, serverPin: ServerPin | null, credentialKey: string = origin): Promise<void> {
+    const pinKey: string = serverPin === null ? '' : `${serverPin.certFingerprint}|${serverPin.publicKeyPin}`;
+    const version: number = this.vault.version(credentialKey);
+    const generation: number = this.generation;
+    if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version && this.credentialKeys.get(origin) === credentialKey) {
       return;
     }
-    const material: CredentialMaterial = await this.vault.material(origin);
+    const epoch: number = this.epochs.get(origin) ?? 0;
+    const material: CredentialMaterial = await this.vault.material(credentialKey);
     try {
+      if ((this.epochs.get(origin) ?? 0) !== epoch || this.vault.version(credentialKey) !== version || this.generation !== generation) {
+        throw ClientError.transport('identity changed while opening the session');
+      }
+      // Another caller may have opened this same session while the credential was loading.
+      if (this.transport.has(origin) && this.pins.get(origin) === pinKey && this.versions.get(origin) === version && this.credentialKeys.get(origin) === credentialKey) {
+        return;
+      }
       const identity: SessionIdentity = new SessionIdentity(copyOf(material.archive), material.password, serverPin);
+      this.transport.close(origin);
       this.transport.open(origin, identity);
+      this.pins.set(origin, pinKey);
+      this.versions.set(origin,version);
+      this.credentialKeys.set(origin,credentialKey);
     } finally {
       material.wipe();
     }
   }
 
   release(origin: string): void {
+    this.epochs.set(origin, (this.epochs.get(origin) ?? 0) + 1);
+    this.pins.delete(origin);
+    this.versions.delete(origin);
+    this.credentialKeys.delete(origin);
     this.transport.close(origin);
   }
 
   releaseAll(): void {
+    this.generation += 1;
+    this.pins.clear();
+    this.versions.clear();
+    this.credentialKeys.clear();
     this.transport.closeAll();
   }
 
@@ -104,8 +132,9 @@ export class ProtocolClient {
     const reply: ApiReply = await this.transport.send(origin,
       new ApiRequest('POST', ACTIVATE_PATH, nodeId, null, Cadence.requestTimeoutMs));
     if (reply.status === 202) {
-      // A 202 is the gateway holding the door half open: waiting, whatever the
-      // body says — the same reading every client gives it.
+      if (failureCode(reply.body) !== ErrorCode.ApprovalPending) {
+        throw ClientError.client('invalid pending activation answer');
+      }
       return Activation.waiting();
     }
     const catalog: CatalogAnswer =
@@ -138,8 +167,8 @@ export class ProtocolClient {
     return this.answer(reply, 'the catalog answer', (text: string) => decodeCatalog(text));
   }
 
-  async status(origin: string, nodeId: string, appId: string): Promise<ControlAnswer> {
-    return this.control(origin, nodeId, appId, 'status');
+  async status(origin: string, nodeId: string, appId: string, timeoutMs: number = Cadence.requestTimeoutMs): Promise<ControlAnswer> {
+    return this.control(origin, nodeId, appId, 'status', timeoutMs);
   }
 
   async start(origin: string, nodeId: string, appId: string): Promise<ControlAnswer> {
@@ -176,9 +205,9 @@ export class ProtocolClient {
     return absolute;
   }
 
-  private async control(origin: string, nodeId: string, appId: string, action: string): Promise<ControlAnswer> {
+  private async control(origin: string, nodeId: string, appId: string, action: string, timeoutMs: number = Cadence.requestTimeoutMs): Promise<ControlAnswer> {
     const method: string = action === 'status' ? 'GET' : 'POST';
-    const timeout: number = action === 'stop' ? STOP_READ_TIMEOUT_MS : Cadence.requestTimeoutMs;
+    const timeout: number = action === 'stop' ? STOP_READ_TIMEOUT_MS : timeoutMs;
     const reply: ApiReply = await this.transport.send(origin,
       new ApiRequest(method, `/__remote_everything/apps/${appId}/${action}`, nodeId, null, timeout));
     return this.answer(reply, 'the control answer', (text: string) => decodeControl(text));
@@ -242,15 +271,16 @@ function copyOf(data: Uint8Array): ArrayBuffer {
  * application.
  */
 export function belongsToGateway(origin: string, url: string): boolean {
-  const gatewayHost: string = hostOf(origin);
-  const targetHost: string = hostOf(url);
+  if (!url.startsWith('https://') || url.substring(8).split('/')[0].includes('@')) { return false; }
+  const gatewayHost: string = hostOf(origin).toLowerCase();
+  const targetHost: string = hostOf(url).toLowerCase();
   if (gatewayHost === '' || targetHost === '') {
     return false;
   }
   if (targetHost === gatewayHost) {
     return true;
   }
-  if (gatewayHost.includes(':')) {
+  if (gatewayHost.includes(':') || /^[0-9.]+$/.test(gatewayHost)) {
     // An address, not a domain: only the host itself can belong to it.
     return false;
   }

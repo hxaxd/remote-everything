@@ -64,21 +64,31 @@ enum Merge {
         if value.hasPrefix("["), value.hasSuffix("]") {
             value = String(value.dropFirst().dropLast())
         }
+        if value == "localhost" { return true }
         if value.contains(":") {
-            // IPv6: loopback, link-local (fe80::/10) and unique-local (fc00::/7).
-            if value == "::1" { return true }
-            if value.hasPrefix("fe8") || value.hasPrefix("fe9") || value.hasPrefix("fea") || value.hasPrefix("feb") {
-                return true
+            guard let words = ipv6Words(value) else { return false }
+            if words.prefix(5).allSatisfy({ $0 == 0 }), words[5] == 65535 {
+                return privateOctets([words[6] >> 8, words[6] & 255, words[7] >> 8, words[7] & 255])
             }
-            return value.hasPrefix("fc") || value.hasPrefix("fd")
+            return words.prefix(7).allSatisfy({ $0 == 0 }) && words[7] == 1 ||
+                words[0] & 0xfe00 == 0xfc00 || words[0] & 0xffc0 == 0xfe80
         }
+        return ipv4Octets(value).map(privateOctets) ?? false
+    }
+
+    private static func ipv4Octets(_ value: String) -> [Int]? {
         let parts = value.split(separator: ".", omittingEmptySubsequences: false)
-        guard parts.count == 4 else { return false }
+        guard parts.count == 4 else { return nil }
         var octets: [Int] = []
         for part in parts {
-            guard let octet = Int(part), (0...255).contains(octet) else { return false }
+            guard !part.isEmpty, part.count <= 3, part.allSatisfy({ $0 >= "0" && $0 <= "9" }),
+                  (part.count == 1 || part.first != "0"), let octet = Int(part), (0...255).contains(octet) else { return nil }
             octets.append(octet)
         }
+        return octets
+    }
+
+    private static func privateOctets(_ octets: [Int]) -> Bool {
         switch (octets[0], octets[1]) {
         case (10, _): return true
         case (172, 16...31): return true
@@ -87,6 +97,27 @@ enum Merge {
         case (127, _): return true
         default: return false
         }
+    }
+
+    private static func ipv6Words(_ input: String) -> [Int]? {
+        var value = input
+        if value.contains(".") {
+            guard let at = value.lastIndex(of: ":"), let octets = ipv4Octets(String(value[value.index(after: at)...])) else { return nil }
+            value = String(value[...at]) + String((octets[0] << 8) + octets[1], radix:16) + ":" + String((octets[2] << 8) + octets[3],radix:16)
+        }
+        let halves = value.components(separatedBy: "::")
+        guard halves.count <= 2 else { return nil }
+        func groups(_ part: String) -> [Int]? {
+            if part.isEmpty { return [] }
+            let parts = part.split(separator:":",omittingEmptySubsequences:false)
+            guard parts.allSatisfy({ !$0.isEmpty && $0.count <= 4 && $0.allSatisfy({ ($0 >= "0" && $0 <= "9") || ($0 >= "a" && $0 <= "f") }) }) else { return nil }
+            return parts.compactMap { Int($0,radix:16) }
+        }
+        guard let left = groups(halves[0]), let right = groups(halves.count == 2 ? halves[1] : "") else { return nil }
+        let missing = 8 - left.count - right.count
+        if halves.count == 1 { return missing == 0 ? left : nil }
+        guard missing > 0 else { return nil }
+        return left + Array(repeating:0,count:missing) + right
     }
 }
 

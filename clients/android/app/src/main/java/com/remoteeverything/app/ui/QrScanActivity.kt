@@ -4,11 +4,9 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
+import android.hardware.Camera
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -16,6 +14,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ImageButton
 import androidx.activity.ComponentActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,30 +22,28 @@ import com.google.zxing.BarcodeFormat
 import com.journeyapps.barcodescanner.BarcodeCallback
 import com.journeyapps.barcodescanner.BarcodeResult
 import com.journeyapps.barcodescanner.BarcodeView
+import com.journeyapps.barcodescanner.CameraPreview
 import com.journeyapps.barcodescanner.DefaultDecoderFactory
 import com.remoteeverything.app.R
+import com.remoteeverything.app.i18n.LocaleHelper
 import com.remoteeverything.app.i18n.messageKey
 import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.setup.SetupUri
 import java.util.EnumSet
-import kotlin.math.min
 
 /**
- * Reading the invitation, on this app's own camera screen.
- *
- * Why this platform difference is not a choice (clients/README.md — the scanner is
- * one of the three sanctioned ones): iOS ships no system scanning API and HarmonyOS
- * hands its scanning to Scan Kit, while Android's only stock options are the
- * library's own capture activity — a landscape, red-lasered viewfinder that belongs
- * to another app's design, not this one's. So the preview is a [BarcodeView] this
- * screen owns, drawn over by an overlay this screen draws, standing up, in the
- * app's colours. The divergence ends at the shell: what leaves here is the same
- * invitation string the paste field accepts, parsed by the same [SetupUri].
+ * Full-window invitation scanner with close and light controls.
+ * The same [SetupUri] parser validates camera results and pasted links.
  */
+@Suppress("DEPRECATION") // ZXing owns this Camera instance and serializes its parameter changes.
 class QrScanActivity : ComponentActivity() {
 
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.wrap(newBase))
+    }
+
     private lateinit var preview: BarcodeView
-    private lateinit var overlay: ScanOverlayView
+    private lateinit var light: ImageButton
     private lateinit var hint: TextView
     private var torchOn = false
     private var handled = false
@@ -67,6 +64,7 @@ class QrScanActivity : ComponentActivity() {
         val density = resources.displayMetrics.density
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         preview = BarcodeView(this).apply {
+            setMarginFraction(0.0)
             decoderFactory = DefaultDecoderFactory(EnumSet.of(BarcodeFormat.QR_CODE))
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -74,15 +72,17 @@ class QrScanActivity : ComponentActivity() {
             )
         }
         root.addView(preview)
-        overlay = ScanOverlayView(this)
-        root.addView(
-            overlay,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
-        )
         val controls = topBar(density)
         val foot = bottomBar(density)
         root.addView(controls)
         root.addView(foot)
+        preview.addStateListener(object : CameraPreview.StateListener {
+            override fun previewSized() = Unit
+            override fun previewStarted() { readTorchState() }
+            override fun previewStopped() { light.isEnabled = false }
+            override fun cameraClosed() = Unit
+            override fun cameraError(error: Exception) { light.isEnabled = false }
+        })
         // The camera runs under the whole window — this build is edge-to-edge by
         // default (the app targets a version where the system bars are overlays) —
         // but the controls do not: a button under the status bar is a button the
@@ -103,9 +103,10 @@ class QrScanActivity : ComponentActivity() {
     /** The way out, and the one light this screen has to offer. */
     private fun topBar(density: Float): View = FrameLayout(this).apply {
         addView(
-            glyph("✕", OnCamera) { finish() },
-            FrameLayout.LayoutParams(dp(56, density), dp(56, density)).apply {
+            control(android.R.drawable.ic_menu_close_clear_cancel, getString(messageKey(MessageKeys.ACTION_BACK))) { finish() },
+            FrameLayout.LayoutParams(dp(48, density), dp(48, density)).apply {
                 gravity = Gravity.TOP or Gravity.START
+                leftMargin = dp(16, density); topMargin = dp(16, density)
             },
         )
         addView(
@@ -117,13 +118,7 @@ class QrScanActivity : ComponentActivity() {
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(18, density) },
-        )
-        addView(
-            glyph("⚡", if (torchOn) Accent else OnCamera) { toggleTorch() },
-            FrameLayout.LayoutParams(dp(56, density), dp(56, density)).apply {
-                gravity = Gravity.TOP or Gravity.END
-            },
+            ).apply { gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL; topMargin = dp(96, density) },
         )
     }
 
@@ -131,6 +126,10 @@ class QrScanActivity : ComponentActivity() {
     private fun bottomBar(density: Float): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
+        light = control(R.drawable.ic_scan_light, getString(messageKey(MessageKeys.PAIR_SCAN_LIGHT))) { toggleTorch() }
+        light.isEnabled = false
+        light.alpha = 0.4f
+        addView(light, LinearLayout.LayoutParams(dp(56, density), dp(56, density)).apply { bottomMargin = dp(16, density) })
         hint = TextView(this@QrScanActivity).apply {
             text = getString(messageKey(MessageKeys.PAIR_SCAN_BODY))
             setTextColor(OnCamera)
@@ -150,12 +149,13 @@ class QrScanActivity : ComponentActivity() {
         }
     }
 
-    private fun glyph(mark: String, color: Int, onClick: () -> Unit): TextView = TextView(this).apply {
-        text = mark
-        textSize = 20f
-        gravity = Gravity.CENTER
-        setTextColor(color)
-        isClickable = true
+    private fun control(icon: Int, label: String, onClick: () -> Unit): ImageButton = ImageButton(this).apply {
+        setImageResource(icon)
+        setColorFilter(OnCamera)
+        contentDescription = label
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#55222222")) }
+        val inset = dp(12, resources.displayMetrics.density)
+        setPadding(inset, inset, inset, inset)
         setOnClickListener { onClick() }
     }
 
@@ -169,7 +169,10 @@ class QrScanActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        if (::preview.isInitialized) preview.pause()
+        if (::preview.isInitialized) {
+            preview.setTorch(false)
+            preview.pause()
+        }
         super.onPause()
     }
 
@@ -179,8 +182,31 @@ class QrScanActivity : ComponentActivity() {
     }
 
     private fun toggleTorch() {
-        torchOn = !torchOn
-        runCatching { preview.setTorch(torchOn) }
+        if (!preview.isPreviewActive || !light.isEnabled) return
+        light.isEnabled = false
+        preview.setTorch(!torchOn)
+        readTorchState()
+    }
+
+    private fun readTorchState() {
+        // Runs after the queued torch change on ZXing's camera thread. Reflect
+        // the camera's actual mode rather than assuming a tap was accepted.
+        preview.changeCameraParameters { parameters ->
+            val modes = parameters.supportedFlashModes.orEmpty()
+            val supported = Camera.Parameters.FLASH_MODE_TORCH in modes || Camera.Parameters.FLASH_MODE_ON in modes
+            val on = parameters.flashMode == Camera.Parameters.FLASH_MODE_TORCH ||
+                parameters.flashMode == Camera.Parameters.FLASH_MODE_ON
+            light.post {
+                if (preview.isPreviewActive) {
+                    torchOn = on
+                    light.alpha = if (supported) 1f else 0.4f
+                    light.setColorFilter(if (on) Accent else OnCamera)
+                    light.isSelected = on
+                    light.isEnabled = supported
+                }
+            }
+            parameters
+        }
     }
 
     private val callback = object : BarcodeCallback {
@@ -220,58 +246,7 @@ class QrScanActivity : ComponentActivity() {
     }
 }
 
-/**
- * What sits over the camera: everything but the frame is dimmed, the frame's
- * corners are drawn, and nothing else is. The preview stays visible exactly where
- * a code has to be, which is the whole instruction.
- */
-private class ScanOverlayView(context: Context) : View(context) {
-
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val path = Path()
-    private val frame = RectF()
-    private val density = resources.displayMetrics.density
-
-    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
-        super.onSizeChanged(width, height, oldWidth, oldHeight)
-        val side = min(width, height) * 0.68f
-        val left = (width - side) / 2f
-        val top = (height - side) / 2f
-        frame.set(left, top, left + side, top + side)
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        if (frame.isEmpty) return
-        val radius = 28f * density
-        path.reset()
-        path.fillType = Path.FillType.EVEN_ODD
-        path.addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-        path.addRoundRect(frame, radius, radius, Path.Direction.CW)
-        paint.style = Paint.Style.FILL
-        paint.color = Scrim
-        canvas.drawPath(path, paint)
-
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 4f * density
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.color = Accent
-        val arm = 34f * density
-        // The brackets start past the rounded corner, so they read as the frame's
-        // corners rather than as a box drawn over one.
-        canvas.drawLine(frame.left + radius, frame.top, frame.left + radius + arm, frame.top, paint)
-        canvas.drawLine(frame.left, frame.top + radius, frame.left, frame.top + radius + arm, paint)
-        canvas.drawLine(frame.right - radius, frame.top, frame.right - radius - arm, frame.top, paint)
-        canvas.drawLine(frame.right, frame.top + radius, frame.right, frame.top + radius + arm, paint)
-        canvas.drawLine(frame.left + radius, frame.bottom, frame.left + radius + arm, frame.bottom, paint)
-        canvas.drawLine(frame.left, frame.bottom - radius, frame.left, frame.bottom - radius - arm, paint)
-        canvas.drawLine(frame.right - radius, frame.bottom, frame.right - radius - arm, frame.bottom, paint)
-        canvas.drawLine(frame.right, frame.bottom - radius, frame.right, frame.bottom - radius - arm, paint)
-    }
-}
-
 // The camera is dark on every theme, so these are the screen's own colours.
 private val Accent = Color.parseColor("#8FB4DC")
 private val OnCamera = Color.parseColor("#F2F2F2")
 private val Danger = Color.parseColor("#E0A0A0")
-private val Scrim = Color.parseColor("#99000000")

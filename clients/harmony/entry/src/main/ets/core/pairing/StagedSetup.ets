@@ -1,38 +1,10 @@
-// The staged setup: what a pairing leaves behind until it is finished.
-//
-// Pairing and activation are two round trips, and the invitation that starts them is
-// single-use — being killed in between must not mean asking the operator for another
-// one. So the moment a credential exists it is put in one place, together with
-// everything needed to finish the job, and that place is one file written with one
-// rename:
-//
-//   { origin, node, node_name, device_name, certificate_fingerprint,
-//     credential_ref, pending_expires_at, server_pin }
-//
-// The pending window is stored as the epoch milliseconds the gateway's
-// `pending_expires_at` names, resolved once at staging time — never re-read as a
-// string, and never guessed at: a window this client cannot read is a pairing it
-// refuses, not one it invents a deadline for. The credential itself is where it
-// always is — sealed under HUKS (IdentityVault) and installed in the certificate
-// manager — and `credential_ref` names it. The one-time credential password is
-// *not* here, or anywhere else: it was used to open the archive once, and what was
-// staged is the archive this device re-encoded under its own password. The
-// invitation is not here either: it was spent on the first round trip, and a
-// single-use secret has no business on disk.
-//
-// `reconcile` reads it back at startup: a stage whose credential is gone, or whose
-// pending window has passed, is discarded whole, and one that is still good is carried
-// on with. Half a transaction is never resumed.
-
 import { JsonReader } from '../json/Strict';
 import { ServerPin } from '../model/Models';
 import { CredentialPresence, IdentityVault } from '../identity/IdentityVault';
 import { AtomicFile } from '../store/AtomicFile';
 
-const SCHEMA = 1;
 const FILE = 'pairing/staged.json';
 const FINGERPRINT = new RegExp('^[a-f0-9]{64}$');
-const NODE_ID = new RegExp('^[a-f0-9]{64}$');
 
 export class StagedSetup {
   readonly origin: string;
@@ -47,124 +19,92 @@ export class StagedSetup {
   constructor(origin: string, node: string, nodeName: string, deviceName: string,
     certificateFingerprint: string, credentialRef: string, pendingExpiresAtMs: number,
     serverPin: ServerPin | null = null) {
-    this.origin = origin;
-    this.node = node;
-    this.nodeName = nodeName;
-    this.deviceName = deviceName;
-    this.certificateFingerprint = certificateFingerprint;
-    this.credentialRef = credentialRef;
-    this.pendingExpiresAtMs = pendingExpiresAtMs;
-    this.serverPin = serverPin;
+    this.origin = origin; this.node = node; this.nodeName = nodeName; this.deviceName = deviceName;
+    this.certificateFingerprint = certificateFingerprint; this.credentialRef = credentialRef;
+    this.pendingExpiresAtMs = pendingExpiresAtMs; this.serverPin = serverPin;
   }
-
-  /** Whether the window this device may still be activated in has closed. */
-  get expired(): boolean {
-    return this.pendingExpiresAtMs <= Date.now();
-  }
+  get expired(): boolean { return this.pendingExpiresAtMs <= Date.now(); }
 }
 
+/** One durable record per gateway, committed together in one atomic document. */
 export class StagedSetupStore {
   private readonly vault: IdentityVault;
+  constructor(vault: IdentityVault) { this.vault = vault; }
 
-  constructor(vault: IdentityVault) {
-    this.vault = vault;
-  }
-
-  /** Stages one pairing: one file, one rename, nothing to half-write. */
   stage(staged: StagedSetup): void {
-    AtomicFile.ensureDirectory('pairing');
-    const pinPart = staged.serverPin === null ? '' :
-      `,"server_pin":{"cert_fingerprint":${JSON.stringify(staged.serverPin.certFingerprint)},"public_key_pin":${JSON.stringify(staged.serverPin.publicKeyPin)}}`;
-    const document: string = `{"schema":${SCHEMA},` +
-      `"origin":${JSON.stringify(staged.origin)},` +
-      `"node":${JSON.stringify(staged.node)},` +
-      `"node_name":${JSON.stringify(staged.nodeName)},` +
-      `"device_name":${JSON.stringify(staged.deviceName)},` +
-      `"certificate_fingerprint":${JSON.stringify(staged.certificateFingerprint)},` +
-      `"credential_ref":${JSON.stringify(staged.credentialRef)},` +
-      `"pending_expires_at":${staged.pendingExpiresAtMs}` +
-      `${pinPart}}`;
-    AtomicFile.writeAtomic(FILE, document);
+    this.writeAll([staged]);
   }
 
-  /** What is staged, if anything that can still be carried on with is. */
-  read(): StagedSetup | null {
+  read(origin?: string): StagedSetup | null {
+    return this.readAll().find((record: StagedSetup) => origin === undefined || record.origin === origin) ?? null;
+  }
+
+  readAll(): StagedSetup[] {
     const text: string | null = AtomicFile.readText(FILE);
-    if (text === null) {
-      return null;
-    }
+    if (text === null) { return []; }
     try {
       const reader: JsonReader = JsonReader.parse(text, FILE);
-      reader.rejectUnknown(['schema', 'origin', 'node', 'node_name', 'device_name',
-        'certificate_fingerprint', 'credential_ref', 'pending_expires_at', 'server_pin']);
-      if (reader.number('schema') !== SCHEMA) {
-        return null;
+      reader.rejectUnknown(['schema', 'stages']);
+      if (reader.number('schema') !== 1) { return []; }
+      const records: StagedSetup[] = [];
+      for (const value of reader.array('stages')) {
+        const row: JsonReader = JsonReader.of(value, 'stages[]');
+        row.rejectUnknown(['origin', 'node', 'node_name', 'device_name', 'certificate_fingerprint',
+          'credential_ref', 'pending_expires_at', 'server_pin']);
+        let pin: ServerPin | null = null;
+        if (row.has('server_pin')) {
+          const p: JsonReader = row.object('server_pin');
+          p.rejectUnknown(['cert_fingerprint', 'public_key_pin']);
+          pin = new ServerPin(p.string('cert_fingerprint'), p.string('public_key_pin'));
+        }
+        const origin: string = row.string('origin');
+        if (records.some((record: StagedSetup) => record.origin === origin)) { return []; }
+        records.push(new StagedSetup(origin, row.pattern('node', FINGERPRINT), row.string('node_name'),
+          row.string('device_name'), row.pattern('certificate_fingerprint', FINGERPRINT), row.string('credential_ref'),
+          row.number('pending_expires_at'), pin));
       }
-      let serverPin: ServerPin | null = null;
-      if (reader.has('server_pin')) {
-        const pinReader = reader.object('server_pin');
-        pinReader.rejectUnknown(['public_key_pin', 'cert_fingerprint']);
-        serverPin = new ServerPin(
-          pinReader.string('cert_fingerprint'),
-          pinReader.string('public_key_pin')
-        );
+      return records;
+    } catch (error) { return []; }
+  }
+
+  clear(origin?: string): void {
+    if (origin === undefined) { AtomicFile.removeWithTemporary(FILE); return; }
+    this.writeAll(this.readAll().filter((record: StagedSetup) => record.origin !== origin));
+  }
+
+  private writeAll(records: StagedSetup[]): void {
+    if (records.length === 0) { AtomicFile.removeWithTemporary(FILE); return; }
+    AtomicFile.ensureDirectory('pairing');
+    const rows: string[] = records.map((record: StagedSetup) => {
+      const pin: string = record.serverPin === null ? '' : `,"server_pin":${JSON.stringify({
+        cert_fingerprint: record.serverPin.certFingerprint, public_key_pin: record.serverPin.publicKeyPin })}`;
+      return `{"origin":${JSON.stringify(record.origin)},"node":${JSON.stringify(record.node)},` +
+        `"node_name":${JSON.stringify(record.nodeName)},"device_name":${JSON.stringify(record.deviceName)},` +
+        `"certificate_fingerprint":${JSON.stringify(record.certificateFingerprint)},"credential_ref":${JSON.stringify(record.credentialRef)},` +
+        `"pending_expires_at":${record.pendingExpiresAtMs}${pin}}`;
+    });
+    AtomicFile.writeAtomic(FILE, `{"schema":1,"stages":[${rows.join(',')}]}`);
+  }
+
+  async discard(origin: string): Promise<boolean> {
+    const staged: StagedSetup | null = this.read(origin);
+    if (staged === null) { return false; }
+    this.clear(origin);
+    await this.vault.forget(staged.credentialRef);
+    return true;
+  }
+
+  async reconcile(): Promise<StagedSetup[]> {
+    const valid: StagedSetup[] = [];
+    for (const staged of this.readAll()) {
+      const present: CredentialPresence = await this.vault.presence(staged.credentialRef);
+      if (this.read(staged.origin)?.credentialRef !== staged.credentialRef) { continue; }
+      if (staged.expired || present !== CredentialPresence.Present) {
+        await this.discard(staged.origin);
+      } else if (this.read(staged.origin)?.credentialRef === staged.credentialRef) {
+        valid.push(staged);
       }
-      return new StagedSetup(
-        reader.string('origin'),
-        reader.pattern('node', NODE_ID),
-        reader.string('node_name'),
-        reader.string('device_name'),
-        reader.pattern('certificate_fingerprint', FINGERPRINT),
-        reader.string('credential_ref'),
-        reader.number('pending_expires_at'),
-        serverPin
-      );
-    } catch (error) {
-      // A staged file this client cannot read is one it does not act on; it is
-      // discarded with the credential it named, because a staged pairing whose
-      // details are gone is not a pairing that can be finished.
-      return null;
     }
-  }
-
-  /** Promotion: the identity is written and the stage is no longer needed. */
-  clear(): void {
-    AtomicFile.removeWithTemporary(FILE);
-  }
-
-  /**
-   * Discards a stage and the credential it named, in that order: nothing was
-   * promoted, so nothing about it may be left behind — the sealed archive, the
-   * certificate manager's entry, and the file itself go together.
-   */
-  async discard(origin: string): Promise<void> {
-    AtomicFile.removeWithTemporary(FILE);
-    await this.vault.forget(origin);
-  }
-
-  /**
-   * What to do with what is left from an interrupted pairing: keep it (an activation
-   * can still be asked for), drop it (its credential or its window is gone), or
-   * nothing at all.
-   */
-  async reconcile(): Promise<StagedSetup | null> {
-    const staged: StagedSetup | null = this.read();
-    if (staged === null) {
-      AtomicFile.removeWithTemporary(FILE);
-      return null;
-    }
-    if (staged.expired) {
-      await this.discard(staged.origin);
-      return null;
-    }
-    const presence: CredentialPresence = await this.vault.presence(staged.origin);
-    if (presence !== CredentialPresence.Present) {
-      // The invitation is spent and the credential is gone: this pairing cannot be
-      // finished, and pretending otherwise would leave a promise this device cannot
-      // keep.
-      await this.discard(staged.origin);
-      return null;
-    }
-    return staged;
+    return valid;
   }
 }

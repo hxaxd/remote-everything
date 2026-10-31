@@ -29,16 +29,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -46,7 +41,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.remoteeverything.app.AppModel
-import com.remoteeverything.app.PairingUiState
 import com.remoteeverything.app.theme.LocalSemanticColors
 import com.remoteeverything.core.model.MessageKeys
 import com.remoteeverything.core.model.Node
@@ -55,26 +49,12 @@ import com.remoteeverything.core.model.Path
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: (Node) -> Unit) {
+fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: (Node) -> Unit, selected: String?, detail: @Composable () -> Unit) {
     val state by vm.state.collectAsStateWithLifecycle()
     val semantic = LocalSemanticColors.current
     // A screen wide enough for two panes shows the list and a node's
     // applications side by side; anything narrower keeps one pane and a back arrow.
     val wide = LocalConfiguration.current.screenWidthDp >= WideScreenDp
-    var selected by rememberSaveable { mutableStateOf<String?>(null) }
-    // A wide screen's right pane shows one thing at a time: a node's applications,
-    // settings, or pairing. Those two are destinations of their own on a phone.
-    var pane by rememberSaveable { mutableStateOf<String?>(null) }
-
-    // A screen that turns narrow must not swallow the pane: what was beside the
-    // list becomes the screen the phone is on.
-    LaunchedEffect(wide) {
-        if (!wide && pane != null) {
-            if (pane == PaneSettings) onSettings() else onAdd()
-            pane = null
-        }
-    }
-
     Scaffold(
         topBar = {
             // A wide screen gives every pane its own bar, so the list keeps its
@@ -85,14 +65,8 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
             }
         },
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = state.refreshing,
-            onRefresh = { vm.refreshNodes() },
-            modifier = Modifier.fillMaxSize().padding(padding),
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                val pairing = state.pairing
-                if (pairing is PairingUiState.Pending) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                for (pending in state.pendingSetups.filter { it.pendingExpiresAtEpochMs > System.currentTimeMillis() }) {
                     // A device that paired but is not approved yet: saying so is the
                     // difference between "it did not work" and "it is waiting".
                     Row(
@@ -101,95 +75,78 @@ fun HomeScreen(vm: AppModel, onAdd: () -> Unit, onSettings: () -> Unit, onNode: 
                     ) {
                         StatusChip(l10n(MessageKeys.NODE_PENDING), semantic.warn)
                         Text(
-                            pairing.nodeName,
+                            pending.nodeName,
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.weight(1f).padding(start = 12.dp),
                         )
-                        Button(onClick = { vm.resumePendingPairing() }) { Text(l10n(MessageKeys.ACTION_RETRY)) }
+                        Button(onClick = { vm.resumePendingPairing(pending.origin) }, enabled = pending.origin !in state.checkingApprovals) { Text(l10n(MessageKeys.ACTION_RETRY)) }
+                        androidx.compose.material3.TextButton(onClick = { vm.abandonPending(pending.origin) }) { Text(l10n(MessageKeys.ACTION_CANCEL)) }
                     }
                 }
-                if (state.nodes.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            l10n(MessageKeys.EMPTY_BODY),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(Modifier.height(24.dp))
-                        Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
-                    }
-                } else if (wide) {
+                if (wide) {
                     Row(modifier = Modifier.fillMaxSize()) {
                         Column(modifier = Modifier.weight(0.42f)) {
                             HomeBar(
                                 vm = vm,
-                                onAdd = { pane = PaneAdd },
-                                onSettings = { pane = PaneSettings },
+                                onAdd = onAdd,
+                                onSettings = onSettings,
                                 embedded = true,
                             )
-                            NodeList(
-                                vm = vm,
-                                state = state,
-                                selectedId = selected,
-                                onSelect = { node ->
-                                    pane = null
-                                    selected = node.id
-                                },
+                            RefreshableNodes(
+                                vm = vm, state = state, selectedId = selected,
+                                onSelect = onNode, onAdd = onAdd,
                                 modifier = Modifier.weight(1f),
                             )
                         }
                         VerticalDivider()
                         Box(modifier = Modifier.weight(0.58f)) {
-                            when (pane) {
-                                // Settings and pairing are destinations of their own on
-                                // a phone; beside the list they are the pane, so the
-                                // list stays in view. Only an application takes the
-                                // whole screen.
-                                PaneSettings -> SettingsScreen(vm = vm, onBack = { pane = null }, embedded = true)
-                                PaneAdd -> PairScreen(vm = vm, onBack = { pane = null }, embedded = true)
-                                else -> {
-                                    val nodeId = selected
-                                    if (nodeId == null) {
-                                        CenteredMessage(
-                                            title = l10n(MessageKeys.NODES_SELECT_HINT),
-                                        )
-                                    } else {
-                                        // The pane is titled the way the phone's own
-                                        // applications screen is: a bar over the list
-                                        // beside it, both the same height.
-                                        Column(modifier = Modifier.fillMaxSize()) {
-                                            NodeBar(
-                                                vm = vm,
-                                                node = state.nodes.firstOrNull { it.id == nodeId },
-                                                embedded = true,
-                                            )
-                                            NodeContent(
-                                                vm = vm,
-                                                nodeId = nodeId,
-                                                onGone = { selected = null },
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            detail()
                         }
                     }
                 } else {
-                    NodeList(
-                        vm = vm,
-                        state = state,
-                        selectedId = null,
-                        onSelect = { node -> onNode(node) },
+                    RefreshableNodes(
+                        vm = vm, state = state, selectedId = null,
+                        onSelect = onNode, onAdd = onAdd,
+                        modifier = Modifier.weight(1f),
                     )
                 }
+        }
+    }
+}
+
+@Composable
+private fun RefreshableNodes(
+    vm: AppModel,
+    state: com.remoteeverything.app.AppUiState,
+    selectedId: String?,
+    onSelect: (Node) -> Unit,
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AppPullRefresh(
+        isRefreshing = state.refreshing, onRefresh = { vm.refreshNodes() }, modifier = modifier.fillMaxSize(),
+    ) {
+        if (state.nodes.isEmpty()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                item {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(l10n(MessageKeys.EMPTY_TITLE), style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            l10n(MessageKeys.EMPTY_BODY), style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onAdd) { Text(l10n(MessageKeys.ACTION_ADD_NODE)) }
+                    }
+                }
             }
+        } else {
+            NodeList(vm = vm, state = state, selectedId = selectedId, onSelect = onSelect)
         }
     }
 }
@@ -242,11 +199,9 @@ private fun NodeList(
     }
 }
 
-private const val WideScreenDp = 840
+internal const val WideScreenDp = 840
 
 /** What a wide screen's right pane may show instead of a node's applications. */
-private const val PaneSettings = "settings"
-private const val PaneAdd = "add"
 
 /**
  * One machine, as a row of its own: its name, and how this phone reaches it —

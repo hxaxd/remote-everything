@@ -96,10 +96,10 @@ Android 可安装当前 [Release](https://github.com/hxaxd/remote-everything/rel
 
 ## 安全模型
 
-- **LAN**：客户端在打开远程应用前使用二维码中的服务端证书 SHA-256 指纹确认网关身份，并同时检查证书有效期与目标主机；入口仅允许指定局域网或组网接口访问。
+- **LAN**：客户端用邀请载荷中的公钥摘要/证书指纹固定入口身份，并验证证书有效期与主机；访问仍需设备证书。
 - **公网**：配对邀请单次使用且限时有效。设备证书先处于 pending，用户核对完整指纹并批准后才会激活；后续请求使用 mTLS 和设备记录双重鉴权。
-- **服务端**：控制令牌只存在于 Gateway 与 Node 链路；公网只复用 443。LAN 形态里 Gateway 与 Node 之间的这段链路按**可信网络**对待：地址由操作者自己指定，不额外加密，控制令牌与应用流量都在这张网上——要跨不可信网络就用公网形态，那条路上离开机器的每一跳都是 TLS（节点到 443 入口是 WSS 加客户端证书，其余都在同一台机器的 loopback 上）。
-- **客户端**：设备凭据存入系统安全存储；每个应用由服务端在自己的 origin 上提供，Web 数据按 origin 隔离（同源策略），外部链接交给系统浏览器。
+- **服务端**：网关按节点授权，控制令牌隔离各节点；直连与加密隧道的暴露面见[网络说明](skills/remote-everything-install/references/networking.md)，公网实际端口与浏览器入口见[HTTPS 入口](skills/remote-everything-install/references/reverse-proxy.md)。
+- **客户端**：设备凭据存入系统安全存储，应用使用独立 origin；存储与 Cookie 的隔离限制见[应用信任边界](skills/remote-everything-app/SKILL.md#应用信任边界)。
 - **供应链**：发布资产提供 SHA-256；正式客户端使用固定签名或平台官方分发签名。
 
 安全漏洞请不要创建公开议题，按 [安全策略](SECURITY.md) 私密报告。

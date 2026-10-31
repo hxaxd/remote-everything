@@ -27,7 +27,7 @@ class PinnedTrustManager(private val pin: ServerPin) : X509ExtendedTrustManager(
         verify(chain, engine.peerHost)
 
     override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String, socket: Socket) =
-        verify(chain, (socket as? SSLSocket)?.inetAddress?.hostAddress)
+        verify(chain, (socket as? SSLSocket)?.handshakeSession?.peerHost)
 
     override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) =
         throw CertificateException("this trust is for a gateway, not for clients")
@@ -67,7 +67,10 @@ class PinnedTrustManager(private val pin: ServerPin) : X509ExtendedTrustManager(
  * would pass for `example.com`.
  */
 internal fun coversHost(certificate: X509Certificate, host: String): Boolean {
-    val wanted = host.trim().lowercase()
+    val wanted = host.trim().lowercase().removeSurrounding("[", "]")
+    val address = if (wanted.contains(':') || wanted.matches(Regex("[0-9]+(\\.[0-9]+){3}"))) {
+        runCatching { java.net.InetAddress.getByName(wanted).address }.getOrNull()
+    } else null
     val names: Collection<List<*>> = try {
         certificate.subjectAlternativeNames ?: emptyList()
     } catch (e: Exception) {
@@ -79,8 +82,8 @@ internal fun coversHost(certificate: X509Certificate, host: String): Boolean {
         val value = name[1]?.toString()?.trim()?.lowercase() ?: continue
         when (type) {
             // 2 is dNSName, 7 is iPAddress; other kinds say nothing about a host.
-            2 -> if (dnsNameMatches(value, wanted)) return true
-            7 -> if (value == wanted) return true
+            2 -> if (address == null && dnsNameMatches(value, wanted)) return true
+            7 -> if (address != null && runCatching { java.net.InetAddress.getByName(value).address.contentEquals(address) }.getOrDefault(false)) return true
         }
     }
     return false

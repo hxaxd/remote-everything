@@ -20,7 +20,7 @@ DSH 和 SillyTavern 属于这一类。
 - `app list` 与控制接口不输出 adapter 源码；源码存于 `apps.json` 与 `adapter.js`，用 `app adapter ID` 单独查看。
 - 适配器失败（语法错误、钩子异常）不阻断应用，只写日志。
 - `app set` 重登记后 adapter 源码变化会触发应用重启以加载新适配器。
-- 钩子提取凭据依赖「凭据在端口打开前打印」的时序，接入前先从日志确认这一点。
+- `onStart` 在端口打开后读取本次启动日志；凭据尚未打印时返回 `false`，节点会在下一轮重新读取并调用，直到钩子完成。其它返回值表示完成；异常沿用适配器失败处理。
 - **应用按请求主机名做白名单时，正解是改 adapter，而不是换个入口就重登记**：入口会把客户端请求的 `Host` 原样交给应用（比对 Origin/Host 防 DNS rebinding 的应用依赖这一点），而应用只认自己的名字——在 `onRequest` 里把 `Host` / `Origin` / `Referer` 统一说成应用自己的 origin 即可。已经用启动参数固定了名字的应用（如 DSH 的 `--trusted-host`）同样适用：让 adapter 把它看到的名字改成应用认识的那一个，启动参数就不必跟着入口变。注意 `Host` 在节点侧不是普通请求头——Go 把它挂在 request 本体上，改它必须真改 request（`internal/node/nodeadapter` 已按此处理 `SetHeader("Host", …)`）。症状指纹：页面外壳能开、一调 API 就 403，且绕开 adapter 直连应用同样 403。
 
 ## CLI Agent Web 包装器

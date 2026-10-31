@@ -7,6 +7,9 @@ on:
     paths:
       - 'internal/**'
       - 'server/**'
+      - 'skills/remote-everything-install/assets/frp*'
+      - 'skills/remote-everything-install/scripts/render.py'
+      - 'skills/remote-everything-install/scripts/validate_deployment.py'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/server.yml'
@@ -14,6 +17,9 @@ on:
     paths:
       - 'internal/**'
       - 'server/**'
+      - 'skills/remote-everything-install/assets/frp*'
+      - 'skills/remote-everything-install/scripts/render.py'
+      - 'skills/remote-everything-install/scripts/validate_deployment.py'
       - 'go.mod'
       - 'go.sum'
       - '.github/workflows/server.yml'
@@ -34,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.6"
+          go-version-file: go.mod
       - name: Build and test
         shell: bash
         run: |
@@ -45,13 +51,13 @@ jobs:
           go build ./server/lan
 
   public:
-    name: Public server (Linux)
+    name: Public server and tunnel deployments (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.6"
+          go-version-file: go.mod
       - name: Build and test
         shell: bash
         run: |
@@ -74,6 +80,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/materials"
           go build -o "$RUNNER_TEMP/materials/node" ./nodes/linux
           go build -o "$RUNNER_TEMP/materials/gateway" ./server/public
+          go build -o "$RUNNER_TEMP/materials/lan" ./server/lan
 
           # FRP v0.70.0 and Caddy v2.11.4, the versions a deployment pins, each
           # taken from its own release and checked against the digest that release
@@ -91,6 +98,10 @@ jobs:
           tar -xzf caddy_2.11.4_linux_amd64.tar.gz caddy
           cp frp_0.70.0_linux_amd64/frps frp_0.70.0_linux_amd64/frpc caddy "$RUNNER_TEMP/materials/"
           chmod +x "$RUNNER_TEMP/materials/"*
+
+      - name: Deploy the LAN tunnel shape
+        shell: bash
+        run: python3 server/lan/tests/accept.py "$RUNNER_TEMP/materials"
 
       - name: Deploy the public shape
         shell: bash

@@ -43,11 +43,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.time.TimeSource
+
+private const val MinNodeRefreshFeedbackMs = 600L
 
 sealed interface PairingUiState {
     data object Idle : PairingUiState
     data class Working(val nodeName: String) : PairingUiState
-    data class Pending(val nodeName: String) : PairingUiState
+    data class Pending(val nodeName: String, val origin: String) : PairingUiState
     data class Success(val nodeName: String) : PairingUiState
     data class Failed(val code: ErrorCode?, val key: String? = null) : PairingUiState
 }
@@ -61,7 +64,6 @@ sealed interface CatalogUiState {
 }
 
 /** What a WebView needs to open one application: the origin, and what to pin it by. */
-data class OpenTarget(val url: String, val serverPin: com.remoteeverything.core.model.ServerPin?)
 
 data class AppUiState(
     val settings: Settings = Settings(),
@@ -71,6 +73,8 @@ data class AppUiState(
     val pairing: PairingUiState = PairingUiState.Idle,
     val catalog: CatalogUiState = CatalogUiState.Loading,
     val notice: Int? = null,
+    val pendingSetups: List<com.remoteeverything.core.pairing.StagedSetup> = emptyList(),
+    val checkingApprovals: Set<String> = emptySet(),
     /** Per connection origin, why it is not answering — empty for one that answers. */
     val trouble: Map<String, LinkTrouble> = emptyMap(),
 )
@@ -101,6 +105,11 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         // A phone with nothing to send on fails every connection the same way, and
         // saying so is more use than naming the first exception that came out.
         offline = { networkEnv.offline() },
+        onPathChanged = { nodeId, origin, reachable ->
+            nodes.value = nodes.value.map { node -> if (node.id != nodeId) node else node.copy(paths = node.paths.map { path ->
+                if (path.origin == origin) path.copy(reachable = reachable,lastCheckedAt = System.currentTimeMillis()) else path
+            }) }
+        },
     )
 
     private val pairingSession = PairingSession(
@@ -114,7 +123,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
                 else com.remoteeverything.core.api.GatewayClients.device(origin, material, pin)
             },
         ),
-        onNodesChanged = { refreshNodes() },
+        onNodesChanged = { refreshNodes(force = true) },
     )
 
     private val notice = MutableStateFlow<Int?>(null)
@@ -151,6 +160,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
             trouble = trouble,
         )
     }.combine(pairingSession.pairing) { current, pairingState -> current.copy(pairing = pairingState) }
+        .combine(pairingSession.checking) { current, checking -> current.copy(checkingApprovals = checking) }
+        .combine(pairingSession.pending) { current, pending -> current.copy(pendingSetups = pending) }
         .combine(catalogController.catalog) { current, catalogState -> current.copy(catalog = catalogState) }
         .combine(notice) { current, message -> current.copy(notice = message) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppUiState())
@@ -206,6 +217,8 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
     }
 
+    private var refreshGeneration = 0L
+
     fun refreshNodes(force: Boolean = false) {
         if (refreshing.value && !force) return
         // A forced refresh preempts the refresh in flight, not the foreground
@@ -213,17 +226,33 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         // leave the phone without its tick until it next comes to the front.
         if (force) refreshInFlight?.cancel()
         refreshing.value = true
+        val generation = ++refreshGeneration
         refreshInFlight = viewModelScope.launch {
+            val feedbackStarted = TimeSource.Monotonic.markNow()
             try {
-                nodes.value = nodesController.refresh(repository.currentIdentities(), currentNetworkKey())
+                val snapshot = repository.currentIdentities()
+                val result = nodesController.refresh(snapshot, currentNetworkKey())
+                val current = repository.currentIdentities().associateBy { it.origin }
+                if (generation != refreshGeneration) return@launch
+                nodes.value = result.mapNotNull { node ->
+                    val paths = node.paths.filter { path -> snapshot.firstOrNull { it.origin == path.origin } == current[path.origin] && current.containsKey(path.origin) }
+                    if (paths.isEmpty()) null else node.copy(paths = paths)
+                }
             } finally {
-                refreshing.value = false
+                try {
+                    if (generation == refreshGeneration) {
+                        delay((MinNodeRefreshFeedbackMs - feedbackStarted.elapsedNow().inWholeMilliseconds).coerceAtLeast(0L))
+                    }
+                } finally {
+                    if (generation == refreshGeneration) refreshing.value = false
+                }
             }
         }
     }
 
     /** Started when the app comes to the front and stopped when it leaves. */
     fun startForegroundRefresh() {
+        pairingSession.foregroundChanged(true)
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
             // Fresh on arrival, then on the cadence: the person who just came back
@@ -237,6 +266,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopForegroundRefresh() {
+        pairingSession.foregroundChanged(false)
         refreshJob?.cancel()
         refreshJob = null
     }
@@ -266,6 +296,7 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     val pendingInvitation: StateFlow<String?> = mutablePendingInvitation
 
     fun stageInvitation(invitation: String) {
+        pairingSession.beginPairing()
         mutablePendingInvitation.value = invitation
     }
 
@@ -280,9 +311,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
     fun cancelPairing() = pairingSession.cancelPairing()
 
     fun resetPairing() = pairingSession.resetPairing()
+    fun beginPairing() = pairingSession.beginPairing()
 
     /** A waiting device, asked about now rather than at the next poll. */
-    fun resumePendingPairing() = pairingSession.resumePendingPairing()
+    fun resumePendingPairing(origin: String? = null) = pairingSession.resumePendingPairing(origin)
+
+    fun abandonPending(origin: String) {
+        pairingSession.forget(origin)
+    }
 
     // --- one node's applications --------------------------------------------
 
@@ -294,26 +330,14 @@ class AppModel(application: Application) : AndroidViewModel(application) {
      * through — and this node's catalog with it, now rather than at the next tick.
      */
     fun retryNode(node: Node) {
-        refreshNodes()
-        catalogController.watchNode(node, force = true)
+        refreshNodes(force = true)
+        val refresh = refreshInFlight
+        catalogController.recheckAfter { refresh?.join() }
     }
 
     fun stopWatching() = catalogController.stopWatching()
 
     fun control(node: Node, appId: String, start: Boolean) = catalogController.control(node, appId, start)
-
-    /** Where the WebView is sent: the application's own origin, with the pin that origin must satisfy. */
-    suspend fun open(node: Node, appId: String): OpenTarget? {
-        val path = nodesController.choosePath(node, currentNetworkKey()) ?: return null
-        val identity = repository.currentIdentities().firstOrNull { it.origin == path.origin } ?: return null
-        val client = nodesController.clientFor(identity) ?: return null
-        return try {
-            val url = client.open(node.id, appId)
-            OpenTarget(url = url, serverPin = identity.serverPin)
-        } catch (e: Exception) {
-            null
-        }
-    }
 
     // --- connections ---------------------------------------------------------
 
@@ -377,9 +401,9 @@ class AppModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             pool.drop(identity.origin)
             nodesController.drop(identity.origin)
-            vault.delete(identity.origin)
-            repository.saveIdentities(repository.currentIdentities().filterNot { it.origin == identity.origin })
-            refreshNodes()
+            vault.delete(identity.credentialRef)
+            repository.updateIdentities { known -> known.filterNot { it.origin == identity.origin } }
+            refreshNodes(force = true)
         }
     }
 

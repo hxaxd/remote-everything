@@ -33,18 +33,28 @@ Run the checks described in [tests/README.md](tests/README.md).
 The public entrance uses a `__Host-` prefixed, Secure, HttpOnly session cookie with
 Path=/ and no Domain. Only that name authorizes cookie-based public access. Gateway
 credentials are filtered before forwarding to applications, and applications cannot
-set either reserved gateway cookie name. LAN uses its existing cookie policy.
+set either reserved gateway cookie name.
 
 Public application `Set-Cookie` responses are parsed, confined to the current host,
 and marked Secure. Cookie names, values, paths, expiry, SameSite, HttpOnly and
 Partitioned semantics are retained; malformed cookies are discarded. The response
 policy also runs for redirects and protocol upgrades.
 
-This bounds server-issued cookies. Page scripts can still write parent-domain
-cookies in a browser with shared storage; the gateway never sees that write. The
-Cookie request header carries no Domain or host-only attribute, so the gateway
-cannot infer a cookie's original scope from an ordinary incoming cookie alone.
-The current sibling-subdomain layout is therefore not a complete isolation boundary
-for mutually untrusted applications. Full browser-enforced parent-cookie isolation
-requires independent registrable sites or an appropriate public-suffix boundary;
-client-controlled independent browser profiles provide a separate native-client option.
+Application trust requirements and the limits of these response filters are
+defined in the [application trust boundary](../../skills/remote-everything-app/SKILL.md#应用信任边界).
+
+## Application first paint
+
+The control page passes its resolved appearance when opening an application. The
+public gateway prefixes authenticated HTML documents with a theme-colored loading
+cover, removed after first contentful paint and two animation frames. It also sets
+the initial browser color scheme; the application still owns its rendered theme.
+The cover contains only a spinner and does not itself count as contentful paint.
+Native clients keep their own covers and receive unmodified application documents.
+
+Only the HTML head prefix is buffered (at most 64 KiB); APIs, upgrades, non-HTML,
+partial and compressed responses pass through. Document requests use identity
+encoding. Existing Content Security Policy remains in force: the same-origin script
+uses an existing response nonce when present, and applications that prohibit it
+retain their normal rendering. The script is served at
+`/__remote_everything_web_loading.js` within the authenticated browser session.

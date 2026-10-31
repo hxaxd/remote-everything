@@ -6,6 +6,7 @@ import android.net.http.SslError
 import android.webkit.SslErrorHandler
 import com.remoteeverything.core.model.Digest
 import com.remoteeverything.core.model.ServerPin
+import com.remoteeverything.core.api.coversHost
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 
@@ -25,7 +26,7 @@ class WebPinningClient(
         val pin = pinProvider()
         val host = error.url?.let { runCatching { Uri.parse(it).host }.getOrNull() }.orEmpty()
         val certificate = certificateOf(error)
-        if (pin != null && certificate != null && isAllowedHost(host) && matchesPin(certificate, pin)) {
+        if (pin != null && certificate != null && isAllowedHost(host) && coversHost(certificate, host) && matchesPin(certificate, pin)) {
             handler.proceed()
             onSuccess()
             return

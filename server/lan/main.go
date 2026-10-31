@@ -10,10 +10,26 @@ import (
 	"github.com/hxaxd/remote-everything/internal/gateway/entrance"
 )
 
-const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --host HOST [--valid-days DAYS] [--applications-host HOST] [--require-approval] [--tunnel] | node add --state ABSOLUTE_PATH --name NAME --node-id NODE_ID [--node-address HOST:PORT] [--link local|tunnel] --node-bootstrap ABSOLUTE_PATH | node list --state ABSOLUTE_PATH | node remove --state ABSOLUTE_PATH --node NODE | node token renew --state ABSOLUTE_PATH --node NODE --node-bootstrap ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | certificate renew --state ABSOLUTE_PATH [--valid-days DAYS] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | grant --node NODE FINGERPRINT | revoke [--node NODE] FINGERPRINT | invite --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
+const lanUsage = "usage: remote-everything-lan-server init --state ABSOLUTE_PATH --host HOST [--valid-days DAYS] [--applications-host HOST] [--require-approval] [--tunnel] | node add --state ABSOLUTE_PATH --name NAME --node-id NODE_ID [--node-address HOST:PORT] [--link local|tunnel] --node-bootstrap ABSOLUTE_PATH | node list --state ABSOLUTE_PATH | node remove --state ABSOLUTE_PATH --node NODE | node token renew --state ABSOLUTE_PATH --node NODE --node-bootstrap ABSOLUTE_PATH | tunnel renew --state ABSOLUTE_PATH --node-bootstrap ABSOLUTE_PATH | tunnel server renew --state ABSOLUTE_PATH | certificate renew --state ABSOLUTE_PATH [--valid-days DAYS] | ports repair --state ABSOLUTE_PATH | serve --state ABSOLUTE_PATH | device --state ABSOLUTE_PATH (list | approve FINGERPRINT | grant --node NODE FINGERPRINT | revoke [--node NODE] FINGERPRINT | invite --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] | renew --name NAME --node NODE [--ttl DURATION] [--qr ABSOLUTE_PATH] FINGERPRINT | invitation list | invitation cancel TOKEN_HASH)"
 
 func main() {
 	args := os.Args[1:]
+	if len(args) > 2 && args[0] == "tunnel" && args[1] == "server" && args[2] == "renew" {
+		flags := flag.NewFlagSet("tunnel server renew", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		root := flags.String("state", "", "")
+		if flags.Parse(args[3:]) != nil || flags.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "invalid tunnel server renew arguments")
+			os.Exit(1)
+		}
+		result, err := renewLANTunnelServer(*root)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(result)
+		return
+	}
 	if len(args) > 0 && args[0] == "init" {
 		if err := runLANInit(args[1:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)

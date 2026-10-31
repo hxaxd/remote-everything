@@ -39,6 +39,10 @@ final class SupportTests: XCTestCase {
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://gw.example.com"), "gw.example.com")
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://GW.Example.com:8443"), "gw.example.com")
         XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin: "https://192.168.1.4:8443"), "192.168.1.4")
+        XCTAssertEqual(GatewayChallengeHandler.host(ofOrigin:"https://[::1]:8443"),"::1")
+        let ipv6 = GatewayChallengeHandler(gatewayOrigin:"https://[::1]:8443",pin:nil,credential:nil)
+        XCTAssertTrue(ipv6.isGatewayHost("::1"))
+        XCTAssertFalse(GatewayChallengeHandler(gatewayOrigin:"https://127.0.0.1",pin:nil,credential:nil).isGatewayHost("evil.127.0.0.1"))
     }
 
     func testACertificateIsPresentedOnlyToTheGateway() {
@@ -87,6 +91,22 @@ final class SupportTests: XCTestCase {
     }
 
     // MARK: - Staged setups on disk
+    func testPendingApprovalSurvivesRestartAndGivesWayToTheNext() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:directory) }
+        let store = StagedSetupStore(directory:directory)
+        let first = stagedSetup(origin:"https://first.example")
+        let second = stagedSetup(origin:"https://second.example")
+        try store.stage(first)
+        // One pending setup at a time: the next invitation replaces the previous.
+        try store.stage(second)
+        let restarted = StagedSetupStore(directory:directory)
+        XCTAssertEqual(restarted.loadAll().count,1)
+        XCTAssertNil(restarted.load(origin:first.origin))
+        XCTAssertEqual(restarted.load(origin:second.origin)?.certificateFingerprint,second.certificateFingerprint)
+        restarted.clear(origin:second.origin)
+        XCTAssertNil(restarted.load(origin:second.origin))
+    }
 
     private func stagedSetup(origin: String) -> StagedSetup {
         StagedSetup(
@@ -194,7 +214,7 @@ final class SupportTests: XCTestCase {
         let store = ClientStore(defaults: defaults)
         let origin = "https://gw.example.com"
         XCTAssertNil(store.cachedNodes(origin: origin))
-        let response = NodesResponse(ok: true, nodes: [.init(id: String(repeating: "a", count: 64), name: "Desk")])
+        let response = NodesResponse(ok: true, nodes: [.init(id: String(repeating: "a", count: 64), name: "Desk", link: nil)])
         store.saveCachedNodes(response, origin: origin)
         XCTAssertEqual(store.cachedNodes(origin: origin)?.nodes.first?.name, "Desk")
         store.clearCachedNodes(origin: origin)

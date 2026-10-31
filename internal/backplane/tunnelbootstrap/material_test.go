@@ -76,7 +76,7 @@ func TestTunnelMaterialLivesInTheHandoverBundle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"frps-token", "tunnel-client.crt.pem", "tunnel-client.key.pem"}
+	want := []string{"frps-token", "tunnel-ca.crt.pem", "tunnel-client.crt.pem", "tunnel-client.key.pem"}
 	entries, err := os.ReadDir(delivered.Directory)
 	if err != nil {
 		t.Fatal(err)

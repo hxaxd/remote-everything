@@ -84,6 +84,7 @@
   "pair.scan_body",
   "pair.scan_denied",
   "pair.scan_failed",
+  "pair.scan_light",
   "pair.title",
   "pair.waiting_approval",
   "pair.working",

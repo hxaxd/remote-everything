@@ -59,6 +59,11 @@ func startLANEntrance(t *testing.T, opts ...LANInitOption) *lanHarness {
 			t.Fatal(err)
 		}
 	}
+	return harness.serve(t, root)
+}
+
+func (harness *lanHarness) serve(t *testing.T, root string) *lanHarness {
+	t.Helper()
 	service, err := openLANService(root)
 	if err != nil {
 		t.Fatal(err)

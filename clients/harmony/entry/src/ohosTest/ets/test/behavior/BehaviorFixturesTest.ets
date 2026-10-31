@@ -19,8 +19,9 @@ import { ErrorCode, parseErrorCode } from '../../../../main/ets/core/model/Error
 import { CatalogAnswer, decodeCatalog, NodeSummary, NodeSummaryDto } from '../../../../main/ets/core/api/Dto';
 import { Cadence } from '../../../../main/ets/core/model/Cadence';
 import { MessageKeys } from '../../../../main/ets/core/model/MessageKeys';
-import { AppState, GatewayPath, Identity, Node, NodeStatus } from '../../../../main/ets/core/model/Models';
-import { mergeNodes, OriginProbe } from '../../../../main/ets/core/api/Merge';
+import { AppState, GatewayPath, Identity, Node, NodeStatus, LinkKind, ServerPin } from '../../../../main/ets/core/model/Models';
+import { certificateMatchesPin } from '../../../../main/ets/core/api/Pinning';
+import { mergeNodes, OriginProbe, isPrivateHost } from '../../../../main/ets/core/api/Merge';
 import { PathSelector } from '../../../../main/ets/core/pathselect/PathSelector';
 import { WebAppPrefs } from '../../../../main/ets/core/store/WebAppPrefs';
 import { WebSessionScope } from '../../../../main/ets/core/store/WebSessionScope';
@@ -149,6 +150,39 @@ export default function behaviorFixturesTest() {
     });
 
     // --- paths.json ----------------------------------------------------------
+    it('shared TLS certificates require host validity and pin',0,() => {
+      const document: JsonReader = reader(fixture('tls.json'),'tls.json');
+      const certificates: JsonReader = document.object('certificates');
+      const pin: JsonReader = document.object('pin');
+      for (const entry of arrayOf(document,'cases')) {
+        const bytes: Uint8Array = new util.Base64Helper().decodeSync(certificates.string(entry.string('certificate')));
+        const mismatch: boolean = entry.optionalBool('mismatch') === true;
+        const expectedPin: ServerPin = new ServerPin(mismatch ? '0'.repeat(64) : pin.string('fingerprint'),
+          mismatch ? 'A'.repeat(43) + '=' : pin.string('publicKeyPin'));
+        expect(certificateMatchesPin(bytes,expectedPin,entry.string('host'))).assertEqual(entry.bool('trusted'));
+      }
+    });
+    it('declaration fallback and restoration follow the shared action chain',0,() => {
+      for (const chain of arrayOf(reader(fixture('paths.json'),'paths.json'),'updates')) {
+        const routes: PathSelector = selector();
+        for (const step of arrayOf(chain,'steps')) {
+          const paths: GatewayPath[] = arrayOf(step,'paths').map((road: JsonReader) => new GatewayPath(
+            road.string('origin'),road.string('origin'),road.bool('reachable'),road.number('latencyMs'),road.bool('isPrivate'),null,
+            road.string('link') === 'local' ? LinkKind.Local : LinkKind.Tunnel));
+          const node: Node = new Node('node',chain.string('name'),paths);
+          const chosen: GatewayPath | null = routes.choose(node);
+          expect(chosen?.origin).assertEqual(step.string('chosen'));
+          expect(chosen?.link).assertEqual(step.string('link'));
+          routes.remember([node]);
+        }
+      }
+    });
+    it('private IPv4 IPv6 and mapped addresses agree', 0, () => {
+      for (const entry of arrayOf(reader(fixture('paths.json'),'paths.json'),'privateHosts')) {
+        expect(`${entry.string('host')}: ${isPrivateHost(entry.string('host'))}`)
+          .assertEqual(`${entry.string('host')}: ${entry.bool('private')}`);
+      }
+    });
 
     it('the chosen path is the same everywhere', 0, () => {
       const document: JsonReader = reader(fixture('paths.json'), 'paths.json');
@@ -219,7 +253,7 @@ export default function behaviorFixturesTest() {
       expect(document.number('controlPollCeilingMs')).assertEqual(Cadence.controlPollCeilingMs);
       expect(document.number('controlPollTimeoutMs')).assertEqual(Cadence.controlPollTimeoutMs);
       expect(document.number('approvalPollMs')).assertEqual(Cadence.approvalPollMs);
-      expect(document.number('approvalPollTimeoutMs')).assertEqual(Cadence.approvalPollTimeoutMs);
+      expect(document.number('approvalFeedbackMinMs')).assertEqual(Cadence.approvalFeedbackMinMs);
       expect(document.number('probeTimeoutMs')).assertEqual(Cadence.probeTimeoutMs);
       expect(document.number('requestTimeoutMs')).assertEqual(Cadence.requestTimeoutMs);
     });

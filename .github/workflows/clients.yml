@@ -1,18 +1,18 @@
 name: Clients
 
-# What every client has to agree on, whichever one changed: the version they are
-# all built from, and the HarmonyOS source gate (which needs no SDK and is the
-# only place HarmonyOS is checked outside a developer's machine).
+# Shared contracts, host regressions and HarmonyOS source checks need no native SDK.
 on:
   workflow_call:
   push:
     branches: [main]
     paths:
       - 'clients/**'
+      - 'internal/client/webclient/**'
       - '.github/workflows/clients.yml'
   pull_request:
     paths:
       - 'clients/**'
+      - 'internal/client/webclient/**'
       - '.github/workflows/clients.yml'
 
 concurrency:
@@ -23,6 +23,29 @@ permissions:
   contents: read
 
 jobs:
+  behavior:
+    name: Client action and browser regressions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: clients/behavior/package-lock.json
+      - name: Install test dependencies
+        working-directory: clients/behavior
+        run: npm ci
+      - name: Install the test browser
+        working-directory: clients/behavior
+        run: npx playwright install --with-deps chromium
+      - name: Run production controller and browser action chains
+        working-directory: clients/behavior
+        env:
+          BROWSER_CHANNEL: chromium
+          WEB_TEST_OUTPUT: ${{ runner.temp }}/web-client-regressions
+        run: npm test
+
   versions:
     name: Client version alignment
     runs-on: ubuntu-latest

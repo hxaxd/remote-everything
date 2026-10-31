@@ -26,33 +26,20 @@ struct NodeScreen: View {
                     Text(node?.name ?? "")
                         .font(Theme.headline)
                         .foregroundStyle(theme.textPrimary)
-                    // Under its own name, whose screen this is, and which way the
-                    // phone is getting there: the path, or the state's own name
-                    // when there is no path to describe (Android's NodeBar).
-                    if let node = model.node(withID: nodeID) {
-                        Text(pathHintOrStatus(node))
+                    if let node = model.node(withID: nodeID),
+                       let hint = currentPathHint(model.preferredPath(for: node)) {
+                        Text(hint)
                             .font(Theme.caption)
                             .foregroundStyle(theme.textSecondary)
                     }
                 }
             }
         }
-        .task {
+        .task(id: nodeID) {
             model.beginCatalogPolling(nodeID: nodeID)
-            await model.loadCatalog(nodeID: nodeID)
         }
         .onDisappear {
-            model.endCatalogPolling()
-        }
-    }
-
-    /// Asking again means asking now: the node list is read again — the paths it
-    /// carries are what a catalog is fetched through — and this node's catalog
-    /// with it (Android retryNode).
-    private func retry() {
-        Task {
-            await model.refreshNodes()
-            await model.loadCatalog(nodeID: nodeID)
+            model.endCatalogPolling(nodeID: nodeID)
         }
     }
 
@@ -70,24 +57,23 @@ struct NodeScreen: View {
                     MessagePage(
                         title: l10n(MessageKeys.APPS_EMPTY_TITLE),
                         message: l10n(MessageKeys.APPS_EMPTY_BODY),
-                        actionTitle: nil,
-                        action: nil
+                        actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                        action: { Task { await model.loadCatalog(nodeID: nodeID) } }
                     )
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: Theme.gapM) {
-                            ForEach(apps) { app in
-                                ApplicationRow(
-                                    app: app,
-                                    onOpen: { open(app) },
-                                    onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
-                                    onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
-                                )
-                            }
+                    List {
+                        ForEach(apps) { app in
+                            ApplicationRow(
+                                app: app,
+                                onOpen: { open(app) },
+                                onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
+                                onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
+                            )
+                            .listRowBackground(theme.bgElevated)
                         }
-                        .padding(.horizontal, Theme.gapM)
-                        .padding(.vertical, Theme.gapM)
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
                     .refreshable { await model.loadCatalog(nodeID: nodeID) }
                 }
             case .some(.offline):
@@ -95,7 +81,7 @@ struct NodeScreen: View {
                     title: l10n(MessageKeys.NODE_OFFLINE_TITLE),
                     message: l10n(MessageKeys.NODE_OFFLINE_BODY),
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                    action: retry
+                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
                 )
             case .some(.unauthorized):
                 MessagePage(
@@ -108,14 +94,19 @@ struct NodeScreen: View {
                         Task { await model.refreshNodes() }
                     }
                 )
-            case .some(.gatewayTrouble):
-                // The gateway answered and its answer is a refusal: the same
-                // words every client says here, and the retry that asks again.
+            case .some(.unreachable):
                 MessagePage(
-                    title: l10n(MessageKeys.PAIR_GATEWAY_TROUBLE),
+                    title: ErrorText.network,
+                    message: !node.paths.isEmpty ? pathNames(node) : nil,
+                    actionTitle: l10n(MessageKeys.ACTION_RETRY),
+                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                )
+            case .some(.refused(let error)):
+                MessagePage(
+                    title: ErrorText.text(for: error.code),
                     message: nil,
                     actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                    action: retry
+                    action: { Task { await model.loadCatalog(nodeID: nodeID) } }
                 )
             }
         } else {
@@ -132,22 +123,17 @@ struct NodeScreen: View {
         }
     }
 
-    /// The one-line answer under a node's name: the road in use, or the state's
-    /// own name when nothing is answering — the fallback Android's NodeBar uses.
-    private func pathHintOrStatus(_ node: Node) -> String {
-        currentPathHint(model.preferredPath(for: node))
-            ?? l10n(MessageKeys.forNodeStatus(model.status(of: node)))
+    private func pathNames(_ node: Node?) -> String? {
+        guard let node else { return nil }
+        let labels = node.paths.map { $0.origin }.joined(separator: "\n")
+        return labels.isEmpty ? nil : labels
     }
 
-    /// Tapping an application opens it. A stopped one is opened as it is — the
-    /// start is its own button — exactly as Android opens a stopped-but-enabled
-    /// app; only one that cannot be started at all is left alone.
+    /// Running and starting applications open S4; starting waits there for readiness.
     private func open(_ app: AppInfo) {
         switch app.code {
         case .ready, .starting:
-            model.path.append(.application(nodeID: nodeID, appID: app.id))
-        case .stopped where app.enabled:
-            model.path.append(.application(nodeID: nodeID, appID: app.id))
+            model.presentedApplication = PresentedApplication(nodeID: nodeID, appID: app.id)
         case .stopped, .stopping:
             break
         }
@@ -169,7 +155,7 @@ private struct ApplicationRow: View {
             Button(action: onOpen) {
                 HStack(spacing: Theme.gapM) {
                     AppIconTile(icon: app.icon, accent: Color(hexString: app.accent))
-                    VStack(alignment: .leading, spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(app.name)
                             .font(Theme.headline)
                             .foregroundStyle(theme.textPrimary)
@@ -185,7 +171,8 @@ private struct ApplicationRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(GlassPressButtonStyle())
+            .buttonStyle(.plain)
+            .disabled(app.code == .stopped || app.code == .stopping)
 
             StatusBadge(text: stateText, color: theme.color(for: app.code))
 
@@ -195,33 +182,19 @@ private struct ApplicationRow: View {
             } else {
                 Button(action: app.code == .stopped ? onStart : onStop) {
                     Text(app.code == .stopped ? l10n(MessageKeys.ACTION_START) : l10n(MessageKeys.ACTION_STOP))
-                        .font(Theme.caption.weight(.semibold))
-                        .foregroundStyle(app.code == .stopped ? theme.accentOnBg : theme.textPrimary)
-                        .padding(.horizontal, Theme.gapM - 2)
+                        .font(Theme.caption)
+                        .foregroundStyle(theme.textPrimary)
+                        .frame(width: 44)
                         .padding(.vertical, Theme.gapS - 2)
-                        .background(
-                            app.code == .stopped
-                                ? AnyShapeStyle(theme.accent)
-                                : AnyShapeStyle(.ultraThinMaterial),
-                            in: Capsule()
-                        )
                         .overlay(
-                            Capsule()
-                                .strokeBorder(
-                                    app.code == .stopped
-                                        ? Color.clear
-                                        : Color.white.opacity(colorScheme == .dark ? 0.2 : 0.4),
-                                    lineWidth: 1
-                                )
+                            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
+                                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, Theme.gapL)
-        .padding(.vertical, Theme.gapM)
-        .glassCard()
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(minHeight: Theme.appRowHeight)
     }
 
     private var stateText: String {

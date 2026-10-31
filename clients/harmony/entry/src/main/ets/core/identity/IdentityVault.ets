@@ -68,6 +68,19 @@ export class WebGatewayIdentity {
 }
 
 export class IdentityVault {
+  private static readonly operations: Map<string, Promise<void>> = new Map<string, Promise<void>>();
+  private static readonly versions: Map<string, number> = new Map<string, number>();
+  version(origin: string): number { return IdentityVault.versions.get(origin) ?? 0; }
+  private changed(origin: string): void { IdentityVault.versions.set(origin,this.version(origin) + 1); }
+  private async serial<T>(origin: string, operation: () => Promise<T>): Promise<T> {
+    const previous: Promise<void> = IdentityVault.operations.get(origin) ?? Promise.resolve();
+    let release: () => void = (): void => {};
+    const current: Promise<void> = new Promise<void>((resolve: () => void): void => { release = resolve; });
+    IdentityVault.operations.set(origin,current);
+    await previous;
+    try { return await operation(); }
+    finally { release(); if (IdentityVault.operations.get(origin) === current) { IdentityVault.operations.delete(origin); } }
+  }
   private readonly huks: HuksVault = new HuksVault();
   private readonly certificates: CertificateVault = new CertificateVault();
 
@@ -87,6 +100,22 @@ export class IdentityVault {
     return `identity/${AtomicFile.originKey(origin)}.sealed`;
   }
 
+  private static activeFile(origin: string): string { return `identity/${AtomicFile.originKey(origin)}.active`; }
+  private storageKey(origin: string): string { return AtomicFile.readText(IdentityVault.activeFile(origin)) ?? origin; }
+
+  /** Commit a fully admitted credential without overwriting any stored key. */
+  promote(origin: string, storageKey: string): string {
+    const previous: string = this.storageKey(origin);
+    AtomicFile.ensureDirectory('identity');
+    AtomicFile.writeAtomic(IdentityVault.activeFile(origin), storageKey);
+    this.changed(origin);
+    return previous;
+  }
+
+  async retire(storageKey: string): Promise<void> {
+    return this.serial(storageKey, (): Promise<void> => this.forgetLocked(storageKey));
+  }
+
   /** The name this gateway's credential is installed under in the certificate manager. */
   static certificateAlias(origin: string): string {
     return CertificateVault.aliasFor(origin);
@@ -100,6 +129,12 @@ export class IdentityVault {
    * re-encoded form, which is kept either way.
    */
   async adopt(origin: string, base64Pkcs12: string, credentialPassword: string,
+    expectedFingerprint: string): Promise<StoredCredential> {
+    this.changed(origin);
+    return this.serial(origin, (): Promise<StoredCredential> => this.adoptLocked(origin,base64Pkcs12,credentialPassword,expectedFingerprint));
+  }
+
+  private async adoptLocked(origin: string, base64Pkcs12: string, credentialPassword: string,
     expectedFingerprint: string): Promise<StoredCredential> {
     let opened: OpenedCredential | null = null;
     try {
@@ -130,6 +165,11 @@ export class IdentityVault {
 
   /** The reference the WebView signs with, installed if that had to be redone. */
   async webIdentity(origin: string): Promise<string> {
+    const storageKey: string = this.storageKey(origin);
+    return this.serial(storageKey, (): Promise<string> => this.webIdentityLocked(storageKey));
+  }
+
+  private async webIdentityLocked(origin: string): Promise<string> {
     const alias: string = IdentityVault.certificateAlias(origin);
     const existing: string | null = await this.certificates.find(alias);
     if (existing !== null && await this.certificates.alive(existing)) {
@@ -139,7 +179,7 @@ export class IdentityVault {
     // manager that dropped it. The sealed archive is still evidence that this device
     // was paired, so the entry is made again from it rather than making the user pair
     // a second time.
-    const material: CredentialMaterial = await this.material(origin);
+    const material: CredentialMaterial = await this.materialLocked(origin);
     try {
       return await this.certificates.install(alias, material.archive, material.password);
     } finally {
@@ -149,6 +189,11 @@ export class IdentityVault {
 
   /** The archive and password for an API request. The caller wipes what it gets. */
   async material(origin: string): Promise<CredentialMaterial> {
+    const storageKey: string = this.storageKey(origin);
+    return this.serial(storageKey, (): Promise<CredentialMaterial> => this.materialLocked(storageKey));
+  }
+
+  private async materialLocked(origin: string): Promise<CredentialMaterial> {
     const file: string = IdentityVault.sealedFile(origin);
     const sealed: Uint8Array | null = AtomicFile.readBytes(file);
     if (sealed === null) {
@@ -194,6 +239,13 @@ export class IdentityVault {
    * forgetting an identity, and it leaves nothing behind on its own side.
    */
   async forget(origin: string): Promise<void> {
+    this.changed(origin);
+    const storageKey: string = this.storageKey(origin);
+    await this.serial(storageKey, (): Promise<void> => this.forgetLocked(storageKey));
+    if (this.storageKey(origin) === storageKey) { AtomicFile.removeWithTemporary(IdentityVault.activeFile(origin)); }
+  }
+
+  private async forgetLocked(origin: string): Promise<void> {
     await this.certificates.uninstallAlias(IdentityVault.certificateAlias(origin));
     // Both aliases: a sealing key still under the old scheme is a key this
     // gateway's file no longer opens, and it must not outlive the forgetting.

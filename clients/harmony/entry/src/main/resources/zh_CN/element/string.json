@@ -82,7 +82,7 @@
     },
     {
       "name": "camera_permission_reason",
-      "value": "用于扫描邀请二维码。"
+      "value": "用于扫描邀请二维码，或让应用使用相机。"
     },
     {
       "name": "device_category_default",
@@ -563,6 +563,10 @@
     {
       "name": "web_session_failed",
       "value": "无法安全切换应用会话，请重启客户端后重试。"
+    },
+    {
+      "name": "pair_scan_light",
+      "value": "照明"
     }
   ]
 }

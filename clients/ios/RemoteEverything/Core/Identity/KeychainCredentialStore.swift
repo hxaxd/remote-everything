@@ -11,7 +11,17 @@ import Security
 /// `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`: usable while the app is
 /// in the background after the first unlock, never synced to iCloud, never
 /// carried to another device by a backup. Changing phones means pairing again.
-final class KeychainCredentialStore {
+/// What an identity's credential lives in. The Keychain is the real one; a test
+/// gives the vault an in-memory store so a simulator build without entitlements
+/// can still exercise pairing.
+protocol CredentialStorage {
+    func store(alias: String, pkcs12: Data, password: String) throws
+    func load(alias: String) -> (pkcs12: Data, password: String)?
+    func exists(alias: String) -> Bool
+    func delete(alias: String)
+}
+
+final class KeychainCredentialStore: CredentialStorage {
 
     enum Failure: Error, Equatable {
         case writeFailed(OSStatus)

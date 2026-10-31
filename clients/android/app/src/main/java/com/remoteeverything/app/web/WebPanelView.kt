@@ -8,6 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.remoteeverything.app.i18n.messageKey
 import com.remoteeverything.core.model.MessageKeys
@@ -33,6 +34,7 @@ class WebPanelView(
 ) {
 
     private val density = host.resources.displayMetrics.density
+    private val largeText = host.resources.configuration.fontScale > 1.3f
 
     private var orientation = initial.orientation
     private var userAgent = initial.userAgent
@@ -68,7 +70,7 @@ class WebPanelView(
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
             )
             addView(
-                buildCard(),
+                ScrollView(host).apply { addView(buildCard()) },
                 FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -113,7 +115,7 @@ class WebPanelView(
     }
 
     private fun settingRow(label: String, control: View): View = LinearLayout(host).apply {
-        orientation = LinearLayout.HORIZONTAL
+        orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(0, dp(6), 0, dp(6))
         addView(
@@ -122,9 +124,13 @@ class WebPanelView(
                 setTextColor(palette.secondary)
                 textSize = 14f
             },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
+            if (largeText) LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            else LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
         )
-        addView(control)
+        addView(control, LinearLayout.LayoutParams(
+            if (largeText) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
     }
 
     private fun actionRow(glyph: String, label: String, onClick: () -> Unit): View = LinearLayout(host).apply {
@@ -186,7 +192,7 @@ class WebPanelView(
         private val onChosen: (Any) -> Unit,
     ) {
         val view: View = LinearLayout(host).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = if (largeText) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
             background = rounded(10, palette.track)
             setPadding(dp(2), dp(2), dp(2), dp(2))
         }
@@ -199,17 +205,24 @@ class WebPanelView(
                     text = label
                     textSize = 13f
                     gravity = Gravity.CENTER
+                    minHeight = dp(48)
+                    minWidth = dp(48)
                     setPadding(dp(12), dp(6), dp(12), dp(6))
                     setOnClickListener { onChosen(value) }
                 }
                 labels += entry
-                (view as LinearLayout).addView(entry)
+                (view as LinearLayout).addView(entry, if (largeText) {
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                } else {
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                })
             }
         }
 
         fun select(value: Any) {
             options.forEachIndexed { index, (_, option) ->
                 val chosen = option == value
+                labels[index].isSelected = chosen
                 labels[index].setTextColor(if (chosen) palette.accent else palette.secondary)
                 labels[index].background = if (chosen) {
                     rounded(8, palette.at(palette.accent, 0.15f))

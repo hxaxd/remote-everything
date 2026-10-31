@@ -3,7 +3,7 @@ package com.remoteeverything.core.api
 import com.remoteeverything.core.identity.IdentityVault
 import com.remoteeverything.core.model.Identity
 import com.remoteeverything.core.model.ServerPin
-import java.util.concurrent.ConcurrentHashMap
+import com.remoteeverything.core.identity.Pkcs12
 
 /**
  * One client per gateway origin, kept for the life of the app: an origin's
@@ -12,16 +12,25 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class GatewayClientPool {
 
-    private val clients = ConcurrentHashMap<String, GatewayClient>()
+    private data class Device(val fingerprint: String, val ref: String, val pin: ServerPin?, val client: GatewayClient)
+    private data class PairingKey(val origin: String, val pin: ServerPin?)
+    private val clients = mutableMapOf<String, Device>()
+    private val pairing = mutableMapOf<PairingKey, GatewayClient>()
 
     /**
      * The client for an origin whose credential the vault holds; null when the
      * credential is gone or unreadable.
      */
+    @Synchronized
     fun deviceClient(identity: Identity, vault: IdentityVault): GatewayClient? {
-        clients[identity.origin]?.let { return it }
-        val client = GatewayClients.device(identity.origin, vault, identity.serverPin) ?: return null
-        clients[identity.origin] = client
+        val material = vault.load(identity.credentialRef) ?: run {
+            clients.remove(identity.origin)
+            return null
+        }
+        val fingerprint = Pkcs12.fingerprint(material.certificate)
+        clients[identity.origin]?.takeIf { it.fingerprint == fingerprint && it.ref == identity.credentialRef && it.pin == identity.serverPin }?.let { return it.client }
+        val client = GatewayClients.device(identity.origin, material, identity.serverPin)
+        clients[identity.origin] = Device(fingerprint, identity.credentialRef, identity.serverPin, client)
         return client
     }
 
@@ -29,19 +38,19 @@ class GatewayClientPool {
      * The client for redeeming an invitation: the same origin, no credential
      * yet, because there is nothing to present until the invitation is spent.
      */
+    @Synchronized
     fun pairingClient(origin: String, pin: ServerPin?): GatewayClient {
-        val key = "$origin#pairing"
-        return clients.computeIfAbsent(key) {
-            GatewayClients.pairing(origin, pin)
-        }
+        pairing.keys.removeAll { it.origin == origin && it.pin != pin }
+        return pairing.getOrPut(PairingKey(origin, pin)) { GatewayClients.pairing(origin, pin) }
     }
 
     /**
      * A credential changed or an origin was forgotten: the client that presented
      * the old one must not be used again.
      */
+    @Synchronized
     fun drop(origin: String) {
         clients.remove(origin)
-        clients.remove("$origin#pairing")
+        pairing.keys.removeAll { it.origin == origin }
     }
 }

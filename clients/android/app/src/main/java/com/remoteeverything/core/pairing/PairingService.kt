@@ -16,6 +16,8 @@ import com.remoteeverything.core.store.SettingsStore
 import java.security.SecureRandom
 import java.util.Base64
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Pairing, as two round trips with a restart-safe middle: redeem the invitation
@@ -32,6 +34,21 @@ class PairingService(
     private val clock: () -> Long = System::currentTimeMillis,
     private val clientFactory: ((origin: String, pin: ServerPin?, material: Pkcs12.Material?) -> GatewayClient)? = null,
 ) {
+    private val originLocks = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+    private val epochs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private data class RedeemAttempt(val invitation: SetupUri.Invitation, val deviceName: String, val password: String)
+    private val attempts = java.util.concurrent.ConcurrentHashMap<String, RedeemAttempt>()
+    private var generation = 0L
+    private var currentInvitation: SetupUri.Invitation? = null
+
+    fun cancelPending() {
+        generation++
+        currentInvitation = null
+        attempts.clear()
+        transaction.loadAll().forEach { abandon(it) }
+    }
+
+    fun pendingSetups(): List<StagedSetup> = transaction.loadAll()
 
     sealed interface Outcome {
         data class Activated(val identity: Identity, val nodeName: String = "") : Outcome
@@ -44,12 +61,32 @@ class PairingService(
      * invitation is spent, but the device it created is still pending, and
      * asking again with the same credential is how it is activated.
      */
-    suspend fun resume(): Outcome? {
-        val staged = transaction.resume(clock()) ?: return null
-        return activate(staged)
+    suspend fun resume(origin: String? = null): Outcome? {
+        val staged = transaction.load(origin) ?: return null
+        return originLocks.getOrPut(staged.origin) { Mutex() }.withLock {
+            val current = transaction.load(staged.origin) ?: return@withLock null
+            if (clock() >= current.pendingExpiresAtEpochMs) {
+                abandon(current)
+                return@withLock Outcome.Failed(ErrorCode.INVITATION_EXPIRED)
+            }
+            activate(current)
+        }
     }
 
     suspend fun run(invitation: SetupUri.Invitation, deviceName: String): Outcome {
+        if (currentInvitation != invitation) {
+            cancelPending()
+            currentInvitation = invitation
+        }
+        val run = generation
+        return originLocks.getOrPut(invitation.origin) { Mutex() }.withLock {
+            if (run != generation) Outcome.Failed(ErrorCode.INVITATION_DENIED)
+            else runLocked(invitation, deviceName, run)
+        }
+    }
+
+    private suspend fun runLocked(invitation: SetupUri.Invitation, deviceName: String, run: Long): Outcome {
+        val epoch = epochs[invitation.origin] ?: 0L
         // A pairing whose redeem succeeded but whose activation did not is not
         // redeemed again: the invitation is spent, a second redeem with a fresh
         // password is answered invitation_denied, and finishing what the vault
@@ -57,14 +94,16 @@ class PairingService(
         // origin is therefore finished, not paired over — unless its pending
         // window has closed, in which case it is dropped and the server's own
         // answer to a spent invitation is what the user sees.
-        val stagedBefore = transaction.load()
+        val stagedBefore = transaction.load(invitation.origin)
         if (stagedBefore != null && stagedBefore.origin == invitation.origin) {
             if (clock() < stagedBefore.pendingExpiresAtEpochMs) {
-                return resume() ?: Outcome.Failed(null)
+                return activate(stagedBefore)
             }
-            transaction.clear()
+            abandon(stagedBefore)
         }
-        val password = generatePassword()
+        val attempt = attempts[invitation.origin]?.takeIf { it.invitation == invitation }
+            ?: RedeemAttempt(invitation,deviceName,generatePassword()).also { attempts[invitation.origin] = it }
+        val password = attempt.password
         val client = clientFactory?.invoke(invitation.origin, pinOf(invitation), null)
             ?: GatewayClients.pairing(invitation.origin, pinOf(invitation))
         val pairing = try {
@@ -72,7 +111,7 @@ class PairingService(
                 PairRequest(
                     origin = invitation.origin,
                     invitation = invitation.invitation,
-                    deviceName = deviceName,
+                    deviceName = attempt.deviceName,
                     credentialPassword = password,
                 ),
             )
@@ -84,7 +123,8 @@ class PairingService(
             return Outcome.Failed(null)
         }
         val staged = try {
-            stage(invitation, deviceName, password, pairing)
+            if (run != generation || (epochs[invitation.origin] ?: 0L) != epoch) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
+            stage(invitation, attempt.deviceName, password, pairing).also { attempts.remove(invitation.origin) }
         } catch (e: Pkcs12.InvalidCredential) {
             // A credential that will not open is this client's fault to name, not
             // the network's: the gateway answered, and what it answered was not a
@@ -113,47 +153,46 @@ class PairingService(
             throw Pkcs12.InvalidCredential("the credential is not the certificate that was promised")
         }
         Pkcs12.verifyKeyPair(material)
-        if (vault.load(invitation.origin) != null) {
-            // Pairing the same gateway again replaces the credential it holds;
-            // the identity is the vault entry, so the old one has to go first.
-            vault.delete(invitation.origin)
-        }
-        vault.store(invitation.origin, material)
+        val credentialRef = "${invitation.origin}#pending/${java.util.UUID.randomUUID()}"
+        vault.store(credentialRef, material)
         val staged = StagedSetup(
             origin = invitation.origin,
             nodeId = invitation.node,
             nodeName = invitation.nodeName,
             deviceName = deviceName,
             certificateFingerprint = fingerprint,
+            credentialRef = credentialRef,
             serverPin = pinOf(invitation),
             pendingExpiresAtEpochMs = requireNotNull(parseInstant(pairing.pending_expires_at)) {
                 "a pairing expiry the strict decoder accepted is not parseable here"
             },
             createdAtEpochMs = clock(),
         )
-        transaction.stage(staged)
+        try { transaction.stage(staged) }
+        catch (error: Exception) { vault.delete(credentialRef); throw error }
         return staged
     }
 
     private suspend fun activate(staged: StagedSetup): Outcome {
-        val material = vault.load(staged.origin)
+        val material = vault.load(staged.credentialRef)
         val client = if (material != null) {
             clientFactory?.invoke(staged.origin, staged.serverPin, material)
                 ?: GatewayClients.device(staged.origin, material, staged.serverPin)
         } else null
         if (client == null) {
-            transaction.clear()
+            transaction.clear(staged.origin)
             return Outcome.Failed(null)
         }
         return try {
             client.activate(staged.nodeId)
-            promote(staged)
+            if (transaction.load(staged.origin) != staged) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
+            if (!promote(staged)) return Outcome.Failed(ErrorCode.INVITATION_DENIED)
             Outcome.Activated(
                 Identity(
                     origin = staged.origin,
                     deviceName = staged.deviceName,
                     certFingerprint = staged.certificateFingerprint,
-                    credentialRef = staged.origin,
+                    credentialRef = staged.credentialRef,
                     serverPin = staged.serverPin,
                     createdAtEpochMs = staged.createdAtEpochMs,
                 ),
@@ -164,11 +203,12 @@ class PairingService(
                 // Waiting for a human is not a failure: the staged setup stays and
                 // the client asks again, which is what pending_expires_at is for.
                 ErrorCode.APPROVAL_PENDING -> Outcome.ApprovalPending(staged.nodeName)
-                ErrorCode.INVITATION_DENIED, ErrorCode.INVITATION_EXPIRED, ErrorCode.UNAUTHORIZED -> {
+                ErrorCode.INVITATION_DENIED, ErrorCode.INVITATION_EXPIRED, ErrorCode.UNAUTHORIZED,
+                ErrorCode.ACTIVATION_FAILED, ErrorCode.PAIRING_FAILED -> {
                     abandon(staged)
                     Outcome.Failed(e.code)
                 }
-                else -> Outcome.Failed(e.code)
+                else -> Outcome.ApprovalPending(staged.nodeName)
             }
         } catch (e: CancellationException) {
             // Cancelling is a verdict of its own: the person left. Not a failure
@@ -177,36 +217,49 @@ class PairingService(
         } catch (e: Exception) {
             // A network that is down is not a verdict: keep the staged setup for
             // the retry that a resumed launch or the wizard's next attempt makes.
-            Outcome.Failed(null)
+            Outcome.ApprovalPending(staged.nodeName)
         }
     }
 
-    private suspend fun promote(staged: StagedSetup) {
+    private suspend fun promote(staged: StagedSetup): Boolean {
         val identity = Identity(
             origin = staged.origin,
             deviceName = staged.deviceName,
             certFingerprint = staged.certificateFingerprint,
-            credentialRef = staged.origin,
+            credentialRef = staged.credentialRef,
             serverPin = staged.serverPin,
             createdAtEpochMs = staged.createdAtEpochMs,
         )
-        val existing = repository.currentIdentities().filterNot { it.origin == identity.origin }
-        repository.saveIdentities(existing + identity)
-        transaction.clear()
+        var replaced: Identity? = null
+        var committed = false
+        repository.updateIdentities { known ->
+            if (transaction.load(staged.origin) != staged) return@updateIdentities known
+            replaced = known.firstOrNull { it.origin == identity.origin }
+            transaction.clear(staged.origin)
+            committed = true
+            if (known.any { it.origin == identity.origin }) known.map { if (it.origin == identity.origin) identity else it }
+            else known + identity
+        }
+        if (committed) replaced?.takeIf { it.credentialRef != identity.credentialRef }?.let { vault.delete(it.credentialRef) }
+        return committed
     }
 
     private fun abandon(staged: StagedSetup) {
-        vault.delete(staged.origin)
-        transaction.clear()
+        if (transaction.load(staged.origin) != staged) return
+        vault.delete(staged.credentialRef)
+        transaction.clear(staged.origin)
     }
 
     /**
      * Forgetting a gateway takes the pairing still staged for it: the staged
      * setup of another gateway's pending pairing is not this one's to drop.
      */
-    fun discardStaged(origin: String) {
-        val staged = transaction.load() ?: return
-        if (staged.origin == origin) transaction.clear()
+    fun discardStaged(origin: String): Boolean {
+        attempts.remove(origin)
+        epochs.compute(origin) { _, previous -> (previous ?: 0L) + 1L }
+        val staged = transaction.load(origin) ?: return false
+        abandon(staged)
+        return true
     }
 
     private fun pinOf(invitation: SetupUri.Invitation): ServerPin? =
@@ -215,8 +268,8 @@ class PairingService(
     companion object {
         /**
          * The password the credential is encrypted under: 32 random bytes in the
-         * one alphabet the gateway accepts. It never leaves memory — it dies with
-         * the staging file it was written to.
+         * one alphabet the gateway accepts. It stays in memory until the credential
+         * is staged, and an ambiguous retry uses the same value.
          */
         fun randomCredentialPassword(): String {
             val bytes = ByteArray(32).also { SecureRandom().nextBytes(it) }

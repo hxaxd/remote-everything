@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/client/webloading"
 	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
 	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
 )
@@ -417,6 +418,17 @@ func (h *Handler) WithWebSession(next http.Handler) http.Handler {
 			if ok {
 				defer done()
 				r = r.WithContext(ctx)
+				if strings.HasPrefix(r.URL.Path, "/__remote_everything/open/") {
+					h.sessions.SetAppearance(token, r.Header.Get(webloading.ThemeHeader))
+				}
+				r = webloading.WithTheme(r, s.Appearance)
+				if r.URL.Path == webloading.ScriptPath {
+					w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+					w.Header().Set("Cache-Control", "no-store")
+					w.Header().Set("X-Content-Type-Options", "nosniff")
+					w.Write(webloading.Script)
+					return
+				}
 				r.Header.Set(proxysecurity.ClientFingerprintHeader, s.Fingerprint)
 				w = &sessionWriter{ResponseWriter: w, ctx: ctx}
 				if handoff {

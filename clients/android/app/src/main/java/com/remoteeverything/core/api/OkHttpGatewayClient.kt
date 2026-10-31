@@ -13,6 +13,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -20,6 +21,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.security.SecureRandom
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
@@ -73,9 +77,13 @@ internal class OkHttpGatewayClient(
                 override fun onResponse(call: Call, response: Response) {
                     response.use { answered ->
                         val text = try {
-                            answered.body.string()
+                            StandardCharsets.UTF_8.newDecoder()
+                                .onMalformedInput(CodingErrorAction.REPORT)
+                                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                                .decode(ByteBuffer.wrap(answered.body.bytes())).toString()
                         } catch (e: Exception) {
-                            ""
+                            if (continuation.isActive) continuation.resumeWithException(UnreadableAnswer("invalid response encoding"))
+                            return
                         }
                         if (continuation.isActive) {
                             continuation.resumeWith(
@@ -128,7 +136,10 @@ internal class OkHttpGatewayClient(
     override suspend fun activate(nodeId: String): CatalogResponse {
         val answer = call("POST", ActivatePath, nodeId = nodeId, body = "", readTimeout = ReadTimeoutMs)
         if (answer.status == 202) {
-            throw ClientError(ErrorCode.APPROVAL_PENDING, answer.status)
+            try { refusal(answer.status, answer.body) } catch (error: ClientError) {
+                if (error.code == ErrorCode.APPROVAL_PENDING) throw error
+                throw UnreadableAnswer("invalid pending activation answer")
+            }
         }
         return decoded(answer.status, answer.body) {
             json.decodeFromString(CatalogResponse.serializer(), it).also { response ->
@@ -231,7 +242,7 @@ internal fun gatewayOkHttpClient(
         .followSslRedirects(followRedirects)
         .retryOnConnectionFailure(false)
     if (material != null || serverPin != null) {
-        val keyManagers = material?.let { arrayOf<KeyManager>(IdentityKeyManager(credentialAlias(origin), it)) }
+        val keyManagers = material?.let { arrayOf<KeyManager>(IdentityKeyManager(credentialAlias(origin), it, origin)) }
         val context = SSLContext.getInstance("TLS")
         context.init(keyManagers, arrayOf(trust), SecureRandom())
         builder.sslSocketFactory(context.socketFactory, trust)
@@ -253,10 +264,16 @@ internal fun resolveLocation(origin: String, location: String): String = when {
  * each application. Mirrors the gateway client's own rule on the other clients.
  */
 internal fun belongsToGateway(origin: String, url: String): Boolean {
-    val gatewayHost = urlHost(origin) ?: return false
-    val targetHost = urlHost(url) ?: return false
+    val target = url.toHttpUrlOrNull() ?: return false
+    if (target.scheme != "https" || target.username.isNotEmpty() || target.password.isNotEmpty()) return false
+    return isGatewayHost(origin, target.host)
+}
+
+internal fun isGatewayHost(origin: String, host: String): Boolean {
+    val gatewayHost = origin.toHttpUrlOrNull()?.host ?: return false
+    val targetHost = host.lowercase().removePrefix("[").removeSuffix("]")
     if (targetHost == gatewayHost) return true
-    if (gatewayHost.contains(':')) return false
+    if (gatewayHost.contains(':') || gatewayHost.all { it.isDigit() || it == '.' }) return false
     return targetHost.endsWith(".$gatewayHost")
 }
 
