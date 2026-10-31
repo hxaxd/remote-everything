@@ -8,7 +8,7 @@ final class PairingAndTimeoutTests: XCTestCase {
         let name = "com.remoteeverything.tests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        let vault = IdentityVault(keychain: KeychainCredentialStore(service: name))
+        let vault = IdentityVault(keychain: InMemoryCredentialStorage())
         let store = ClientStore(defaults: defaults)
         let stages = StagedSetupStore(directory: directory)
         let origin = "https://gateway.example"
@@ -21,14 +21,15 @@ final class PairingAndTimeoutTests: XCTestCase {
             defaults.removePersistentDomain(forName: name)
             try? FileManager.default.removeItem(at: directory)
         }
+        let stamp = Date(timeIntervalSince1970: 1_700_000_000)
         let old = Identity(origin: origin, deviceName: "Old", certFingerprint: String(repeating: "a", count: 64),
-                           credentialRef: oldRef, serverPin: nil, createdAt: Date())
+                           credentialRef: oldRef, serverPin: nil, createdAt: stamp)
         let other = Identity(origin: otherOrigin, deviceName: "Other", certFingerprint: String(repeating: "b", count: 64),
-                             credentialRef: otherRef, serverPin: nil, createdAt: Date())
+                             credentialRef: otherRef, serverPin: nil, createdAt: stamp)
         store.saveIdentities([old, other])
         try stages.stage(StagedSetup(origin: origin, nodeID: String(repeating: "c", count: 64), nodeName: "New node", deviceName: "Phone",
             certificateFingerprint: String(repeating: "d", count: 64), credentialRef: pendingRef, serverPin: nil,
-            pendingExpiresAt: Date().addingTimeInterval(600), createdAt: Date()))
+            pendingExpiresAt: stamp.addingTimeInterval(600), createdAt: stamp))
         let service = PairingService(vault: vault, stages: stages, store: store) { origin, credential, pin in
             GatewayClient(origin: origin, credential: credential, pin: pin)
         }
@@ -46,7 +47,7 @@ final class PairingAndTimeoutTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         defer { defaults.removePersistentDomain(forName: name); try? FileManager.default.removeItem(at: directory) }
-        let vault = IdentityVault(keychain: KeychainCredentialStore(service: name))
+        let vault = IdentityVault(keychain: InMemoryCredentialStorage())
         let stages = StagedSetupStore(directory: directory)
         let store = ClientStore(defaults: defaults)
         var service: PairingService!
@@ -86,7 +87,7 @@ final class PairingAndTimeoutTests: XCTestCase {
             defaults.removePersistentDomain(forName: name)
             try? FileManager.default.removeItem(at: directory)
         }
-        let vault = IdentityVault(keychain: KeychainCredentialStore(service: name))
+        let vault = IdentityVault(keychain: InMemoryCredentialStorage())
         let stages = StagedSetupStore(directory: directory)
         let nodeID = String(repeating: "a", count: 64)
         try stages.stage(StagedSetup(
@@ -153,4 +154,14 @@ private final class PairingAndTimeoutProtocol: URLProtocol {
     }
 
     override func stopLoading() { }
+}
+
+/// The vault's port, kept in memory: these tests are about pairing, and a
+/// simulator build without signing entitlements cannot reach the Keychain.
+final class InMemoryCredentialStorage: CredentialStorage {
+    private var items: [String: (pkcs12: Data, password: String)] = [:]
+    func store(alias: String, pkcs12: Data, password: String) throws { items[alias] = (pkcs12, password) }
+    func load(alias: String) -> (pkcs12: Data, password: String)? { items[alias] }
+    func exists(alias: String) -> Bool { items[alias] != nil }
+    func delete(alias: String) { items.removeValue(forKey: alias) }
 }

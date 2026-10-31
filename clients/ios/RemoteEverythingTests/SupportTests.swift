@@ -91,19 +91,21 @@ final class SupportTests: XCTestCase {
     }
 
     // MARK: - Staged setups on disk
-    func testPendingApprovalsSurviveRestartAndClearIndependently() throws {
+    func testPendingApprovalSurvivesRestartAndGivesWayToTheNext() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at:directory) }
         let store = StagedSetupStore(directory:directory)
         let first = stagedSetup(origin:"https://first.example")
         let second = stagedSetup(origin:"https://second.example")
         try store.stage(first)
+        // One pending setup at a time: the next invitation replaces the previous.
         try store.stage(second)
         let restarted = StagedSetupStore(directory:directory)
-        XCTAssertEqual(restarted.loadAll().count,2)
-        restarted.clear(origin:first.origin)
+        XCTAssertEqual(restarted.loadAll().count,1)
         XCTAssertNil(restarted.load(origin:first.origin))
         XCTAssertEqual(restarted.load(origin:second.origin)?.certificateFingerprint,second.certificateFingerprint)
+        restarted.clear(origin:second.origin)
+        XCTAssertNil(restarted.load(origin:second.origin))
     }
 
     private func stagedSetup(origin: String) -> StagedSetup {

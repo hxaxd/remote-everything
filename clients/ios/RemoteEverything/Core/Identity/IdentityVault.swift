@@ -17,13 +17,13 @@ final class IdentityVault {
         case unusableCredential
     }
 
-    private let keychain: KeychainCredentialStore
+    private let keychain: CredentialStorage
     private var imported: [String: DeviceCredential] = [:]
     private var versions: [String: Int] = [:]
     func version(origin: String) -> Int { versions[Self.alias(forOrigin:origin),default:0] }
     func version(aliasRef: String) -> Int { versions[aliasRef, default: 0] }
 
-    init(keychain: KeychainCredentialStore = KeychainCredentialStore()) {
+    init(keychain: CredentialStorage = KeychainCredentialStore()) {
         self.keychain = keychain
     }
 
