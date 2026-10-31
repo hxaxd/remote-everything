@@ -43,7 +43,6 @@ struct WebScreen: View {
             page(theme)
                 .simultaneousGesture(backGesture)
                 .ignoresSafeArea()
-                .ignoresSafeArea(.keyboard, edges: .bottom)
             if panelShown {
                 WebPanelView(
                     theme: theme,
@@ -75,8 +74,6 @@ struct WebScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBar(hidden: true)
         .persistentSystemOverlays(.hidden)
-        .ignoresSafeArea()
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .task {
             prefs = store.webAppPrefs(for: appKey)
             OrientationLock.shared.apply(prefs.orientation)
@@ -142,19 +139,12 @@ struct WebScreen: View {
     }
 
     private func failurePage(_ theme: Theme) -> some View {
-        VStack(spacing: 0) {
-            MessagePage(
-                title: openFailure ?? l10n(MessageKeys.WEB_LOAD_FAILED),
-                message: nil,
-                actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                action: { Task { await resolve() } }
-            )
-            Button(l10n(MessageKeys.ACTION_BACK)) {
-                dismiss()
-            }
-            .buttonStyle(.bordered)
-            .padding(.bottom, Theme.gapXL)
-        }
+        MessagePage(
+            title: openFailure ?? l10n(MessageKeys.WEB_LOAD_FAILED),
+            message: nil,
+            actionTitle: l10n(MessageKeys.ACTION_RETRY),
+            action: { Task { await resolve() } }
+        )
     }
 
     /// The way back: a swipe from the screen's edge, from anywhere on it, which

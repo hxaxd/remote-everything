@@ -262,44 +262,9 @@ final class CatalogController: ObservableObject {
             }
             nodesController.markUnreachable(path: path, nodeID: nodeID)
         }
-        do {
-            let response: ControlResponse
-            switch action {
-            case .start: response = try await client.start(nodeID: nodeID, appID: appID)
-            case .stop: response = try await client.stop(nodeID: nodeID, appID: appID)
-            }
-            if response.code == .computerOffline {
-                catalogs[nodeID] = .offline
-                return
-            }
-            if response.code == .appNotFound {
-                onNotice?(.appGone)
-                await loadCatalog(nodeID: nodeID)
-                return
-            }
-            // The gateway says the state would not change — a stop that cannot
-            // stop, a start that cannot start — the same two spellings the wire
-            // has for it, caught the way Android catches the first.
-            if response.code == .stateUpdateFailed || response.errorCode == "stop_command_failed" {
-                onNotice?(.stopFailed)
-            }
-            if let app = response.app {
-                applyApplication(nodeID: nodeID, info: app.appInfo)
-            } else {
-                updateApplication(nodeID: nodeID, appID: appID) { app in
-                    var updated = app
-                    updated.enabled = response.enabled
-                    updated.running = response.running
-                    updated.code = state(enabled: response.enabled, running: response.running)
-                    return updated
-                }
-            }
-            await pollStatus(nodeID: nodeID, appID: appID, client: client, path: path)
-            return
-        } catch {
-            // A start or a stop that did not go through is one sentence, whatever
-            // the road it failed on: the catalog is read again, which is what
-            // says whether the node went offline or the device was refused.
+        if requestError is NetworkFailure {
+            onNotice?(.network)
+        } else if requestError != nil {
             onNotice?(.controlFailed)
         }
         await loadCatalog(nodeID: nodeID)
@@ -410,7 +375,7 @@ final class CatalogController: ObservableObject {
         case .apps(let apps): return .ready(apps)
         case .offline: return .offline
         case .unauthorized: return .unauthorized
-        case .gatewayTrouble: return .gatewayTrouble
+        case .gatewayTrouble: return .refused(ClientError(.internalError))
         }
     }
 
@@ -418,15 +383,17 @@ final class CatalogController: ObservableObject {
         switch CatalogOutcome.forRefusal(error) {
         case .offline: return .offline
         case .unauthorized: return .unauthorized
-        case .apps, .gatewayTrouble: return .gatewayTrouble
+        case .apps, .gatewayTrouble: return .refused(error)
         }
+    }
+
+    private func asClientError(_ error: Error) -> ClientError {
+        if let clientError = error as? ClientError { return clientError }
+        return ClientError(.internalError)
     }
 
     // MARK: - Web Target Resolution
 
-    /// Where one application lives, asked down the one road the phone would take
-    /// — the same single road Android's `open` uses. A road that stops answering
-    /// is the catalog refresh's question, not this one's.
     func resolveWebTarget(nodeID: String, appID: String) async throws -> WebTarget {
         guard let node = nodesController.node(withID: nodeID) else { throw ClientError(.nodeNotFound) }
         let deadline = Date().addingTimeInterval(Cadence.controlPollTimeout)
@@ -478,19 +445,6 @@ final class CatalogController: ObservableObject {
             pathSelector.invalidate(nodeID: nodeID)
             nodesController.markUnreachable(path: path, nodeID: nodeID)
         }
-        let url = try await client.open(nodeID: nodeID, appID: appID)
-        var target = url
-        if case .ready(let apps) = catalogs[nodeID],
-           let app = apps.first(where: { $0.id == appID }),
-           !app.launchFragment.isEmpty,
-           let withFragment = URL(string: url.absoluteString + app.launchFragment) {
-            target = withFragment
-        }
-        let handler = GatewayChallengeHandler(
-            gatewayOrigin: identity.origin,
-            pin: identity.serverPin,
-            credential: credential
-        )
-        return WebTarget(gatewayOrigin: identity.origin, url: target, handler: handler, isPrivate: path.isPrivate)
+        throw lastError ?? ClientError(.computerOffline)
     }
 }

@@ -7,6 +7,7 @@ struct PairScreen: View {
 
     @EnvironmentObject private var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showingScanner = false
 
@@ -56,15 +57,11 @@ struct PairScreen: View {
             .background(theme.bg)
             .navigationTitle(l10n(MessageKeys.PAIR_TITLE))
             .navigationBarTitleDisplayMode(.inline)
-            // One way out, the way Android has one back arrow: leaving never
-            // cancels — a pairing in flight answers behind the home banner.
-            .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        model.closePairPresentation()
-                    } label: {
-                        Label(l10n(MessageKeys.ACTION_BACK), systemImage: "chevron.left")
+                    Button(l10n(MessageKeys.ACTION_CANCEL)) {
+                        model.cancelAddNode()
+                        dismiss()
                     }
                 }
             }
@@ -76,24 +73,11 @@ struct PairScreen: View {
                 model.addNodeText = code
                 model.parseInvitation(code)
             }
-            .onAppear {
-                if model.deviceNameDraft.isEmpty {
-                    model.deviceNameDraft = AppModel.defaultDeviceName()
-                }
+        }
+        .onAppear {
+            if model.deviceNameDraft.isEmpty {
+                model.deviceNameDraft = AppModel.defaultDeviceName()
             }
-    }
-
-    // MARK: - Phases
-
-    @ViewBuilder
-    private func content(_ theme: Theme) -> some View {
-        switch model.pairingPhase {
-        case .pairing:
-            workingView(theme)
-        case .pendingApproval(let nodeName):
-            pendingView(theme, nodeName: nodeName)
-        case .idle, .failed:
-            inputView(theme)
         }
     }
 
@@ -111,95 +95,17 @@ struct PairScreen: View {
             .controlSize(.large)
             Text(l10n(MessageKeys.PAIR_INPUT_HINT))
                 .font(Theme.body)
-                .foregroundStyle(theme.textPrimary)
-            if let nodeName = model.invitation?.nodeName {
-                Text(nodeName)
-                    .font(Theme.caption)
-                    .foregroundStyle(theme.textSecondary)
-            }
-            Button(l10n(MessageKeys.ACTION_CANCEL)) { model.cancelPairingAttempt() }
-                .buttonStyle(.bordered)
-                .padding(.top, Theme.gapS)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Paired, waiting for the operator: the page says so, offers to ask again,
-    /// and going back keeps the wait running behind the home banner.
-    private func pendingView(_ theme: Theme, nodeName: String) -> some View {
-        VStack(spacing: Theme.gapM) {
-            ProgressView()
-            Text(l10n(MessageKeys.PAIR_WAITING_APPROVAL))
-                .font(Theme.headline)
-                .foregroundStyle(theme.textPrimary)
-                .multilineTextAlignment(.center)
-            Text(nodeName)
-                .font(Theme.body)
-                .foregroundStyle(theme.textSecondary)
-            Button(l10n(MessageKeys.ACTION_RETRY)) {
-                Task { await model.resumeStagedSetups() }
-            }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, Theme.gapS)
-            Button(l10n(MessageKeys.ACTION_BACK)) { model.closePairPresentation() }
-                .buttonStyle(.plain)
-                .foregroundStyle(theme.accent)
-        }
-        .padding(Theme.gapM)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Input and confirm in one scrolling column: the scan button, the field
-    /// the invitation lives in, the failure line when there is one, and the
-    /// confirm card when the invitation parses.
-    private func inputView(_ theme: Theme) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.gapM) {
-                Button {
-                    showingScanner = true
-                } label: {
-                    Label(l10n(MessageKeys.PAIR_SCAN), systemImage: "qrcode.viewfinder")
-                        .font(Theme.body)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-
-                invitationField(theme)
-
-                if case .failed(let failure) = model.pairingPhase {
-                    Text(ErrorText.text(for: failure))
-                        .font(Theme.body)
-                        .foregroundStyle(theme.danger)
-                }
-
-                if let invitation = model.invitation {
-                    confirmCard(theme, invitation: invitation)
-                }
-            }
-            .padding(Theme.gapM)
-            .frame(maxWidth: Theme.contentMaxWidth)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    /// The field the invitation stays in, however it arrived — scanned, pasted,
-    /// or opened from a link. An invitation is a long line: the field shows a
-    /// few lines of it and scrolls inside itself, like Android's.
-    private func invitationField(_ theme: Theme) -> some View {
-        VStack(alignment: .leading, spacing: Theme.gapS) {
-            Text(l10n(MessageKeys.PAIR_INPUT_HINT))
-                .font(Theme.caption)
                 .foregroundStyle(theme.textSecondary)
             TextField(l10n(MessageKeys.PAIR_INPUT_HINT), text: Binding(
                 get: { model.addNodeText },
                 set: { model.addNodeText = $0; model.parseInvitation($0) }
             ), axis: .vertical)
                 .font(Theme.body)
-                .lineLimit(2...3)
+                .lineLimit(2...4)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("pair.invitation")
             if model.invitationError != nil {
                 Text(l10n(MessageKeys.PAIR_BAD_INVITATION))
                     .font(Theme.caption)
@@ -208,11 +114,8 @@ struct PairScreen: View {
         }
     }
 
-    /// The card a parsed invitation opens: what is being joined, the name this
-    /// device introduces itself with for this connection, and the join button.
-    private func confirmCard(_ theme: Theme, invitation: SetupURI.Invitation) -> some View {
-        let nameBlank = model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        return VStack(alignment: .leading, spacing: Theme.gapM) {
+    private func confirmView(_ theme: Theme, invitation: SetupURI.Invitation) -> some View {
+        VStack(alignment: .leading, spacing: Theme.gapL) {
             Text(l10n(MessageKeys.PAIR_CONFIRM_BODY, invitation.origin, invitation.nodeName))
                 .font(Theme.body)
                 .foregroundStyle(theme.textPrimary)
@@ -220,10 +123,7 @@ struct PairScreen: View {
                 Text(l10n(MessageKeys.PAIR_DEVICE_NAME))
                     .font(Theme.caption)
                     .foregroundStyle(theme.textSecondary)
-                TextField(l10n(MessageKeys.PAIR_DEVICE_NAME), text: Binding(
-                    get: { model.deviceNameDraft },
-                    set: { model.deviceNameDraft = $0 }
-                ))
+                TextField(l10n(MessageKeys.PAIR_DEVICE_NAME), text: $model.deviceNameDraft)
                     .font(Theme.body)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled(true)
@@ -249,6 +149,7 @@ struct PairScreen: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityIdentifier("pair.join")
             .disabled(model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(Theme.gapM)

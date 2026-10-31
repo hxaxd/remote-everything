@@ -13,23 +13,18 @@ struct PresentedApplication: Identifiable {
     var id: String { "\(nodeID)/\(appID)" }
 }
 
-/// S3's whole-page state — the five phases all three clients share: loading,
-/// the applications, the machine off, the device refused, and a gateway in
-/// trouble. A catalog the phone simply cannot reach is an offline machine, not
-/// a state of its own; a gateway that answers a refusal it does not understand
-/// is one in trouble. (The other two clients read it the same way.)
+/// S3's whole-page state (ui-contract §2/S3).
 enum CatalogState: Equatable {
     case loading
     case ready([AppInfo])
-    /// `computer_offline` is an answer, and so is "could not be reached at all":
-    /// the machine is off, asleep, or its tunnel is down.
+    /// `computer_offline` is an answer, not an error: the machine is off, asleep
+    /// or its tunnel is down.
     case offline
     /// The gateway says this device may not reach the node any more.
     case unauthorized
-    /// The gateway answered, and its answer is a refusal that is neither the
-    /// machine being off nor this device being refused: the deployment, not the
-    /// phone, is the question.
-    case gatewayTrouble
+    /// The gateway itself could not be reached: the network, not the node.
+    case unreachable
+    case refused(ClientError)
 
     var applications: [AppInfo] {
         if case .ready(let apps) = self { return apps }
@@ -37,7 +32,7 @@ enum CatalogState: Equatable {
     }
 }
 
-/// The light notices (toast/banner) — nothing here is a page.
+/// The light notices (toast/banner) of ui-contract §3 — nothing here is a page.
 enum Notice: Equatable, Identifiable {
     case busy
     case appGone

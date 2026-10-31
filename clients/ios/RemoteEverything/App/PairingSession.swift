@@ -29,9 +29,6 @@ final class PairingSession: ObservableObject {
 
     var onNotice: ((Notice) -> Void)?
     var onCatalogReady: ((String, CatalogResponse) -> Void)?
-    /// The pairing page is pushed by the app model, so only it can close it: a
-    /// waiting pairing that just ended asks through this callback.
-    var onClosePairPage: (() -> Void)?
 
     init(
         pairing: PairingCoordinator,
@@ -77,19 +74,15 @@ final class PairingSession: ObservableObject {
         isAddingNode = false
         activePendingOrigin = nil
         pairingAttempt = nil
-        if case .pairing = pairingPhase {
-            pairingPhase = .idle
-        }
+        pairingPhase = .idle
+        invitation = nil
+        invitationError = nil
+        addNodeText = ""
     }
 
     func parseInvitation(_ text: String) {
         guard pairingPhase != .pairing else { return }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Editing the text is a new attempt: the failure it replaces goes with
-        // it, the way Android's resetPairing clears the line under the field.
-        if case .failed = pairingPhase {
-            pairingPhase = .idle
-        }
         guard !trimmed.isEmpty else {
             invitation = nil
             invitationError = nil
@@ -197,9 +190,6 @@ final class PairingSession: ObservableObject {
     private func finishIfCurrent(_ attempt: PairingCoordinator.Attempt) {
         guard pairingAttempt === attempt else { return }
         finishPairingSheet()
-        // Success closes the page itself — Android's pair screen navigates
-        // back the moment the gateway admits the device.
-        onClosePairPage?()
     }
 
     private func failIfCurrent(_ attempt: PairingCoordinator.Attempt, _ failure: PairingFailure) {
@@ -258,7 +248,6 @@ final class PairingSession: ObservableObject {
                 nodesController.removeStaged(origin: staged.origin)
                 if activePendingOrigin == staged.origin { pairingPhase = .failed(.refusal(ClientError(.invitationExpired))) }
                 onNotice?(.invitationExpired)
-                closePendingPageIfOpen()
                 continue
             }
             do {
@@ -271,7 +260,6 @@ final class PairingSession: ObservableObject {
                     nodesController.removeStaged(origin: staged.origin)
                     if activePendingOrigin == staged.origin { finishPairingSheet() }
                     await nodesController.refreshNodes()
-                    closePendingPageIfOpen()
                 case .pendingApproval:
                     break
                 }
@@ -292,18 +280,6 @@ final class PairingSession: ObservableObject {
         }
     }
 
-    /// A pairing the page is still showing has ended: the page closes itself
-    /// the way Android's pair screen navigates back on success or expiry.
-    private func closePendingPageIfOpen() {
-        if case .pendingApproval = pairingPhase {
-            finishPairingSheet()
-            onClosePairPage?()
-        }
-    }
-
-    /// The name this phone introduces itself with: the device's own name as
-    /// iOS reports it. (The local hostname was tried as a fallback and came
-    /// back "localhost", so the device name stands alone.)
     static func defaultDeviceName() -> String {
         let systemName = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"

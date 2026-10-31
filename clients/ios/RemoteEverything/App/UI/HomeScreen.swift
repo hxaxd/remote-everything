@@ -9,49 +9,40 @@ struct HomeScreen: View {
 
     var body: some View {
         let theme = Theme(colorScheme)
-        content(theme)
-            .background(theme.bg)
-            .navigationTitle(l10n(MessageKeys.APP_NAME))
-            // An inline title sits at the top, aligned with the bar's buttons,
-            // the way the node screen's does. A large title would hang lower
-            // than the buttons and only collapse after a long scroll — a large
-            // title that takes a head of space to earn its smallness.
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        addNode()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(l10n(MessageKeys.ACTION_ADD_NODE))
-                    .accessibilityIdentifier("home.add")
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        // Beside the list (a wide screen) settings are the pane; on a
-                        // phone they are a pushed page — a sheet cannot be relied on
-                        // to follow an appearance change.
-                        if isWide {
-                            model.setPane(.settings)
-                        } else {
-                            model.pushSettings()
-                        }
-                    } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel(l10n(MessageKeys.SETTINGS_TITLE))
+        VStack(spacing: 0) {
+            if model.isRefreshing {
+                LoadingLine()
+            } else {
+                Hairline()
+            }
+            content(theme)
+        }
+        .background(theme.bg)
+        .navigationTitle(l10n(MessageKeys.APP_NAME))
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task { await model.refreshNodes() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
             }
-    }
-
-    /// Adding a node is a pane beside the list on a wide screen and a pushed
-    /// page on a phone — the same two homes Android gives it.
-    private func addNode() {
-        if isWide {
-            model.setPane(.addNode)
-        } else {
-            model.beginAddNode()
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    model.beginAddNode()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityIdentifier("home.add")
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    model.isShowingSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+            }
         }
     }
 
@@ -74,18 +65,17 @@ struct HomeScreen: View {
                             .foregroundStyle(theme.accentOnBg)
                             .padding(.horizontal, Theme.gapM)
                             .padding(.vertical, 6)
-                            .background(theme.accent, in: Capsule())
+                            .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
                     }
                     .buttonStyle(.plain)
                       .disabled(model.checkingApprovals.contains(staged.origin))
                     Button(l10n(MessageKeys.ACTION_CANCEL)) { model.abandonPending(origin: staged.origin) }
                         .buttonStyle(.borderless)
                 }
-                .padding(.horizontal, Theme.gapL)
-                .padding(.vertical, Theme.gapM)
-                .glassCard()
                 .padding(.horizontal, Theme.gapM)
-                .padding(.top, Theme.gapS)
+                .padding(.vertical, Theme.gapS + 2)
+                .background(theme.bgElevated)
+                Hairline()
             }
             if model.identities.isEmpty && model.stagedSetups.isEmpty {
                 ScrollView {
@@ -93,7 +83,7 @@ struct HomeScreen: View {
                         title: l10n(MessageKeys.EMPTY_TITLE),
                         message: l10n(MessageKeys.EMPTY_BODY),
                         actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                        action: addNode
+                        action: { model.beginAddNode() }
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.gapXL * 2)
@@ -107,37 +97,34 @@ struct HomeScreen: View {
                         title: l10n(MessageKeys.EMPTY_TITLE),
                         message: l10n(MessageKeys.EMPTY_BODY),
                         actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                        action: addNode
+                        action: { model.beginAddNode() }
                     )
                     .frame(maxWidth: .infinity)
                     .padding(.top, Theme.gapXL * 2)
                 }
                 .refreshable { await model.refreshNodes() }
             } else {
-                ScrollView {
-                    LazyVStack(spacing: Theme.gapM) {
-                        ForEach(model.nodes) { node in
-                            let isSelected = isWide && model.selectedNodeID == node.id
-                            Button {
-                                open(node)
-                            } label: {
-                                NodeRow(
-                                    node: node,
-                                    status: model.status(of: node),
-                                    inUse: model.status(of: node).isOnline ? model.preferredPath(for: node) : nil,
-                                    isSelected: isSelected
-                                )
-                            }
-                            .buttonStyle(GlassPressButtonStyle())
+                List {
+                    ForEach(model.nodes) { node in
+                        let isSelected = isWide && model.selectedNodeID == node.id
+                        Button {
+                            open(node)
+                        } label: {
+                            NodeRow(
+                                node: node,
+                                status: model.status(of: node),
+                                inUse: model.status(of: node).isOnline ? model.preferredPath(for: node) : nil,
+                                isSelected: isSelected
+                            )
                         }
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                     }
-                    .padding(.horizontal, Theme.gapM)
-                    .padding(.vertical, Theme.gapM)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
                 .refreshable { await model.refreshNodes() }
             }
         }
@@ -150,9 +137,6 @@ struct HomeScreen: View {
             return
         }
         if isWide {
-            // Opening a node is choosing it: a pane open beside the list gives
-            // way, the way Android's onSelect clears its pane.
-            model.setPane(nil)
             model.selectedNodeID = node.id
             model.path.removeAll()
         } else {

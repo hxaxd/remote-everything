@@ -27,7 +27,7 @@ struct AppRootView: View {
             // room for two columns; Split View 1/3 (~320pt) or iPhones drop back to single pane.
             let isWide = verticalSizeClass != .compact && proxy.size.width >= 700
             let theme = Theme(colorScheme)
-            ZStack(alignment: .bottom) {
+            ZStack(alignment: .top) {
                 Group {
                     if isWide {
                         wideLayout
@@ -41,18 +41,14 @@ struct AppRootView: View {
                 }
                 if let notice = model.notice {
                     NoticeBanner(notice: notice) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            model.notice = nil
-                        }
+                        model.notice = nil
                     }
-                    .padding(.bottom, Theme.gapXL)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(100)
+                    .padding(.top, Theme.gapS)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .background(theme.bg.ignoresSafeArea())
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .preferredColorScheme(model.preferredColorScheme)
         .sheet(isPresented: $model.isAddingNode) {
             PairScreen()
@@ -89,35 +85,15 @@ struct AppRootView: View {
             // Move the node selection into the detail column without losing it.
             if let first = model.path.first {
                 switch first {
-                case .pair:
-                    model.pane = .addNode
-                    model.path.removeAll { if case .pair = $0 { return true }; return false }
-                case .settings:
-                    model.pane = .settings
-                    model.path.removeAll { if case .settings = $0 { return true }; return false }
                 case .node(let nodeID):
                     model.selectedNodeID = nodeID
                     model.path.removeFirst()
                 }
             }
         } else {
-            // Wide -> Narrow: the pane becomes the phone's own full-screen shape —
-            // settings a pushed page, pairing a pushed page — so nothing the
-            // person had open is swallowed by the column change.
-            switch model.pane {
-            case .settings:
-                model.pushSettings()
-                model.pane = nil
-            case .addNode:
-                model.path.removeAll()
-                model.path.append(.pair)
-                model.selectedNodeID = nil
-                model.pane = nil
-            case nil:
-                break
-            }
-            // A node selected in wide layout keeps its place at the root of the
-            // phone's stack rather than kicking the person back to the list.
+            // Wide -> Narrow:
+            // If a node was selected in wide layout, ensure it is at the root of model.path
+            // so the user does not get kicked back to the home screen.
             if let selected = model.selectedNodeID {
                 let hasNodeInPath = model.path.contains { route in
                     if case .node(let id) = route, id == selected { return true }
@@ -159,26 +135,17 @@ struct AppRootView: View {
 
     @ViewBuilder
     private var detailColumn: some View {
-        switch model.pane {
-        case .settings:
-            SettingsScreen()
-                .environmentObject(model)
-        case .addNode:
-            PairScreen()
-                .environmentObject(model)
-        case nil:
-            if let nodeID = model.selectedNodeID {
-                NodeScreen(nodeID: nodeID)
-            } else {
-                MessagePage(
-                    title: l10n(MessageKeys.NODES_SELECT_HINT),
-                    message: nil,
-                    actionTitle: nil,
-                    action: nil
-                )
-                .navigationTitle(l10n(MessageKeys.NODES_TITLE))
-                .navigationBarTitleDisplayMode(.inline)
-            }
+        if let nodeID = model.selectedNodeID {
+            NodeScreen(nodeID: nodeID)
+        } else {
+            MessagePage(
+                title: l10n(MessageKeys.NODES_SELECT_HINT),
+                message: nil,
+                actionTitle: nil,
+                action: nil
+            )
+            .navigationTitle(l10n(MessageKeys.NODES_TITLE))
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 

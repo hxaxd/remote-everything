@@ -363,17 +363,18 @@ final class BehaviorFixturesTests: XCTestCase {
     }
 
     private struct XCStringsCatalog: Decodable {
-        struct Entry: Decodable {
-            struct StringUnit: Decodable {
+        /// One language's answer to one key: `{ "stringUnit": { state, value } }`.
+        struct Localization: Decodable {
+            struct Unit: Decodable {
                 let state: String
                 let value: String
             }
-            struct Language: Decodable {
-                let stringUnit: StringUnit
-            }
+            let stringUnit: Unit
+        }
+        struct Entry: Decodable {
             struct Localizations: Decodable {
-                let en: Language?
-                let zhHans: Language?
+                let en: Localization?
+                let zhHans: Localization?
                 enum CodingKeys: String, CodingKey {
                     case en
                     case zhHans = "zh-Hans"

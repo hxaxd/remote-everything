@@ -8,7 +8,7 @@ struct NodesResponse: Codable, Equatable {
         let id: String
         let name: String
         /// How the answering gateway reaches it, when the operator or the gateway said.
-        var link: String? = nil
+        let link: String?
 
         enum CodingKeys: String, CodingKey {
             case id
