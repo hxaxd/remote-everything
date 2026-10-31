@@ -110,7 +110,7 @@ def main(materials):
             fixture = root / "fixture.json"
             fixture.write_text(json.dumps(dict(id="editor", name="Editor", description="", icon="E", accent="#2563eb",
                 proxy_url=f"http://127.0.0.1:{app_port}", command=sys.executable,
-                arguments=[str(REPO / "internal/nodecore/testharness/fixture_server.py"), str(app_port)],
+                arguments=[str(REPO / "internal/node/nodecore/testharness/fixture_server.py"), str(app_port)],
                 stop_command="", stop_arguments=[], workdir=str(root))))
             cli("node", "app", "set", "--state", node_root, "--file", fixture)
             frps_host, frps_port = gateway["frps_listen"].rsplit(":", 1)

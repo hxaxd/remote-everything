@@ -27,7 +27,7 @@ DSH 重启会更换登录凭据。客户端仍可能持有旧 `dsh-auth-*` Cooki
 
 界面能打开、API 却返回 `403 forbidden` 时，检查 DSH 的请求 Authority 白名单。节点保留入口传来的 Host；adapter 将 `Host`、`Origin`、`Referer` 统一到 `CANONICAL_HOST`，因此新增或切换网关入口无需重登记 DSH。
 
-Go 的上游 Host 位于 `request.Host`，`__req.setHeader("Host", …)` 必须修改该字段，普通 header map 不起作用。相关回归见 [adapter_test.go](../../internal/nodeadapter/adapter_test.go)。
+Go 的上游 Host 位于 `request.Host`，`__req.setHeader("Host", …)` 必须修改该字段，普通 header map 不起作用。相关回归见 [adapter_test.go](../../internal/node/nodeadapter/adapter_test.go)。
 
 ## 依赖一致性
 

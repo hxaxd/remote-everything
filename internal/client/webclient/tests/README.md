@@ -21,7 +21,7 @@ The Go lifecycle tests verify fixed expiry, restart persistence, ticket/revocati
 races, device revocation, and active HTTP streaming and WebSocket disconnection.
 LAN and public gateway tests exercise application cookies across lock/unlock/logout.
 
-With `PLAYWRIGHT_MODULE` set, `go test ./internal/webclient -run TestBrowserLoading -v`
+With `PLAYWRIGHT_MODULE` set, `go test ./internal/client/webclient -run TestBrowserLoading -v`
 runs the real HTTP proxy and session middleware against a browser. It verifies the
 injected cover during blank/slow documents, removal after actual content, light/dark
 appearance independent of OS appearance, CSP with same-origin scripts, and reload.

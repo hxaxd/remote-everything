@@ -14,7 +14,7 @@ description: 管理 Remote Everything 客户端信任。用于创建和取消邀
 | public，或设置 `--require-approval` 的 LAN | 客户端兑换邀请并请求激活；从 `list` 读取设备名与完整指纹，取得用户确认后 `approve FINGERPRINT` |
 | 未设置该选项的 LAN | 当面交付邀请即为批准依据，不另做人工 approve |
 
-设备证书配对先生成 pending 记录；激活还要求目标节点目录可达。public 浏览器同样作为设备审批，指纹为 `sha256("web:" + client_id)`；是否有浏览器入口及边界见[应用信任说明](../remote-everything-app/SKILL.md#应用信任边界)，连接凭据见 [Web 连接模型](../../internal/webclient/README.md#browser-connections)。
+设备证书配对先生成 pending 记录；激活还要求目标节点目录可达。public 浏览器同样作为设备审批，指纹为 `sha256("web:" + client_id)`；是否有浏览器入口及边界见[应用信任说明](../remote-everything-app/SKILL.md#应用信任边界)，连接凭据见 [Web 连接模型](../../internal/client/webclient/README.md#browser-connections)。
 
 ## 命令与作用范围
 

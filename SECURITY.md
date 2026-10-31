@@ -12,7 +12,7 @@
 
 受理配对、设备授权与吊销、mTLS、控制令牌、代理、客户端凭据和 Web 隔离、运维 Skill 及发布链路的问题。
 
-- 浏览器连接的凭据、有效期、锁定、退出与应用票据，以 [Web 连接模型](internal/webclient/README.md#browser-connections) 为准。
+- 浏览器连接的凭据、有效期、锁定、退出与应用票据，以 [Web 连接模型](internal/client/webclient/README.md#browser-connections) 为准。
 - 应用的可信前提、Cookie 隔离限制及两种网关的浏览器入口取舍，见[应用信任边界](skills/remote-everything-app/SKILL.md#应用信任边界)。实现未遵守这些边界的问题仍属于报告范围。
 - 直连 LAN 的网关→节点链路依赖受控网络；跨不可信网络使用加密隧道。拓扑与暴露面见[网络说明](skills/remote-everything-install/references/networking.md)。
 
@@ -28,7 +28,7 @@ Use [GitHub private vulnerability reporting](https://github.com/hxaxd/remote-eve
 
 Reports may cover pairing, device authorization and revocation, mTLS, control tokens, proxies, client credentials and Web isolation, operational Skills, and the release pipeline.
 
-- Browser credentials, expiry, locking, logout, and handoff tickets are defined in the [browser connection model](internal/webclient/README.md#browser-connections).
+- Browser credentials, expiry, locking, logout, and handoff tickets are defined in the [browser connection model](internal/client/webclient/README.md#browser-connections).
 - Trusted-app requirements, Cookie isolation limits, and browser availability are defined in the [application trust boundary](skills/remote-everything-app/SKILL.md#应用信任边界). Implementation failures against these boundaries remain in scope.
 - Direct LAN gateway→node traffic relies on a controlled network. Use encrypted tunnels across untrusted networks; see [network topology and exposure](skills/remote-everything-install/references/networking.md).
 

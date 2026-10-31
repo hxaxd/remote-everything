@@ -14,7 +14,7 @@ description: 管理 Remote Everything 节点应用。用于发现、登记、更
 | LAN（包括无域名隧道） | 不提供浏览器客户端：入口与应用同主机、不同端口，无法以端口隔离入口 Cookie |
 | public | 允许但不推荐：独立子域与主机绑定凭据保护入口，但应用脚本仍可能写父域 Cookie，干扰同父域其它应用 |
 
-网关过滤应用流量中的内部凭据并约束服务器下发的 Cookie；具体处理见 [Web Cookie 实现](../../internal/webclient/README.md#public-application-cookie-boundary)。原生客户端另有[网页会话隔离](../../clients/behavior/README.md)，不改变按节点授权的粒度。
+网关过滤应用流量中的内部凭据并约束服务器下发的 Cookie；具体处理见 [Web Cookie 实现](../../internal/client/webclient/README.md#public-application-cookie-boundary)。原生客户端另有[网页会话隔离](../../clients/behavior/README.md)，不改变按节点授权的粒度。
 
 ## 登记
 

@@ -7,12 +7,12 @@ on:
     branches: [main]
     paths:
       - 'clients/**'
-      - 'internal/webclient/**'
+      - 'internal/client/webclient/**'
       - '.github/workflows/clients.yml'
   pull_request:
     paths:
       - 'clients/**'
-      - 'internal/webclient/**'
+      - 'internal/client/webclient/**'
       - '.github/workflows/clients.yml'
 
 concurrency:

@@ -45,7 +45,7 @@ try {
     Push-Location $Root
     try { $packages = @(go list @GoPackages); Assert ($LASTEXITCODE -eq 0) 'Release package discovery failed' }
     finally { Pop-Location }
-    foreach ($name in @('internal/gatewaycore', 'nodes/windows', 'server/lan', 'server/public')) {
+    foreach ($name in @('internal/gateway/gatewaycore', 'nodes/windows', 'server/lan', 'server/public')) {
         Assert (@($packages | Where-Object { $_.EndsWith('/' + $name) }).Count -eq 1) "Missing production package $name"
     }
 

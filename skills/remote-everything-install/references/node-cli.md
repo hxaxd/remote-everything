@@ -40,7 +40,7 @@ remote-everything-control app remove --state PATH ID
 {"id":"demo","name":"Demo","description":"","icon":"D","accent":"#2563eb","launch_fragment":"","proxy_url":"http://127.0.0.1:3000","command":"/absolute/app","arguments":[],"stop_command":"","stop_arguments":[],"workdir":"/absolute/workdir"}
 ```
 
-- `id` 是 1—63 字符的单个主机标签：小写字母、数字及内部连字符，首尾必须为字母或数字；规则来自 `internal/wire.AppIDPattern`。
+- `id` 是 1—63 字符的单个主机标签：小写字母、数字及内部连字符，首尾必须为字母或数字；规则来自 `internal/protocol/wire.AppIDPattern`。
 - 显示名称 1—80 个 Unicode 字符，描述最多 240、图标最多 4，均拒绝控制字符及首尾空白；`accent` 为六位十六进制颜色。
 - `proxy_url` 必须是无路径、查询或 fragment 的 `127.0.0.1` HTTP 地址，不能指向节点自身。探活地址从它派生。
 - 启动命令、非空停止命令、非空工作目录须为绝对路径，工作目录须存在。定义及适配器各不超过 64KB。
@@ -49,4 +49,4 @@ remote-everything-control app remove --state PATH ID
 
 `app set` 会读取同目录 `adapter.js`，也支持定义内的 `adapter` 字段；`app list` 不输出源码，`app adapter ID` 单独读取。适配器行为与应用验收见 [patterns.md](../../remote-everything-app/references/patterns.md)。
 
-控制接口是 `listen_address` 上的 `POST /__local_remote_control`，用 `Authorization: Bearer <control-token>` 调用 `list/status/start/stop`。代理到应用前，共享过滤器 `internal/proxysecurity.StripInternalHeaders` 剥离设备指纹、节点头及四个 Web 凭据头；网关控制令牌不进入应用请求，应用自身的 `Authorization` 保留。
+控制接口是 `listen_address` 上的 `POST /__local_remote_control`，用 `Authorization: Bearer <control-token>` 调用 `list/status/start/stop`。代理到应用前，共享过滤器 `internal/backplane/proxysecurity.StripInternalHeaders` 剥离设备指纹、节点头及四个 Web 凭据头；网关控制令牌不进入应用请求，应用自身的 `Authorization` 保留。

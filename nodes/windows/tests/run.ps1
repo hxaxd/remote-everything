@@ -120,7 +120,7 @@ try {
         command = $python.Source
         arguments = @((Join-Path $testsRoot 'fixture_server.py'), [string]$appPort, [string]$childPort)
         stop_command = $python.Source
-        stop_arguments = @((Join-Path $repoRoot 'internal/nodecore/testharness/fixture_server.py'), '--stop-child', [string]$stopChildPort, $stopChildPidFile)
+        stop_arguments = @((Join-Path $repoRoot 'internal/node/nodecore/testharness/fixture_server.py'), '--stop-child', [string]$stopChildPort, $stopChildPidFile)
         workdir = ''
     }
     $definitionPath = Join-Path $temporaryRoot 'fixture.json'

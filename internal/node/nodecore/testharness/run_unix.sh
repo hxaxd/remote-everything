@@ -95,7 +95,7 @@ if [[ -n "${GENBUNDLE_BINARY:-}" ]]; then
   chmod +x "$temp_root/genbundle"
 else
   command -v go >/dev/null || fail 'Go compiler or GENBUNDLE_BINARY is required'
-  (cd "$repo_root" && go build -o "$temp_root/genbundle" ./internal/nodecore/testharness/genbundle)
+  (cd "$repo_root" && go build -o "$temp_root/genbundle" ./internal/node/nodecore/testharness/genbundle)
 fi
 init_json=$("$temp_root/control" init --state "$state_root")
 printf '%s' "$init_json" | assert_json 'value["ok"] and len(value["node_id"]) == 64' 'init creates node state'
