@@ -31,11 +31,14 @@ func TestBrowserLoading(t *testing.T) {
 	defer upstream.Close()
 	target, _ := url.Parse(upstream.URL)
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	director := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		director(r)
-		proxysecurity.StripInternalHeaders(r.Header)
-		webloading.Prepare(r)
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetURL(target)
+		pr.SetXForwarded()
+		if _, ok := pr.Out.Header["User-Agent"]; !ok {
+			pr.Out.Header.Set("User-Agent", "")
+		}
+		proxysecurity.StripInternalHeaders(pr.Out.Header)
+		webloading.Prepare(pr.Out)
 	}
 	proxy.ModifyResponse = webloading.Apply
 	manager, _ := NewSessionManager(t.TempDir())

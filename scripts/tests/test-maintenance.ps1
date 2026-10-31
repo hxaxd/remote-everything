@@ -147,3 +147,7 @@ try {
     if (-not $resolvedScratch.StartsWith($temporaryRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid test cleanup path' }
     Remove-Item -LiteralPath $resolvedScratch -Recurse -Force
 }
+
+# The failure-injection loop above leaves $LASTEXITCODE at the last mock's
+# failure code; the runner turns any non-zero leftover into a failed step.
+exit 0
