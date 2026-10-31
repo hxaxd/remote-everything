@@ -39,3 +39,5 @@ description: 管理 Remote Everything 客户端信任。用于创建和取消邀
 LAN 服务端证书续期：停入口 → `certificate renew` → 启动验证 → 重新发 `invite` 让客户端取得当前固定信息。相同 installation ID 原地替换连接；入口端口改变也按此重新发码。public 的 HTTPS 证书由其入口管理。隧道证书不属于设备凭据，按 [server-cli.md](../remote-everything-install/references/server-cli.md#节点交付与隧道材料) 或 [LAN 隧道](../remote-everything-install/references/lan-tunnel.md) 维护。
 
 将设备变更和验证结果记入 `AGENTS.local.md`。
+
+iOS 客户端的签名续期（免费账号 7 天循环、定时重签、报警通道与路径选择）见 [ios-signing.md](references/ios-signing.md)。
