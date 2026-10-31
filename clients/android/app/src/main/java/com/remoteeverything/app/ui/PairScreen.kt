@@ -111,8 +111,10 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
         }
     }
     val startScan = { scanLauncher.launch(QrScanActivity.intent(context)) }
-    val scanDeniedMessage = stringResource(R.string.pair_scan_denied)
 
+    // Read while composing: the refusal is shown from a callback, and a string read
+    // off the context there is one a language change would never recompose.
+    val scanDenied = l10n(MessageKeys.PAIR_SCAN_DENIED)
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
@@ -120,7 +122,7 @@ fun PairScreen(vm: AppModel, onBack: () -> Unit, embedded: Boolean = false) {
             startScan()
         } else {
             scope.launch {
-                snackbarHostState.showSnackbar(scanDeniedMessage)
+                snackbarHostState.showSnackbar(scanDenied)
             }
         }
     }
