@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/webloading"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/client/webloading"
 )
 
 // Exercise the authenticated response path in a real browser, with delayed application content.

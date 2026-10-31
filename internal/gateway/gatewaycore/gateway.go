@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/logline"
-	"github.com/hxaxd/remote-everything/internal/netaddr"
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/webloading"
-	"github.com/hxaxd/remote-everything/internal/wire"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/client/webloading"
+	"github.com/hxaxd/remote-everything/internal/infra/logline"
+	"github.com/hxaxd/remote-everything/internal/infra/netaddr"
+	"github.com/hxaxd/remote-everything/internal/protocol/wire"
 )
 
 var (

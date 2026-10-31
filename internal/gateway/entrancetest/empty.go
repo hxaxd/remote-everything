@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
 )
 
 // CheckEmpty drives a newly initialized or restarted empty entrance through its

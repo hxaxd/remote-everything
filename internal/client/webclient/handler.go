@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/devicecore"
-	"github.com/hxaxd/remote-everything/internal/gatewaycore"
-	"github.com/hxaxd/remote-everything/internal/proxysecurity"
-	"github.com/hxaxd/remote-everything/internal/webloading"
+	"github.com/hxaxd/remote-everything/internal/backplane/proxysecurity"
+	"github.com/hxaxd/remote-everything/internal/client/webloading"
+	"github.com/hxaxd/remote-everything/internal/gateway/devicecore"
+	"github.com/hxaxd/remote-everything/internal/gateway/gatewaycore"
 )
 
 //go:embed embedded/*

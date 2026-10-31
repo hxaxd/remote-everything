@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/hxaxd/remote-everything/internal/atomicfile"
-	"github.com/hxaxd/remote-everything/internal/secret"
+	"github.com/hxaxd/remote-everything/internal/infra/atomicfile"
+	"github.com/hxaxd/remote-everything/internal/infra/secret"
 )
 
 // ServerMaterial is read only by a directly exposed FRPS. Public gateways

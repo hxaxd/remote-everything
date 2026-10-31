@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"github.com/hxaxd/remote-everything/internal/nodecore/testharness"
+	"github.com/hxaxd/remote-everything/internal/node/nodecore/testharness"
 )
 
 func TestCommandFixture(t *testing.T) { testharness.CommandFixture(t) }

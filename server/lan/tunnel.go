@@ -1,6 +1,6 @@
 package main
 
-import "github.com/hxaxd/remote-everything/internal/tunnelbootstrap"
+import "github.com/hxaxd/remote-everything/internal/backplane/tunnelbootstrap"
 
 type lanTunnelServerResult struct {
 	OK              bool   `json:"ok"`
