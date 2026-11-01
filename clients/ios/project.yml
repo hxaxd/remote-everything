@@ -62,10 +62,12 @@ targets:
         PRODUCT_NAME: RemoteEverything
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: RemoteEverything/Resources/RemoteEverything.entitlements
         CODE_SIGNING_ALLOWED: NO
     scheme:
       testTargets:
         - RemoteEverythingTests
+        - RemoteEverythingUITests
 
   RemoteEverythingTests:
     type: bundle.unit-test
@@ -77,5 +79,18 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.remoteeverything.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+
+  RemoteEverythingUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: RemoteEverythingUITests
+    dependencies:
+      - target: RemoteEverything
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.remoteeverything.app.uitests
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGNING_ALLOWED: NO

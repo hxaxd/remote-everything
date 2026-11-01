@@ -37,7 +37,9 @@ func l10n(_ key: String) -> String {
     NSLocalizedString(key, tableName: nil, bundle: Localization.bundle, value: key, comment: "")
 }
 
-/// Looks up a key that carries format specifiers ("%1$s", "%1$d").
+/// Looks up a key that carries format specifiers ("%1$@", "%1$d").
+/// Strings arrive as objects, so the catalog must say %@; %s reads the Swift
+/// String as a C string pointer and crashes.
 func l10n(_ key: String, _ first: CVarArg, _ rest: CVarArg...) -> String {
     String(format: l10n(key), arguments: [first] + rest)
 }
