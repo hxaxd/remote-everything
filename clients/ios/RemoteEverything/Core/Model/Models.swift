@@ -123,7 +123,7 @@ enum Language: String, Codable, CaseIterable, Identifiable {
     }
 
     static var systemResolved: Language {
-        resolveSystemLanguage(Locale.preferredLanguages)
+        resolveSystemLanguage(SystemLanguage.preferred)
     }
 
     static func resolveSystemLanguage(_ preferred: [String]) -> Language {
@@ -133,6 +133,21 @@ enum Language: String, Codable, CaseIterable, Identifiable {
             if tag.hasPrefix("en") { return .en }
         }
         return .en
+    }
+}
+
+/// The system's own language list, captured before the app applies a choice of
+/// its own. `Locale.preferredLanguages` returns the app's `AppleLanguages`
+/// override once one is written, which is how "follow the system" ended up
+/// meaning "the language I picked last".
+enum SystemLanguage {
+    private static var captured: [String] = Locale.preferredLanguages
+    static var preferred: [String] { captured }
+
+    /// Drops any override an older build wrote, then reads the system again.
+    static func recapture() {
+        UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        captured = Locale.preferredLanguages
     }
 }
 

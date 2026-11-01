@@ -49,7 +49,6 @@ struct AppRootView: View {
             }
             .background(theme.bg.ignoresSafeArea())
         }
-        .preferredColorScheme(model.preferredColorScheme)
         .sheet(isPresented: $model.isAddingNode) {
             PairScreen()
                 .environmentObject(model)

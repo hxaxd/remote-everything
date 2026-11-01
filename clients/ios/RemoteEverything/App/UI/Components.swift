@@ -26,11 +26,7 @@ struct NoticeBanner: View {
         }
         .padding(.horizontal, Theme.gapM)
         .padding(.vertical, Theme.gapS + 2)
-        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
-        )
+        .glassPanel(cornerRadius: Theme.radiusControl)
         .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.08), radius: 12, y: 8)
         .padding(.horizontal, Theme.gapM)
     }
@@ -247,5 +243,32 @@ struct MessagePage: View {
         .padding(Theme.gapXL)
         .frame(maxWidth: Theme.contentMaxWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A surface that carries iOS 26's glass where it exists, and a material of the
+/// same weight where it does not, so cards and notices keep one visual language
+/// across the versions this app supports.
+struct GlassPanel: ViewModifier {
+    var cornerRadius: CGFloat = 14
+    var tint: Color?
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if #available(iOS 26.0, *) {
+            content.glassEffect(tint.map { Glass.regular.tint($0) } ?? .regular, in: shape)
+        } else {
+            content
+                .background(.ultraThinMaterial, in: shape)
+                .overlay(shape.strokeBorder(Theme(colorScheme).hairline, lineWidth: Theme.hairlineWidth))
+        }
+    }
+}
+
+extension View {
+    func glassPanel(cornerRadius: CGFloat = 14, tint: Color? = nil) -> some View {
+        modifier(GlassPanel(cornerRadius: cornerRadius, tint: tint))
     }
 }

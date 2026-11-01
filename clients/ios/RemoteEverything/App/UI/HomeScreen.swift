@@ -12,21 +12,24 @@ struct HomeScreen: View {
         VStack(spacing: 0) {
             if model.isRefreshing {
                 LoadingLine()
-            } else {
-                Hairline()
             }
             content(theme)
         }
         .background(theme.bg)
         .navigationTitle(l10n(MessageKeys.APP_NAME))
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     Task { await model.refreshNodes() }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    if model.isRefreshing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
+                .disabled(model.isRefreshing)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -172,14 +175,7 @@ private struct NodeRow: View {
         }
         .padding(.horizontal, 14)
         .frame(minHeight: Theme.nodeRowHeight)
-        .background(
-            isSelected ? theme.tint(theme.accent) : theme.bgElevated,
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
-        )
+        .glassPanel(cornerRadius: 14, tint: isSelected ? theme.accent.opacity(0.22) : nil)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }

@@ -31,16 +31,16 @@ struct SettingsScreen: View {
                     Button(l10n(MessageKeys.ACTION_DONE)) { dismiss() }
                 }
             }
-            .overlay(alignment: .top) {
+            .overlay(alignment: .bottom) {
                 if let copied {
                     Text(copied)
                         .font(Theme.caption)
                         .foregroundStyle(theme.textSecondary)
                         .padding(.horizontal, Theme.gapM)
                         .padding(.vertical, Theme.gapS)
-                        .background(Capsule().fill(theme.bgElevated))
-                        .padding(.top, Theme.gapL)
-                        .transition(.opacity)
+                        .glassPanel(cornerRadius: 18)
+                        .padding(.bottom, Theme.gapL)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }

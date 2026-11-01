@@ -65,6 +65,7 @@ final class NodesController: ObservableObject {
     /// Asks every gateway what it serves, in parallel, and rebuilds the merged list.
     func refreshNodes() async {
         guard !isRefreshing else { refreshQueued = true; return }
+        let started = ContinuousClock.now
         isRefreshing = true
         defer {
             isRefreshing = false
@@ -133,6 +134,14 @@ final class NodesController: ObservableObject {
 
         nodes = NodeMerge.merge(answers)
         refreshPendingRows()
+
+        // A refresh that answers in milliseconds still shows one complete piece
+        // of feedback. The other clients hold theirs for about the same time;
+        // an iOS spinner that comes and goes in one frame reads as nothing.
+        let elapsed = ContinuousClock.now - started
+        if elapsed < .milliseconds(600) {
+            try? await Task.sleep(for: .milliseconds(600) - elapsed)
+        }
     }
 
     func status(of node: Node) -> NodeStatus {

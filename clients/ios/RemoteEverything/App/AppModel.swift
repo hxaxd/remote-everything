@@ -137,6 +137,7 @@ final class AppModel: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
+        SystemLanguage.recapture()
         Localization.apply(settings.language)
         network.onPathChange = { [weak self] in
             guard let self else { return }
@@ -314,7 +315,6 @@ final class AppModel: ObservableObject {
         settings.language = language
         store.saveSettings(settings)
         Localization.apply(language)
-        Localization.persistPreferredLanguage(language)
     }
 
     func setAppearance(_ appearance: Appearance) {
