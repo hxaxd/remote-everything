@@ -12,6 +12,13 @@ final class PairingE2EUITests: XCTestCase {
             throw XCTSkip("RE_E2E_SETUP_URI not provided; skipping live gateway pairing test.")
         }
         let app = XCUIApplication()
+        addUIInterruptionMonitor(withDescription: "Local network permission") { alert in
+            for title in ["允许", "Allow"] where alert.buttons[title].exists {
+                alert.buttons[title].tap()
+                return true
+            }
+            return false
+        }
         app.launch()
 
         let add = app.buttons["home.add"]
@@ -28,6 +35,15 @@ final class PairingE2EUITests: XCTestCase {
         let join = app.buttons["pair.join"]
         XCTAssertTrue(join.waitForExistence(timeout: 5), "the confirm card did not appear for the invitation")
         join.tap()
+        // The first request to a private address raises the local-network
+        // permission alert above the app; the monitor only runs when the app
+        // is asked to do something, so poke it.
+        app.tap()
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        for title in ["允许", "Allow"] {
+            let button = springboard.buttons[title]
+            if button.waitForExistence(timeout: 3) { button.tap(); break }
+        }
 
         // Success closes the page and puts the node on the home list; anything
         // else leaves the page with a failure line. Wait, then say which.
