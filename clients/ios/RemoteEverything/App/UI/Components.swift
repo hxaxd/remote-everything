@@ -114,10 +114,16 @@ struct AppIconTile: View {
         RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(theme.tint(accent ?? theme.accent))
             .frame(width: 40, height: 40)
-            .overlay(
-                Text(icon.isEmpty ? "📦" : icon)
-                    .font(.system(size: 20))
-            )
+            .overlay {
+                if icon.isEmpty {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(theme.textPrimary)
+                } else {
+                    Text(icon)
+                        .font(.system(size: 20))
+                }
+            }
     }
 }
 
@@ -158,7 +164,8 @@ struct LoadingLine: View {
 }
 
 /// S0's shape: one sentence about what is going on, one about what to do, and
-/// one button.
+/// one button. The other clients draw exactly these three lines; an illustration
+/// here made iOS the odd one out.
 struct EmptyStateView: View {
     let title: String
     // Not `body`: a stored property of a View may not be named for the one the
@@ -172,11 +179,6 @@ struct EmptyStateView: View {
     var body: some View {
         let theme = Theme(colorScheme)
         VStack(spacing: Theme.gapM) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(theme.tint(theme.accent))
-                .frame(width: 64, height: 64)
-                .overlay(Text("📦").font(.system(size: 28)))
-                .padding(.bottom, Theme.gapS)
             Text(title)
                 .font(Theme.headline)
                 .foregroundStyle(theme.textPrimary)
@@ -187,8 +189,14 @@ struct EmptyStateView: View {
                 .multilineTextAlignment(.center)
             Button(action: action) {
                 Text(actionTitle)
+                    .font(Theme.body.weight(.semibold))
+                    .foregroundStyle(theme.textPrimary)
+                    .padding(.horizontal, Theme.gapL)
+                    .frame(height: 44)
+                    .contentShape(Rectangle())
+                    .glassPanel(cornerRadius: Theme.radiusControl, tint: theme.accent.opacity(0.24))
             }
-            .buttonStyle(ActionButtonStyle(height: 44))
+            .buttonStyle(.plain)
             .padding(.top, Theme.gapS)
         }
         .padding(Theme.gapXL)

@@ -78,30 +78,22 @@ struct HomeScreen: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
             }
-            if model.identities.isEmpty && model.stagedSetups.isEmpty {
+            if visibleNodes.isEmpty && model.stagedSetups.isEmpty {
+                // Nothing paired yet, or the gateway took the nodes away. The
+                // same three lines as S0: title, explanation, one action.
                 ScrollView {
-                    EmptyStateView(
-                        title: l10n(MessageKeys.EMPTY_TITLE),
-                        message: l10n(MessageKeys.EMPTY_BODY),
-                        actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                        action: { model.beginAddNode() }
-                    )
+                    VStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        EmptyStateView(
+                            title: l10n(MessageKeys.EMPTY_TITLE),
+                            message: l10n(MessageKeys.EMPTY_BODY),
+                            actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
+                            action: { model.beginAddNode() }
+                        )
+                        Spacer(minLength: 0)
+                    }
                     .frame(maxWidth: .infinity)
-                    .padding(.top, Theme.gapXL * 2)
-                }
-                .refreshable { await model.refreshNodes() }
-            } else if visibleNodes.isEmpty && model.stagedSetups.isEmpty {
-                // Paired, but nothing to show: the nodes were taken away on the
-                // gateway's side. Same words as S0, and settings stay reachable.
-                ScrollView {
-                    EmptyStateView(
-                        title: l10n(MessageKeys.EMPTY_TITLE),
-                        message: l10n(MessageKeys.EMPTY_BODY),
-                        actionTitle: l10n(MessageKeys.ACTION_ADD_NODE),
-                        action: { model.beginAddNode() }
-                    )
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, Theme.gapXL * 2)
+                    .containerRelativeFrame(.vertical)
                 }
                 .refreshable { await model.refreshNodes() }
             } else if !visibleNodes.isEmpty {

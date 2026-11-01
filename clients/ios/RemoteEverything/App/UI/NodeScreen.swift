@@ -54,11 +54,13 @@ struct NodeScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .some(.ready(let apps)):
                 if apps.isEmpty {
+                    // An empty catalog is an empty catalog, not a failure: the
+                    // other clients offer no retry here.
                     MessagePage(
                         title: l10n(MessageKeys.APPS_EMPTY_TITLE),
                         message: l10n(MessageKeys.APPS_EMPTY_BODY),
-                        actionTitle: l10n(MessageKeys.ACTION_RETRY),
-                        action: { Task { await model.loadCatalog(nodeID: nodeID) } }
+                        actionTitle: nil,
+                        action: nil
                     )
                 } else {
                     List {

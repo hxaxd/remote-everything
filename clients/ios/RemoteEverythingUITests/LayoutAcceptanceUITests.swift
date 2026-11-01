@@ -231,6 +231,21 @@ final class LayoutAcceptanceUITests: XCTestCase {
         capture("wide-error-recovered-by-selection")
     }
 
+
+    func testEmptyHomeHasNoIllustrationAndACompactAction() throws {
+        guard ProcessInfo.processInfo.environment["RE_E2E_EMPTY"] != nil else {
+            throw XCTSkip("RE_E2E_EMPTY not provided")
+        }
+        app.launch()
+        let title = app.staticTexts.matching(NSPredicate(format: "label == '还没有节点' OR label == 'No nodes yet'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 15), "the empty state did not appear")
+        XCTAssertFalse(app.staticTexts["📦"].exists, "the empty state still has an illustration")
+        let action = app.buttons.matching(NSPredicate(format: "label == '添加节点' OR label == 'Add node'")).firstMatch
+        XCTAssertTrue(action.exists, "the empty state has no add action")
+        XCTAssertLessThan(action.frame.width, app.windows.firstMatch.frame.width - 80, "the empty-state action is a full-width bar")
+        capture("empty-state-fixed")
+    }
+
     // MARK: - Helpers
 
     private func openPanel() {
