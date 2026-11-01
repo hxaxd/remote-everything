@@ -806,13 +806,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Join node “%2$s” via %1$s"
+            "value": "Join node “%2$@” via %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "通过 %1$s 加入节点「%2$s」"
+            "value": "通过 %1$@ 加入节点「%2$@」"
           }
         }
       }
@@ -1231,13 +1231,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Current version %1$s (%2$d)"
+            "value": "Current version %1$@ (%2$d)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "当前版本 %1$s (%2$d)"
+            "value": "当前版本 %1$@ (%2$d)"
           }
         }
       }
@@ -1265,13 +1265,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Version %1$s (%2$d) is available"
+            "value": "Version %1$@ (%2$d) is available"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有新版本 %1$s (%2$d)"
+            "value": "有新版本 %1$@ (%2$d)"
           }
         }
       }
@@ -1809,13 +1809,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$s failures in a row"
+            "value": "%1$@ failures in a row"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "连续失败 %1$s 次"
+            "value": "连续失败 %1$@ 次"
           }
         }
       }
@@ -1826,13 +1826,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "last answer %1$s"
+            "value": "last answer %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最后应答 %1$s"
+            "value": "最后应答 %1$@"
           }
         }
       }
@@ -1877,13 +1877,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "since %1$s"
+            "value": "since %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 %1$s 起"
+            "value": "从 %1$@ 起"
           }
         }
       }
@@ -2064,13 +2064,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved to %1$s"
+            "value": "Saved to %1$@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已保存到 %1$s"
+            "value": "已保存到 %1$@"
           }
         }
       }
