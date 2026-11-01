@@ -18,18 +18,6 @@ enum Localization {
             bundle = .main
         }
     }
-
-    /// Records the choice where the system finds it on the next launch as well.
-    static func persistPreferredLanguage(_ language: Language) {
-        switch language {
-        case .system:
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        case .zh:
-            UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
-        case .en:
-            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
-        }
-    }
 }
 
 /// Looks up one semantic key in the current language.

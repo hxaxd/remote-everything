@@ -38,7 +38,7 @@ struct PairScreen: View {
                             Button(l10n(MessageKeys.ACTION_RETRY)) {
                                 Task { await model.resumeStagedSetups(origin: staged.origin) }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(ActionButtonStyle(height: 44))
                             .disabled(model.checkingApprovals.contains(staged.origin))
                             Button(l10n(MessageKeys.ACTION_BACK)) { model.leaveAddNode(); dismiss() }
                         }
@@ -67,7 +67,7 @@ struct PairScreen: View {
             }
         }
         .interactiveDismissDisabled(model.pairingPhase == .pairing)
-        .sheet(isPresented: $showingScanner) {
+        .fullScreenCover(isPresented: $showingScanner) {
             ScannerScreen { code in
                 showingScanner = false
                 model.addNodeText = code
@@ -88,23 +88,27 @@ struct PairScreen: View {
             Button {
                 showingScanner = true
             } label: {
-                Label(l10n(MessageKeys.PAIR_SCAN), systemImage: "qrcode.viewfinder")
+                Text(l10n(MessageKeys.PAIR_SCAN))
+                    .font(Theme.body.weight(.semibold))
+                    .foregroundStyle(theme.textPrimary)
                     .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            Text(l10n(MessageKeys.PAIR_INPUT_HINT))
-                .font(Theme.body)
-                .foregroundStyle(theme.textSecondary)
+            .buttonStyle(.plain)
+            .glassPanel(cornerRadius: Theme.radiusControl, tint: theme.accent.opacity(0.24))
             TextField(l10n(MessageKeys.PAIR_INPUT_HINT), text: Binding(
                 get: { model.addNodeText },
                 set: { model.addNodeText = $0; model.parseInvitation($0) }
             ), axis: .vertical)
                 .font(Theme.body)
-                .lineLimit(2...4)
+                .lineLimit(3...6)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(Theme.gapM)
+                .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
+                .glassPanel(cornerRadius: Theme.radiusControl, stroked: false)
                 .accessibilityIdentifier("pair.invitation")
             if model.invitationError != nil {
                 Text(l10n(MessageKeys.PAIR_BAD_INVITATION))
@@ -144,16 +148,13 @@ struct PairScreen: View {
                 Task { await model.confirmPairing() }
             } label: {
                 Text(l10n(MessageKeys.PAIR_ACTION_JOIN))
-                    .font(Theme.body)
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(ActionButtonStyle(height: 48))
             .accessibilityIdentifier("pair.join")
             .disabled(model.deviceNameDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(Theme.gapM)
-        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .glassPanel(cornerRadius: 16)
     }
 
     private func pairingView(_ theme: Theme) -> some View {

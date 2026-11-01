@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import SwiftUI
 import UIKit
 
@@ -137,6 +138,7 @@ final class AppModel: ObservableObject {
     // MARK: - Lifecycle
 
     func start() {
+        SystemLanguage.recapture()
         Localization.apply(settings.language)
         network.onPathChange = { [weak self] in
             guard let self else { return }
@@ -310,11 +312,19 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// The window's own appearance. `unspecified` is "whatever the system is".
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch settings.appearance {
+        case .system: return .unspecified
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
     func setLanguage(_ language: Language) {
         settings.language = language
         store.saveSettings(settings)
         Localization.apply(language)
-        Localization.persistPreferredLanguage(language)
     }
 
     func setAppearance(_ appearance: Appearance) {

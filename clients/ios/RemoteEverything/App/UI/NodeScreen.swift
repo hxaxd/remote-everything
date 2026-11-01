@@ -69,7 +69,12 @@ struct NodeScreen: View {
                                 onStart: { model.startApplication(nodeID: nodeID, appID: app.id) },
                                 onStop: { model.stopApplication(nodeID: nodeID, appID: app.id) }
                             )
-                            .listRowBackground(theme.bgElevated)
+                            .padding(.vertical, Theme.gapS)
+                            .padding(.horizontal, 12)
+                            .glassPanel(cornerRadius: 14)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                         }
                     }
                     .listStyle(.plain)

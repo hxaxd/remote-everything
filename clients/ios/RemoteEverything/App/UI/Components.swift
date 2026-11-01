@@ -26,11 +26,7 @@ struct NoticeBanner: View {
         }
         .padding(.horizontal, Theme.gapM)
         .padding(.vertical, Theme.gapS + 2)
-        .background(theme.bgElevated, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous)
-                .strokeBorder(theme.hairline, lineWidth: Theme.hairlineWidth)
-        )
+        .glassPanel(cornerRadius: Theme.radiusControl)
         .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.32 : 0.08), radius: 12, y: 8)
         .padding(.horizontal, Theme.gapM)
     }
@@ -191,13 +187,8 @@ struct EmptyStateView: View {
                 .multilineTextAlignment(.center)
             Button(action: action) {
                 Text(actionTitle)
-                    .font(Theme.body)
-                    .foregroundStyle(theme.accentOnBg)
-                    .padding(.horizontal, Theme.gapL)
-                    .padding(.vertical, Theme.gapS + 4)
-                    .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ActionButtonStyle(height: 44))
             .padding(.top, Theme.gapS)
         }
         .padding(Theme.gapXL)
@@ -247,5 +238,196 @@ struct MessagePage: View {
         .padding(Theme.gapXL)
         .frame(maxWidth: Theme.contentMaxWidth)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A surface that carries iOS 26's glass where it exists, and a material of the
+/// same weight where it does not, so cards and notices keep one visual language
+/// across the versions this app supports.
+struct GlassPanel: ViewModifier {
+    var cornerRadius: CGFloat = 14
+    var tint: Color?
+    /// `glassEffect` draws its own highlight edge, which on light surfaces reads
+    /// as a white frame. Controls that want a calm surface ask for no stroke and
+    /// get the material without the highlight.
+    var stroked: Bool = true
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if #available(iOS 26.0, *), stroked {
+            content.glassEffect(tint.map { Glass.regular.tint($0) } ?? .regular, in: shape)
+        } else {
+            content
+                .background {
+                    shape
+                        .fill(.ultraThinMaterial)
+                        .overlay {
+                            if let tint { shape.fill(tint) }
+                        }
+                        .overlay {
+                            // A glass surface catches light. The highlight is a
+                            // gradient inside the shape, not an edge stroke, so
+                            // it reads as a surface instead of a white frame.
+                            shape.fill(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.24), Color.white.opacity(0.04), Color.black.opacity(0.03)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .mask(shape)
+                        }
+                }
+                .overlay {
+                    if stroked {
+                        shape.strokeBorder(Theme(colorScheme).hairline, lineWidth: Theme.hairlineWidth)
+                    }
+                }
+        }
+    }
+}
+
+extension View {
+    func glassPanel(cornerRadius: CGFloat = 14, tint: Color? = nil, stroked: Bool = true) -> some View {
+        modifier(GlassPanel(cornerRadius: cornerRadius, tint: tint, stroked: stroked))
+    }
+}
+
+/// Puts the appearance on the window instead of asking each view. SwiftUI's
+/// preferredColorScheme leaves the sheet and parts of the chrome a beat behind,
+/// and reverting it to nil (follow the system) does not always take; the window
+/// switches everything at once, and `unspecified` is the system again.
+struct WindowInterfaceStyle: UIViewRepresentable {
+    let style: UIUserInterfaceStyle
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        DispatchQueue.main.async { view.window?.overrideUserInterfaceStyle = style }
+    }
+}
+
+private struct PullOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// Pull to refresh, with the indicator behind the content instead of floating
+/// over it, and a shorter pull than the system asks for. The toolbar's refresh
+/// goes through the same state, so a tap plays the same animation a pull does.
+struct PullRefresh<Content: View>: View {
+
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+    var threshold: CGFloat = 44
+    @ViewBuilder var content: () -> Content
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var pull: CGFloat = 0
+    @State private var armed = false
+
+    private let space = "pull.refresh"
+
+    var body: some View {
+        let theme = Theme(colorScheme)
+        ZStack(alignment: .top) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(theme.accent)
+                .frame(maxWidth: .infinity)
+                .frame(height: isRefreshing ? threshold : pull)
+                .opacity(isRefreshing || pull > 0 ? 1 : 0)
+                .scaleEffect(min(1, (isRefreshing ? threshold : pull) / threshold))
+
+            scroll
+        }
+        .animation(.spring(response: 0.3, dampingFraction: 0.86), value: isRefreshing)
+        .animation(.interactiveSpring(response: 0.24, dampingFraction: 0.9), value: pull)
+        .onChange(of: isRefreshing) { _, refreshing in
+            // The pull is frozen while the refresh runs; if a scroll happens in
+            // that window the frozen value would outlive the refresh and leave
+            // the indicator standing. The end of a refresh is a clean slate.
+            if !refreshing {
+                pull = 0
+                armed = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var scroll: some View {
+        if #available(iOS 18.0, *) {
+            base
+                .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    max(0, -(geometry.contentOffset.y + geometry.contentInsets.top))
+                } action: { _, value in
+                    guard !isRefreshing else { return }
+                    pull = value
+                    armed = value >= threshold
+                }
+                .simultaneousGesture(
+                    DragGesture().onEnded { _ in
+                        if armed && !isRefreshing { onRefresh() }
+                        armed = false
+                    }
+                )
+        } else {
+            base
+                .simultaneousGesture(
+                    DragGesture().onEnded { _ in
+                        if armed && !isRefreshing { onRefresh() }
+                        armed = false
+                    }
+                )
+                .onPreferenceChange(PullOffsetKey.self) { value in
+                    guard !isRefreshing else { return }
+                    pull = max(0, value)
+                    armed = pull >= threshold
+                }
+        }
+    }
+
+    private var base: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                GeometryReader { geo in
+                    Color.clear.preference(key: PullOffsetKey.self, value: geo.frame(in: .named(space)).minY)
+                }
+                .frame(height: 0)
+                Color.clear.frame(height: isRefreshing ? threshold : 0)
+                content()
+            }
+        }
+        .coordinateSpace(name: space)
+        .scrollBounceBehavior(.always, axes: .vertical)
+        .background(Color.clear)
+    }
+}
+
+/// The one action button: a glass surface tinted with the accent, the label in
+/// the primary ink. A solid accent fill is the system's blue by another name and
+/// reads as a different product next to the scan action.
+struct ActionButtonStyle: ButtonStyle {
+    var height: CGFloat = 48
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        let theme = Theme(colorScheme)
+        configuration.label
+            .font(Theme.body.weight(.semibold))
+            .foregroundStyle(theme.textPrimary)
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .contentShape(Rectangle())
+            .glassPanel(cornerRadius: Theme.radiusControl, tint: theme.accent.opacity(0.24))
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
