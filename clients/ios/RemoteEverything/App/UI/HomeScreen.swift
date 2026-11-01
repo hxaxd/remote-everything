@@ -6,13 +6,11 @@ struct HomeScreen: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.reWideLayout) private var isWide
+    @State private var pulling = false
 
     var body: some View {
         let theme = Theme(colorScheme)
         VStack(spacing: 0) {
-            if model.isRefreshing {
-                LoadingLine()
-            }
             content(theme)
         }
         .background(theme.bg)
@@ -21,15 +19,12 @@ struct HomeScreen: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
-                    Task { await model.refreshNodes() }
+                    startRefresh()
                 } label: {
-                    if model.isRefreshing {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                    }
+                    Image(systemName: "arrow.clockwise")
+                        .frame(width: 22, height: 22)
                 }
-                .disabled(model.isRefreshing)
+                .disabled(pulling)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -51,7 +46,8 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func content(_ theme: Theme) -> some View {
-        VStack(spacing: 0) {
+        let visibleNodes = model.nodes.filter { model.status(of: $0) != .pendingApproval }
+        return VStack(spacing: 0) {
             ForEach(model.stagedSetups, id: \.origin) { staged in
                 HStack(spacing: Theme.gapM) {
                     StatusBadge(text: l10n(MessageKeys.NODE_PENDING), color: theme.warn)
@@ -64,21 +60,23 @@ struct HomeScreen: View {
                         Task { await model.resumeStagedSetups(origin: staged.origin) }
                     } label: {
                         Text(l10n(MessageKeys.ACTION_RETRY))
-                            .font(Theme.caption)
-                            .foregroundStyle(theme.accentOnBg)
+                            .font(Theme.caption.weight(.semibold))
+                            .foregroundStyle(theme.textPrimary)
                             .padding(.horizontal, Theme.gapM)
                             .padding(.vertical, 6)
-                            .background(theme.accent, in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
+                            .glassPanel(cornerRadius: Theme.radiusControl, tint: theme.accent.opacity(0.24))
                     }
                     .buttonStyle(.plain)
-                      .disabled(model.checkingApprovals.contains(staged.origin))
+                    .disabled(model.checkingApprovals.contains(staged.origin))
                     Button(l10n(MessageKeys.ACTION_CANCEL)) { model.abandonPending(origin: staged.origin) }
                         .buttonStyle(.borderless)
+                        .foregroundStyle(theme.textSecondary)
                 }
                 .padding(.horizontal, Theme.gapM)
                 .padding(.vertical, Theme.gapS + 2)
-                .background(theme.bgElevated)
-                Hairline()
+                .glassPanel(cornerRadius: 14)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
             }
             if model.identities.isEmpty && model.stagedSetups.isEmpty {
                 ScrollView {
@@ -92,7 +90,7 @@ struct HomeScreen: View {
                     .padding(.top, Theme.gapXL * 2)
                 }
                 .refreshable { await model.refreshNodes() }
-            } else if model.nodes.isEmpty {
+            } else if visibleNodes.isEmpty && model.stagedSetups.isEmpty {
                 // Paired, but nothing to show: the nodes were taken away on the
                 // gateway's side. Same words as S0, and settings stay reachable.
                 ScrollView {
@@ -106,30 +104,40 @@ struct HomeScreen: View {
                     .padding(.top, Theme.gapXL * 2)
                 }
                 .refreshable { await model.refreshNodes() }
-            } else {
-                List {
-                    ForEach(model.nodes) { node in
-                        let isSelected = isWide && model.selectedNodeID == node.id
-                        Button {
-                            open(node)
-                        } label: {
-                            NodeRow(
-                                node: node,
-                                status: model.status(of: node),
-                                inUse: model.status(of: node).isOnline ? model.preferredPath(for: node) : nil,
-                                isSelected: isSelected
-                            )
+            } else if !visibleNodes.isEmpty {
+                PullRefresh(isRefreshing: pulling, onRefresh: startRefresh) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(visibleNodes) { node in
+                            let isSelected = isWide && model.selectedNodeID == node.id
+                            Button {
+                                open(node)
+                            } label: {
+                                NodeRow(
+                                    node: node,
+                                    status: model.status(of: node),
+                                    inUse: model.status(of: node).isOnline ? model.preferredPath(for: node) : nil,
+                                    isSelected: isSelected
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 4)
                         }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
                     }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .refreshable { await model.refreshNodes() }
+            } else {
+                Spacer(minLength: 0)
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func startRefresh() {
+        guard !pulling else { return }
+        pulling = true
+        Task {
+            await model.refreshNodes()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) { pulling = false }
         }
     }
 

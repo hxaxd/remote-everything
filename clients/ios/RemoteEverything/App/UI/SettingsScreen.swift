@@ -15,23 +15,16 @@ struct SettingsScreen: View {
     var body: some View {
         let theme = Theme(colorScheme)
         NavigationStack {
-            List {
-                languageSection(theme)
-                appearanceSection(theme)
-                connectionsSection(theme)
-                aboutSection(theme)
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(theme.bg)
-            .navigationTitle(l10n(MessageKeys.SETTINGS_TITLE))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(l10n(MessageKeys.ACTION_DONE)) { dismiss() }
+            ZStack(alignment: .bottom) {
+                List {
+                    languageSection(theme)
+                    appearanceSection(theme)
+                    connectionsSection(theme)
+                    aboutSection(theme)
                 }
-            }
-            .overlay(alignment: .bottom) {
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+                .background(theme.bg)
                 if let copied {
                     Text(copied)
                         .font(Theme.caption)
@@ -40,7 +33,17 @@ struct SettingsScreen: View {
                         .padding(.vertical, Theme.gapS)
                         .glassPanel(cornerRadius: 18)
                         .padding(.bottom, Theme.gapL)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(copied)
+                        .accessibilityAddTraits(.isStaticText)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .navigationTitle(l10n(MessageKeys.SETTINGS_TITLE))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(l10n(MessageKeys.ACTION_DONE)) { dismiss() }
                 }
             }
         }
@@ -157,8 +160,8 @@ struct SettingsScreen: View {
                 // and the same size, each a tap away from the clipboard: the address
                 // is what a person reads, the name is what they send with it.
                 VStack(alignment: .leading, spacing: 2) {
-                    copyable(identity.origin, display: displayAddress(identity.origin), theme: theme, colour: theme.textPrimary)
-                    copyable(identity.deviceName, theme: theme, colour: theme.textSecondary)
+                    copyButton(identity.origin, display: displayAddress(identity.origin), theme: theme, colour: theme.textPrimary)
+                    copyButton(identity.deviceName, theme: theme, colour: theme.textSecondary)
                 }
                 Spacer(minLength: Theme.gapS)
                 Button {
@@ -208,16 +211,22 @@ struct SettingsScreen: View {
         .listRowSeparator(.hidden)
     }
 
-    /// A line of a connection that is also a thing to take away.
-    private func copyable(_ value: String, display: String? = nil, theme: Theme, colour: Color, font: Font = Theme.body) -> some View {
-        Text(display ?? value)
-            .font(font)
-            .foregroundStyle(colour)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .contentShape(Rectangle())
-            .onTapGesture { copy(value) }
+    /// A line of a connection that is also a thing to take away. It is a
+    /// Button rather than a Text with a tap gesture: a List row can swallow a
+    /// gesture, and the address is too useful to be a hit-target accident.
+    private func copyButton(_ value: String, display: String? = nil, theme: Theme, colour: Color, font: Font = Theme.body) -> some View {
+        Button { copy(value) } label: {
+            Text(display ?? value)
+                .font(font)
+                .foregroundStyle(colour)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(display ?? value)
     }
+
 
     /// The clipboard has no opinion about what happened, so this screen says so —
     /// once, briefly, the way a screen says everything else it has to say.
@@ -226,7 +235,7 @@ struct SettingsScreen: View {
         copiedTask?.cancel()
         withAnimation(.easeOut(duration: 0.15)) { copied = l10n(MessageKeys.ACTION_COPIED) }
         copiedTask = Task {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.2)) { copied = nil }
         }

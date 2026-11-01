@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import SwiftUI
 import UIKit
 
@@ -306,6 +307,15 @@ final class AppModel: ObservableObject {
     var preferredColorScheme: ColorScheme? {
         switch settings.appearance {
         case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    /// The window's own appearance. `unspecified` is "whatever the system is".
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch settings.appearance {
+        case .system: return .unspecified
         case .light: return .light
         case .dark: return .dark
         }

@@ -10,46 +10,34 @@ import UIKit
 /// system scanning API the other two can lean on. Android and Harmony can
 /// inline a preview or a system scan into PairScreen; here the camera is a
 /// hand-built AVCaptureSession that must ask for camera permission, answer its
-/// refusal, and run only while its view is on screen — machinery that cannot
-/// live inside the pairing sheet, so it is a screen of its own. The divergence
-/// ends at the shell: what the scanner yields is the same invitation string,
-/// parsed by the same strict SetupURI, and nothing else in the app knows a
-/// scanner exists.
+/// refusal, and run only while its view is on screen. The divergence ends at
+/// the shell: what the scanner yields is the same invitation string, parsed by
+/// the same strict SetupURI, and nothing else in the app knows a scanner exists.
+///
+/// The shell itself is the one the other clients show: the whole window is the
+/// camera, with the way out on one side, the name in the middle, and the light
+/// on the other. No navigation chrome, no frame, and no sentence — the picture
+/// is the instruction.
 struct ScannerScreen: View {
 
     let onCode: (String) -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var authorization: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    @StateObject private var scanner = ScannerController()
 
     var body: some View {
-        let theme = Theme(colorScheme)
-        NavigationStack {
-            ZStack {
-                Color.black.ignoresSafeArea()
-                switch authorization {
-                case .authorized, .notDetermined:
-                    QRCodeScanner(onCode: onCode)
-                        .ignoresSafeArea(edges: .bottom)
-                default:
-                    MessagePage(
-                        title: l10n(MessageKeys.PAIR_SCAN_DENIED),
-                        message: l10n(MessageKeys.PAIR_SCAN_BODY),
-                        actionTitle: nil,
-                        action: nil
-                    )
-                    .background(theme.bg)
-                }
-            }
-            .navigationTitle(l10n(MessageKeys.PAIR_SCAN))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(l10n(MessageKeys.ACTION_CANCEL)) { dismiss() }
-                }
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if authorization == .authorized || authorization == .notDetermined {
+                QRCodeScanner(onCode: onCode, controller: scanner)
+                    .ignoresSafeArea()
+                controls
+            } else {
+                denied
             }
         }
+        .statusBarHidden(true)
         .onAppear {
             // The code is read in the hand it is held in: the scanner stands up,
             // whatever the phone was doing a moment ago, and goes back to the
@@ -57,7 +45,63 @@ struct ScannerScreen: View {
             OrientationLock.shared.apply(.portrait)
             requestAccess()
         }
-        .onDisappear { OrientationLock.shared.release() }
+        .onDisappear {
+            scanner.turnOff()
+            OrientationLock.shared.release()
+        }
+    }
+
+    private var controls: some View {
+        VStack {
+            HStack(spacing: Theme.gapM) {
+                circleButton("xmark") { dismiss() }
+                    .accessibilityLabel(l10n(MessageKeys.ACTION_BACK))
+                Spacer(minLength: 0)
+                Text(l10n(MessageKeys.PAIR_SCAN))
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white)
+                Spacer(minLength: 0)
+                if scanner.torchAvailable {
+                    circleButton(scanner.torchOn ? "flashlight.on.fill" : "flashlight.off.fill") {
+                        scanner.toggleTorch()
+                    }
+                    .accessibilityIdentifier("scan.torch")
+                } else {
+                    Color.clear.frame(width: 44, height: 44)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            Spacer()
+        }
+    }
+
+    private func circleButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(.ultraThinMaterial))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var denied: some View {
+        VStack(spacing: Theme.gapM) {
+            Text(l10n(MessageKeys.PAIR_SCAN_DENIED))
+                .font(Theme.headline)
+                .foregroundStyle(.white)
+            Text(l10n(MessageKeys.PAIR_SCAN_BODY))
+                .font(Theme.body)
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+            Button(l10n(MessageKeys.ACTION_BACK)) { dismiss() }
+                .font(Theme.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.top, Theme.gapS)
+        }
+        .padding(Theme.gapXL)
     }
 
     private func requestAccess() {
@@ -70,16 +114,44 @@ struct ScannerScreen: View {
     }
 }
 
+/// The light, as the view holds it: the screen asks, the view answers.
+final class ScannerController: ObservableObject {
+
+    @Published private(set) var torchAvailable = false
+    @Published private(set) var torchOn = false
+
+    weak var view: QRScannerView?
+
+    func attach(_ view: QRScannerView) {
+        self.view = view
+        torchAvailable = view.hasTorch
+    }
+
+    func toggleTorch() {
+        guard let view, view.hasTorch else { return }
+        torchOn.toggle()
+        view.setTorch(torchOn)
+    }
+
+    func turnOff() {
+        guard torchOn else { return }
+        torchOn = false
+        view?.setTorch(false)
+    }
+}
+
 /// The camera view. It is a plain UIView so the session's lifetime matches the
 /// view's own: the session starts when the view is on screen and stops when it
 /// is not.
 struct QRCodeScanner: UIViewRepresentable {
 
     let onCode: (String) -> Void
+    let controller: ScannerController
 
     func makeUIView(context: Context) -> QRScannerView {
         let view = QRScannerView()
         view.onCode = onCode
+        controller.attach(view)
         return view
     }
 
@@ -94,8 +166,10 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
 
     private let session = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer?
-    private let overlay = ScannerOverlayView()
+    private var device: AVCaptureDevice?
     private var handled = false
+
+    var hasTorch: Bool { device?.hasTorch ?? false }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -110,7 +184,6 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
     override func layoutSubviews() {
         super.layoutSubviews()
         previewLayer?.frame = bounds
-        overlay.frame = bounds
     }
 
     override func didMoveToWindow() {
@@ -126,6 +199,7 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
         guard let device = AVCaptureDevice.default(for: .video),
               let input = try? AVCaptureDeviceInput(device: device)
         else { return }
+        self.device = device
 
         session.beginConfiguration()
         if session.canAddInput(input) {
@@ -144,11 +218,6 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
         preview.frame = bounds
         layer.addSublayer(preview)
         previewLayer = preview
-
-        overlay.isOpaque = false
-        overlay.backgroundColor = .clear
-        overlay.frame = bounds
-        addSubview(overlay)
     }
 
     func start() {
@@ -167,6 +236,13 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
         }
     }
 
+    func setTorch(_ on: Bool) {
+        guard let device, device.hasTorch else { return }
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        device.torchMode = on ? .on : .off
+        device.unlockForConfiguration()
+    }
+
     func metadataOutput(
         _ output: AVCaptureMetadataOutput,
         didOutput metadataObjects: [AVMetadataObject],
@@ -180,89 +256,11 @@ final class QRScannerView: UIView, AVCaptureMetadataOutputObjectsDelegate {
             else { continue }
             handled = true
             stop()
+            setTorch(false)
             DispatchQueue.main.async { [weak self] in
                 self?.onCode?(value)
             }
             return
         }
-    }
-}
-
-/// What sits over the camera: everything but the frame is dimmed, and the frame's
-/// corners are drawn. The preview stays visible exactly where a code has to be,
-/// which is the whole instruction — the same one the other two clients give.
-private final class ScannerOverlayView: UIView {
-
-    private let hint = UILabel()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isUserInteractionEnabled = false
-        isOpaque = false
-        backgroundColor = .clear
-        hint.text = l10n(MessageKeys.PAIR_SCAN_BODY)
-        hint.textColor = UIColor(white: 0.95, alpha: 1)
-        hint.font = .systemFont(ofSize: 14)
-        hint.textAlignment = .center
-        hint.numberOfLines = 2
-        addSubview(hint)
-    }
-
-    required init?(coder: NSCoder) {
-        return nil
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let side = min(min(bounds.width, bounds.height) * 0.68, 320)
-        let hintWidth = min(bounds.width - 48, 360)
-        hint.frame = CGRect(
-            x: bounds.midX - hintWidth / 2,
-            y: bounds.midY + side / 2 + 24,
-            width: hintWidth,
-            height: 44
-        )
-    }
-
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        let side = min(min(bounds.width, bounds.height) * 0.68, 320)
-        let frame = CGRect(
-            x: bounds.midX - side / 2,
-            y: bounds.midY - side / 2,
-            width: side,
-            height: side
-        )
-        let radius: CGFloat = 28
-
-        // Everything outside the frame, dimmed: drawn as a path with the frame
-        // punched out, so the camera stays bright where the code goes.
-        let scrim = UIBezierPath(rect: bounds)
-        scrim.append(UIBezierPath(roundedRect: frame, cornerRadius: radius).reversing())
-        context.setFillColor(UIColor(white: 0, alpha: 0.6).cgColor)
-        context.addPath(scrim.cgPath)
-        context.fillPath()
-
-        // The corners, starting past the rounded corner so they read as the
-        // frame's own corners rather than as a box drawn over one.
-        context.setStrokeColor(UIColor(red: 0.561, green: 0.706, blue: 0.863, alpha: 1).cgColor)
-        context.setLineWidth(4)
-        context.setLineCap(.round)
-        let arm: CGFloat = 34
-        let segments: [(CGPoint, CGPoint)] = [
-            (CGPoint(x: frame.minX + radius, y: frame.minY), CGPoint(x: frame.minX + radius + arm, y: frame.minY)),
-            (CGPoint(x: frame.minX, y: frame.minY + radius), CGPoint(x: frame.minX, y: frame.minY + radius + arm)),
-            (CGPoint(x: frame.maxX - radius, y: frame.minY), CGPoint(x: frame.maxX - radius - arm, y: frame.minY)),
-            (CGPoint(x: frame.maxX, y: frame.minY + radius), CGPoint(x: frame.maxX, y: frame.minY + radius + arm)),
-            (CGPoint(x: frame.minX + radius, y: frame.maxY), CGPoint(x: frame.minX + radius + arm, y: frame.maxY)),
-            (CGPoint(x: frame.minX, y: frame.maxY - radius), CGPoint(x: frame.minX, y: frame.maxY - radius - arm)),
-            (CGPoint(x: frame.maxX - radius, y: frame.maxY), CGPoint(x: frame.maxX - radius - arm, y: frame.maxY)),
-            (CGPoint(x: frame.maxX, y: frame.maxY - radius), CGPoint(x: frame.maxX, y: frame.maxY - radius - arm)),
-        ]
-        for (start, end) in segments {
-            context.move(to: start)
-            context.addLine(to: end)
-        }
-        context.strokePath()
     }
 }

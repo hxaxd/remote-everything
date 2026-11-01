@@ -176,6 +176,7 @@ struct GatewayWebView: UIViewRepresentable {
         private var popupClose: UIButton?
         private var initialLoading: UIView?
         private var popupLoading: UIView?
+        private var loadTimeout: Timer?
 
         func coverInitialPage(_ webView: WKWebView) {
             initialLoading?.removeFromSuperview()
@@ -183,6 +184,7 @@ struct GatewayWebView: UIViewRepresentable {
         }
 
         private func revealInitialPage(_ webView: WKWebView) {
+            if webView === self.webView { cancelLoadTimeout() }
             if webView === popup {
                 popupLoading?.removeFromSuperview()
                 popupLoading = nil
@@ -285,12 +287,14 @@ struct GatewayWebView: UIViewRepresentable {
             loadedURL = url
             if let webView { coverInitialPage(webView) }
             webView?.load(URLRequest(url: url))
+            if let webView { startLoadTimeout(in: webView) }
         }
 
         func reloadPage() {
             guard let webView else { return }
             coverInitialPage(webView)
             webView.reload()
+            startLoadTimeout(in: webView)
         }
 
         // MARK: - The page's own identity
@@ -323,6 +327,7 @@ struct GatewayWebView: UIViewRepresentable {
                 } else {
                     webView.reload()
                 }
+                startLoadTimeout(in: webView)
             }
         }
 
@@ -405,6 +410,28 @@ struct GatewayWebView: UIViewRepresentable {
             decidePolicyFor navigationResponse: WKNavigationResponse,
             decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
         ) {
+            // A main document that the server answered with an error is not the
+            // application: show the failure page with its retry, not the server's
+            // error body as if it were the page.
+            if navigationResponse.isForMainFrame,
+               let http = navigationResponse.response as? HTTPURLResponse {
+                if http.statusCode >= 400 {
+                    decisionHandler(.cancel)
+                    if webView === self.webView {
+                        cancelLoadTimeout()
+                        handle.phase = .failed
+                    }
+                    return
+                }
+                // Content-Disposition: attachment is the server saying "save
+                // this", even when the type is one a WebView can display.
+                if let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
+                   disposition.lowercased().contains("attachment") {
+                    if webView === self.webView { cancelLoadTimeout() }
+                    decisionHandler(.download)
+                    return
+                }
+            }
             decisionHandler(navigationResponse.canShowMIMEType ? .allow : .download)
         }
 
@@ -412,6 +439,7 @@ struct GatewayWebView: UIViewRepresentable {
             guard webView === self.webView else { return }
             handle.phase = .loading
             handle.canGoBack = webView.canGoBack
+            startLoadTimeout(in: webView)
         }
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -421,6 +449,7 @@ struct GatewayWebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard webView === self.webView else { return }
+            cancelLoadTimeout()
             handle.canGoBack = webView.canGoBack
             handle.phase = .loaded
         }
@@ -428,6 +457,8 @@ struct GatewayWebView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             if webView === popup { closePopup(); return }
             guard webView === self.webView else { return }
+            if (error as NSError).code == NSURLErrorCancelled { return }
+            cancelLoadTimeout()
             handle.phase = .failed
         }
 
@@ -438,12 +469,15 @@ struct GatewayWebView: UIViewRepresentable {
         ) {
             if webView === popup { closePopup(); return }
             guard webView === self.webView else { return }
+            if (error as NSError).code == NSURLErrorCancelled { return }
+            cancelLoadTimeout()
             handle.phase = .failed
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             if webView === popup { closePopup(); return }
             guard webView === self.webView else { return }
+            cancelLoadTimeout()
             closePopup()
             // The process that died is not this one: ask for the view to be
             // rebuilt rather than leaving a blank page behind.
@@ -517,6 +551,24 @@ struct GatewayWebView: UIViewRepresentable {
                       needed.allSatisfy({ AVCaptureDevice.authorizationStatus(for:$0) == .authorized }) else { decisionHandler(.deny); return }
                 decisionHandler(.grant)
             }
+        }
+
+        // A main document that never answers must not keep the cover forever.
+        // The clock starts when the navigation starts and stops at the first
+        // painted content, finish, failure, or process death.
+        private func startLoadTimeout(in webView: WKWebView) {
+            cancelLoadTimeout()
+            loadTimeout = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { [weak self, weak webView] _ in
+                guard let self, let webView, webView === self.webView else { return }
+                self.loadTimeout = nil
+                self.handle.phase = .failed
+                webView.stopLoading()
+            }
+        }
+
+        private func cancelLoadTimeout() {
+            loadTimeout?.invalidate()
+            loadTimeout = nil
         }
 
         // MARK: - Downloads

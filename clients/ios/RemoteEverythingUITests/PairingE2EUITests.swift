@@ -56,7 +56,8 @@ final class PairingE2EUITests: XCTestCase {
             }
         }
         let home = app.navigationBars.firstMatch.exists
-        let nodeRow = app.staticTexts["macbook"]
+        let nodeName = ProcessInfo.processInfo.environment["RE_E2E_NODE_NAME"] ?? "macbook"
+        let nodeRow = app.staticTexts[nodeName]
         if home && !app.buttons["pair.join"].exists && nodeRow.waitForExistence(timeout: 2) {
             return
         }

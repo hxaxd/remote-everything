@@ -30,7 +30,6 @@ struct RemoteEverythingApp: App {
         WindowGroup {
             AppRootView()
                 .environmentObject(model)
-                .preferredColorScheme(model.preferredColorScheme)
         }
     }
 }

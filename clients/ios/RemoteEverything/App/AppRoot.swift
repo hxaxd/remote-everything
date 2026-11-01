@@ -48,6 +48,7 @@ struct AppRootView: View {
                 }
             }
             .background(theme.bg.ignoresSafeArea())
+            .background(WindowInterfaceStyle(style: model.interfaceStyle))
         }
         .sheet(isPresented: $model.isAddingNode) {
             PairScreen()
@@ -64,7 +65,6 @@ struct AppRootView: View {
                 appName: applicationName(nodeID: application.nodeID, appID: application.appID)
             )
             .environmentObject(model)
-            .preferredColorScheme(model.preferredColorScheme)
         }
         .onOpenURL { url in
             model.handleIncomingURL(url)

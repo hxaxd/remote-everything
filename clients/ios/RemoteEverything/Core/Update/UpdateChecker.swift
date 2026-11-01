@@ -32,7 +32,15 @@ enum UpdateResult: Equatable {
 final class UpdateChecker {
 
     /// The published release manifest — a fixed address, not a gateway path.
-    static let manifestURLString = "https://raw.githubusercontent.com/hxaxd/remote-everything/main/clients/release.json"
+    /// A debug build can point it at an acceptance server; release builds cannot.
+    static var manifestURLString: String {
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["RE_UPDATE_MANIFEST_URL"], !override.isEmpty {
+            return override
+        }
+        #endif
+        return "https://raw.githubusercontent.com/hxaxd/remote-everything/main/clients/release.json"
+    }
 
     private let session: URLSession
     private let manifestURLString: String
