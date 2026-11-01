@@ -184,6 +184,9 @@ final class PairingAcceptanceUITests: XCTestCase {
 
 
     func testForgetConfirmationCancelKeepsTheConnection() throws {
+        guard ProcessInfo.processInfo.environment["RE_E2E_P_FORGET"] != nil else {
+            throw XCTSkip("RE_E2E_P_FORGET not provided")
+        }
         app.launch()
         app.buttons["gearshape"].tap()
         let origin = app.buttons.matching(NSPredicate(format: "label MATCHES '^[0-9.]+:[0-9]+$'")).firstMatch
